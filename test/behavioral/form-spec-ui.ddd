@@ -6,6 +6,8 @@
 // and an OPTIONAL value object, and arrays of scalars, enums, references and
 // value objects.  Its crudish `update` is a record-prefilled update form.
 // `Account` is event-sourced: its create form is its `create` action's params.
+// `Meter` is typed into: unparsable text is refused in its field, parsable text
+// is sent as typed, and a blank optional number or amount is sent absent.
 // `Tally`, `Claim` and `Badge` are submitted untouched: a blank required scalar
 // is a value the server receives, a blank required reference holds the submit,
 // and a rule on a required field judges its blank.
@@ -106,6 +108,19 @@ system FormSpecUi {
         provider: Provider id
       }
       repository Claims for Claim { }
+
+      // Typed text is sent as typed or refused in its field (P-UI-5): a
+      // reading of `12abc` and a fee of `abc` hold the create, `42` and
+      // `120.50` are what the server receives.  An optional number or amount
+      // cleared in the update dialog is sent absent (P-UI-6).
+      aggregate Meter with crudish {
+        reading: int
+        fee: money
+        rate: decimal?
+        spare: int?
+        surcharge: money?
+      }
+      repository Meters for Meter { }
 
       // A rule judges a required field's blank: `""` is a value, and too short.
       aggregate Badge with crudish {

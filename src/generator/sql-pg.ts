@@ -97,7 +97,7 @@ export function renderPgStep(step: MigrationStep): string {
  *  apply outside a transaction — a generation's non-transactional unit
  *  (`splitTransactionalSteps`).  A SQL comment, so the file stays plain SQL
  *  to every other reader. */
-export const NO_TRANSACTION_MARKER = "-- loom:no-transaction";
+export const NO_TRANSACTION_MARKER = "-- migrate:no-transaction";
 
 /** Split one rendered migration chunk (a `renderPgStep` result, or several
  *  joined) into single statements, each `;`-terminated.  For the runners that

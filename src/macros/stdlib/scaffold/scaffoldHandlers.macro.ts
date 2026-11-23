@@ -24,6 +24,8 @@ import {
   type HandlerTarget,
   handlerTargets,
   ID_PARAM,
+  listHandlerName,
+  listReadTargets,
   targetHandlerName,
   unservedAggregateMessages,
 } from "./_handlers-shared.js";
@@ -54,6 +56,11 @@ import {
  *     let o = Orders.get(id)
  *     o.cancel()
  *   }
+ *   queryHandler   ListOrders(): Order paged { let r = Orders.all()  return r }
+ *
+ * The list handler pages every row through the aggregate's own list read (the
+ * one the derived `GET /<aggs>` runs); `scaffoldApi` does not route it, since
+ * that derived route still serves the list.
  *
  * Each handler now consumes the `command`/`query` contract record `_contracts-
  * shared` splices alongside it (the two derive their field sets from the same
@@ -89,7 +96,16 @@ export default defineMacro({
     // byte-identical with vs without them.
     const errors = errorNames(ctx);
     const handlers = handlerTargets(ctx).map((t) => buildHandler(t, errors));
-    return [...contractRecords(ctx), ...handlers];
+    const lists = listReadTargets(ctx).map(({ agg, repo }) =>
+      queryHandler(listHandlerName(agg), [], namedType(agg.name, { paged: true }), [
+        letStmt(
+          "r",
+          memberAccess(nameRef(repo.name), repoOpVerb("select-many"), { call: true, args: [] }),
+        ),
+        returnStmt(nameRef("r")),
+      ]),
+    );
+    return [...contractRecords(ctx), ...handlers, ...lists];
   },
 });
 

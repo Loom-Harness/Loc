@@ -858,6 +858,11 @@ export function payload(name: string, fields: Property[]): PayloadDecl & Context
   return payloadDecl("payload", name, fields);
 }
 
+/** `error <name> { …fields }` — a typed error record. */
+export function errorRecord(name: string, fields: Property[]): PayloadDecl & ContextMember {
+  return payloadDecl("error", name, fields);
+}
+
 /** A `response <Name> { … }` record — an API read-projection contract
  * (the `<Agg>Response` shape `scaffoldResponse` derives via `apiReadFields`). */
 export function response(name: string, fields: Property[]): PayloadDecl & ContextMember {
@@ -1198,7 +1203,7 @@ export function handlerRef(contextName: string, handlerName: string): HandlerRef
  * delimiters); the printer re-quotes on emission. */
 export function route(method: HttpMethod, path: string, target: HandlerRef): Route {
   const origin = currentOrigin();
-  const node: Route = tag(mkRoute({ $type: "Route", method, path, target }), origin);
+  const node: Route = tag(mkRoute({ $type: "Route", method, path, target, binds: [] }), origin);
   setContainer(target, node, "target");
   return node;
 }

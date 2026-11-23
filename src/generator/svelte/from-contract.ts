@@ -34,6 +34,7 @@ import {
   e2ePackageJson,
   e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
+import { formTextModuleTs } from "../_frontend/form-text-runtime.js";
 // The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
 // default, values?)` over `./locales/en.json` with `{name}` substitution — so
 // the Svelte generator reuses the React module verbatim (same sharing pattern
@@ -59,6 +60,7 @@ import {
   jsxChromeText as shellChromeText,
 } from "../_frontend/shell-chrome.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
+import { resolveTheme } from "../_frontend/theme-preparer.js";
 import {
   DOM_TOAST_SOURCE,
   SVELTE_LIB_TOAST_EFFECT_PATH,
@@ -72,6 +74,7 @@ import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { underRouteBase } from "../_walker/walker-core.js";
 import { walkerModelOfContract } from "../_walker/walker-model.js";
 import { buildSvelteApiModule } from "./api-builder.js";
 import { renderSvelteChartRuntime } from "./chart-runtime.js";
@@ -97,6 +100,7 @@ import {
   emitSveltePagesForUi,
 } from "./routes-emitter.js";
 import { renderSvelteStoreModule, storeModulePath } from "./store-builder.js";
+import { SVELTE_BASE_NAVIGATE_TS } from "./walker/page-shell.js";
 import { svelteTarget } from "./walker/svelte-target.js";
 import { buildWorkflowsApiModule } from "./workflow-builder.js";
 
@@ -172,7 +176,7 @@ export function generateSvelteFromContract(
   // standalone frontend (one that `targets:` a backend) has a port of its
   // own; a bundle embedded in a backend keeps the template default.
   const devPort = target ? host.port : undefined;
-  const base = options.basePath || undefined;
+  const base = (options.basePath ?? host.basePath) || undefined;
 
   const aggregates = clientAggregates(contract, contextNames);
   // The aggregates an aggregate-typed prop names.
@@ -323,9 +327,13 @@ export function generateSvelteFromContract(
     // i18n key prefix is emitted per page/component only when the UI has
     // extractable strings (byte-identical to pre-i18n otherwise).
     i18nEnabled,
+    ...(base !== undefined ? { routeBase: base } : {}),
     sourcemap: options.sourcemap,
     ...(options.sourceOrigins ? { sourceOrigins: options.sourceOrigins } : {}),
   };
+  // Under a base path the pages navigate through a `goto` that spells a
+  // route beneath it.
+  if (base !== undefined) out.set("src/lib/navigate.ts", SVELTE_BASE_NAVIGATE_TS);
   for (const [path, content] of emitSveltePagesForUi(ui, emitCtx)) out.set(path, content);
   for (const [path, content] of emitSveltePageObjectsForUi(ui, emitCtx)) out.set(path, content);
 
@@ -351,6 +359,7 @@ export function generateSvelteFromContract(
     model: walkerModel,
     topLevelComponents: contractUi.components,
     i18nEnabled,
+    ...(base !== undefined ? { routeBase: base } : {}),
   })) {
     out.set(path, content);
   }
@@ -434,6 +443,8 @@ export function generateSvelteFromContract(
   // scaffold's `ProvenanceInfo` "?" disclosure has a typed lineage to read
   // (mirrors React/Vue).  The lineage carrier is framework-neutral zod.
   const usesProvenance = contractUsesProvenance(contract, contextNames);
+  // The form text-parse rule every form's request schema parses through.
+  out.set("src/lib/form-text.ts", formTextModuleTs("zod"));
   if (usesMoney || usesProvenance) {
     let schemas = usesMoney ? SVELTE_LIB_SCHEMAS_MONEY : "";
     if (usesProvenance) {
@@ -483,7 +494,7 @@ export function generateSvelteFromContract(
     ),
     { nameLabelKeys: true },
   );
-  const navSections =
+  const navSectionsAtRoot =
     sidebarOverride?.map((s) => ({
       label: s.label,
       labelKey: s.labelKey,
@@ -505,6 +516,22 @@ export function generateSvelteFromContract(
       ui.pages,
       authUi,
     );
+  // SvelteKit does not prefix its base onto a link, so a menu entry is
+  // spelled beneath it.
+  const navSections =
+    base === undefined
+      ? navSectionsAtRoot
+      : navSectionsAtRoot.map((s) =>
+          "entries" in s
+            ? {
+                ...s,
+                entries: s.entries.map((e) => ({
+                  ...e,
+                  to: underRouteBase(e.to, { routeBase: base }),
+                })),
+              }
+            : s,
+        );
   // Bind the session user in the app-shell only when a nav entry is actually
   // gated — an unused binding would be a svelte-check error.
   const navUsesSession = navSections.some(
@@ -609,18 +636,17 @@ export function generateSvelteFromContract(
   return prefixed;
 }
 
-/** Theme tokens for the pack's `theme` template (CSS custom props).
- *  System-level `theme { … }` blocks override the tasteful baseline
- *  (indigo primary, medium radius, Inter) — same defaults as the
- *  react packs' renderTheme. */
+/** Theme tokens for the pack's `theme` template (CSS custom props): the
+ *  system's `theme { … }` block over the shared defaults (`resolveTheme`). */
 function themeVM(t: ThemeIR | undefined): Record<string, string> {
+  const r = resolveTheme(t);
   return {
-    primary: t?.primary ?? "#4f46e5",
-    neutral: t?.neutral ?? "#6b7280",
-    error: t?.error ?? "#dc2626",
-    radius: t?.radius ?? "md",
-    fontFamily: t?.fontFamily ?? "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
-    fontFamilyMono: t?.fontFamilyMono ?? "ui-monospace, SFMono-Regular, Menlo, monospace",
+    primary: r.primary,
+    neutral: r.neutral,
+    error: r.error,
+    radius: r.radius,
+    fontFamily: r.fontFamily,
+    fontFamilyMono: r.fontFamilyMono,
   };
 }
 

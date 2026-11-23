@@ -100,6 +100,7 @@ import {
   unionMembersJsonSchema,
 } from "../_payload/union-wire.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
+import { PYTHON_RUNTIME } from "../_symbols/plan.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -134,7 +135,7 @@ import { renderPyIds } from "./emit/ids.js";
 import { renderPyContextIntegrationTest } from "./emit/integration-tests.js";
 import { renderPythonMetricsFile } from "./emit/metrics.js";
 import { emitPythonMigrations, MIGRATE_PY } from "./emit/migrations.js";
-import { wireNumericHelpers } from "./emit/numeric.js";
+import { emitNumericHelpers } from "./emit/numeric.js";
 import { OBS_LOG_PY, OBS_MIDDLEWARE_PY, renderPythonTracingFile } from "./emit/obs.js";
 import { emitPyProvenance } from "./emit/provenance.js";
 import { renderPySchema } from "./emit/schema.js";
@@ -978,10 +979,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // context); no-op for a deployable with none.  The served-api routers that
   // call these were emitted before renderMain.
   for (const ctx of args.contexts) emitPyExplicitHandlers(ctx, out, hasDispatch, args.sys);
-  // LAST — cross-backend `%` semantics (see emit/numeric.ts).  Runs over the
-  // finished map so every module that rendered a `trunc_mod(` call gets the
-  // import, whichever emitter produced it.
-  wireNumericHelpers(out);
+  // LAST — once every module is written, emit the numeric helper module if any
+  // of them referenced it (see emit/numeric.ts).
+  emitNumericHelpers(out);
   return out.assertFinal();
 }
 
@@ -1121,7 +1121,7 @@ const ENGINE_PY = lines(
   "# (app/db/transaction.py) BEFORE the response starts, so a client that reads",
   "# its own write (read-after-create) can't race the commit.",
   "request_session: ContextVar[AsyncSession | None] = ContextVar(",
-  '    "loom_request_session", default=None',
+  `    "${PYTHON_RUNTIME.requestSessionVar}", default=None`,
   ")",
   "",
   "",
@@ -1492,19 +1492,27 @@ function renderMain(
                   // Header key = declared field name; attr = its snake_case form.
                   // A list claim is element-checked too: a mixed array would
                   // otherwise land non-str items in a `list[str]` field.
-                  ...pyClaimFields.flatMap(({ field: f, kind }) =>
-                    kind === "stringList"
+                  // A JSON null is the claim ABSENT (src/util/dev-claims.ts):
+                  // an optional claim becomes None, a required one leaves the
+                  // header describing no principal (→ 401, as OIDC answers a
+                  // token that lacks it).
+                  ...pyClaimFields.flatMap(({ field: f, kind, optional }) => [
+                    `    if "${f.name}" in claims and claims["${f.name}"] is None:`,
+                    optional
+                      ? `        overrides["${snake(f.name)}"] = None`
+                      : "        return None",
+                    ...(kind === "stringList"
                       ? [
-                          `    if isinstance((_v := claims.get("${f.name}")), list) and all(`,
+                          `    elif isinstance((_v := claims.get("${f.name}")), list) and all(`,
                           "        isinstance(_e, str) for _e in _v",
                           "    ):",
                           `        overrides["${snake(f.name)}"] = list(_v)`,
                         ]
                       : [
-                          `    if isinstance((_v := claims.get("${f.name}")), str):`,
+                          `    elif isinstance((_v := claims.get("${f.name}")), str):`,
                           `        overrides["${snake(f.name)}"] = _v`,
-                        ],
-                  ),
+                        ]),
+                  ]),
                   `    return ${M.replace}(user, **overrides) if overrides else user`,
                 ]
               : [
@@ -2474,10 +2482,10 @@ def _wire_code(e: dict[str, object]) -> str:
 
 def _wire_params(e: dict[str, object]) -> dict[str, object] | None:
     """The errors[] params of one validation error: the values its message
-    names, which a Loom check hands over as the pydantic context \`loomParams\`."""
+    names, which a Loom check hands over as the pydantic context \`${PYTHON_RUNTIME.ruleParamsKey}\`."""
     ctx = e.get("ctx")
     if isinstance(ctx, dict):
-        params = ctx.get("loomParams")
+        params = ctx.get("${PYTHON_RUNTIME.ruleParamsKey}")
         if isinstance(params, dict) and params:
             return cast(dict[str, object], params)
     return None

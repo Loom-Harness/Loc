@@ -12,6 +12,7 @@ export const anchors: Readonly<Record<string, string>> = {
 
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
+  "loom.paged-list-unsupported": "10-repositories-and-queries.md#repoall--the-paged-queryhandler",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#repoall--the-paged-queryhandler",
   "loom.projection-key-assign": "10-repositories-and-queries.md#folded--keyed-by--one-event",

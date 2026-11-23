@@ -28,6 +28,10 @@
 //                    nothing.
 //   blank rule       a rule on a required field judges its blank: the create
 //                    form sends nothing and shows the rule's message.
+//   typed text       (P-UI-5, P-UI-6) a `Meter` create form typed `12abc` /
+//                    `abc` sends nothing, keeps the text and shows a message;
+//                    retyped `42` / `120.50` it sends those values, and its
+//                    optional number and amount left blank arrive as null.
 //
 // Inputs are found by the shared test ids (`<slug>-op-<op>-input-<field>`);
 // where a pack puts the id on a wrapper, the probe reaches the input inside it.
@@ -466,4 +470,136 @@ export async function judgeBlankRule(page, origin) {
   }
   const text = await page.locator("body").innerText().catch(() => "");
   return judgeBlankRuleRefused(origin, posts, text);
+}
+
+/** The texts the refused `12abc` / `abc` show, on every frontend: the catalog
+ *  English of the wire codes the server answers for the same values, the
+ *  amount's naming the typed text. */
+export const TYPED_TEXT_MESSAGES = ["Invalid value", "Invalid decimal abc"];
+
+/** Judge a `Meter` create form after the refused submit: nothing was sent, the
+ *  typed text is still in its input, and the refusal is shown. */
+export function judgeTypedRefused(posts, kept, pageText) {
+  const why = [];
+  if (posts.length > 0) why.push(`typed text: the meters create form sent ${posts.join(", ")} for "12abc" / "abc"`);
+  for (const [field, want, got] of kept) {
+    if (got !== want) why.push(`typed text: the ${field} input no longer holds ${JSON.stringify(want)} (holds ${JSON.stringify(got)})`);
+  }
+  for (const message of TYPED_TEXT_MESSAGES) {
+    if (!pageText.includes(message)) {
+      why.push(`typed text: the refusal "${message}" is not shown (page text ${JSON.stringify(pageText.slice(0, 400))})`);
+    }
+  }
+  return why;
+}
+
+/** Judge the meter the corrected create form saved: the typed values. */
+export function judgeTypedSent(row) {
+  if (!row) return ["typed text: the corrected meters create form created no meter"];
+  const why = [];
+  if (row.reading !== 42) why.push(`typed text: reading should be 42, the server holds ${JSON.stringify(row.reading)}`);
+  if (Number(row.fee) !== 120.5) why.push(`typed text: fee should be 120.50, the server holds ${JSON.stringify(row.fee)}`);
+  return why;
+}
+
+/** Judge the meter after its optional fields were cleared in the update
+ *  dialog: each is absent, and the required ones kept their values. */
+export function judgeBlankOptional(row) {
+  const why = [];
+  for (const k of ["rate", "spare", "surcharge"]) {
+    if (row[k] !== null && row[k] !== undefined) {
+      why.push(`blank optional: ${k} cleared must be sent absent, the server holds ${JSON.stringify(row[k])}`);
+    }
+  }
+  if (row.reading !== 42) why.push(`blank optional: reading changed to ${JSON.stringify(row.reading)}`);
+  return why;
+}
+
+/** Drive the `Meter` forms: the create form with refused text, then with
+ *  corrected text; then the update dialog clearing the optional fields. */
+export async function judgeTypedText(page, origin) {
+  const posts = [];
+  const record = (r) => {
+    if (r.method() === "POST" && new URL(r.url()).pathname.startsWith("/api/meters")) {
+      posts.push(`${r.method()} ${new URL(r.url()).pathname} ${r.postData() ?? ""}`);
+    }
+  };
+  page.on("request", record);
+  let row;
+  try {
+    await page.goto(`${origin}/meters/new`);
+    const reading = await inputOf(page, "meters-new-input-reading");
+    const fee = await inputOf(page, "meters-new-input-fee");
+    await reading.fill("12abc");
+    await fee.fill("abc");
+    await fee.press("Tab");
+    const submit = page.locator('[data-testid="meters-new-submit"]').first();
+    await submit.click({ force: true, timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    const kept = [
+      ["reading", "12abc", await reading.inputValue().catch(() => "(gone)")],
+      ["fee", "abc", await fee.inputValue().catch(() => "(gone)")],
+    ];
+    const text = await page.locator("body").innerText().catch(() => "");
+    const refused = judgeTypedRefused([...posts], kept, text);
+    if (refused.length > 0) return refused;
+    const before = new Set((await listRows(origin, "meters")).map((m) => m.id));
+    await reading.fill("42");
+    await fee.fill("120.50");
+    await fee.press("Tab");
+    await submit.click({ force: true, timeout: 5000 }).catch(() => {});
+    for (let i = 0; i < 30 && !row; i++) {
+      row = (await listRows(origin, "meters")).find((m) => !before.has(m.id));
+      if (!row) await page.waitForTimeout(500);
+    }
+    const sent = judgeTypedSent(row);
+    if (sent.length > 0) return sent;
+  } finally {
+    page.off("request", record);
+  }
+  // Give the optional fields values over the api, then clear them in the
+  // update dialog.
+  const put = await fetch(`${origin}/api/meters/${row.id}/update`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ reading: 42, fee: "120.50", rate: 2.5, spare: 3, surcharge: "1.25" }),
+  });
+  if (!put.ok) return [`blank optional: seeding the optional fields failed: POST update → ${put.status} ${await put.text()}`];
+  await page.goto(`${origin}/meters/${row.id}`);
+  await page.locator('[data-testid="meters-op-update"]').first().click({ timeout: 20000 });
+  for (const f of ["rate", "spare", "surcharge"]) {
+    await (await inputOf(page, `meters-op-update-input-${f}`)).fill("");
+  }
+  await page.locator('[data-testid="meters-op-update-submit"]').first().click();
+  let after = row;
+  for (let i = 0; i < 30; i++) {
+    const r = await fetch(`${origin}/api/meters/${row.id}`);
+    after = r.ok ? await r.json() : after;
+    if (after.rate === null || after.rate === undefined) break;
+    await page.waitForTimeout(500);
+  }
+  return judgeBlankOptional(after);
+}
+
+/** One typeface, and no web font the app does not load: the create form's
+ *  submit button renders in the body's computed font (a component library's
+ *  own typography tokens must name the theme's font too), and the default
+ *  theme names the platform font rather than `Inter`. */
+export async function judgeOneTypeface(page, origin) {
+  await page.goto(`${origin}/policies/new`);
+  await page.locator('[data-testid="policies-new-submit"]').first().waitFor({ timeout: 20000 });
+  const fonts = await page.evaluate(() => {
+    const button = document.querySelector('[data-testid="policies-new-submit"]');
+    const label = button?.querySelector("span") ?? button;
+    return {
+      body: getComputedStyle(document.body).fontFamily,
+      button: label ? getComputedStyle(label).fontFamily : null,
+    };
+  });
+  const why = [];
+  if (fonts.button !== fonts.body) {
+    why.push(`one typeface: the submit button renders in ${JSON.stringify(fonts.button)}, the body in ${JSON.stringify(fonts.body)}`);
+  }
+  if (/\bInter\b/.test(fonts.body)) why.push(`one typeface: the default theme names Inter (${fonts.body}), which no target loads`);
+  return why;
 }

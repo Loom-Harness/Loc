@@ -29,6 +29,7 @@ import type {
   Repository,
   Resource,
   Retrieval,
+  Route,
   Seed,
   Statement,
   Storage,
@@ -100,6 +101,7 @@ import {
   type TestBlock,
 } from "../../language/generated/ast.js";
 import { buildModelTextIndex } from "../../language/model-text.js";
+import { routeHandlerName } from "../../language/route-target.js";
 import { stdFunctions } from "../../language/stdlib.js";
 import { descriptorFor } from "../../platform/metadata.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -141,6 +143,8 @@ import type {
   RepositoryIR,
   RequirementIR,
   RetrievalIR,
+  RouteBindIR,
+  RouteIR,
   SeedIR,
   SeedRowIR,
   SolutionIR,
@@ -631,6 +635,38 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
  *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md.  They are folded in
  *  alongside `sys.members` so the `user` / `permissions` threading below
  *  applies to them identically to a nested declaration. */
+/** A `route`: the `->` form names its handler; the `send` form names the
+ *  request record, and reaches the one handler taking that record as its only
+ *  parameter.  Phase ⑦ checks the record against `handlersOf` and refuses a
+ *  record with no handler, several, or a workflow `create` catching it, so a
+ *  route that lowers with an empty handler never reaches an emitter. */
+function lowerRoute(r: Route): RouteIR {
+  if (r.target) {
+    return {
+      method: r.method,
+      path: r.path,
+      target: { context: r.target.context?.$refText ?? "", handler: r.target.handler },
+    };
+  }
+  return {
+    method: r.method,
+    path: r.path,
+    target: {
+      context: r.sends?.context?.$refText ?? "",
+      handler: routeHandlerName(r, r.sends?.context?.ref) ?? "",
+    },
+    sends: {
+      record: r.sends?.record ?? "",
+      binds: r.binds.map(
+        (b): RouteBindIR =>
+          b.rawBody
+            ? { field: b.field, source: "raw-body" }
+            : { field: b.field, source: "header", header: b.header ?? "" },
+      ),
+    },
+  };
+}
+
 function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []): SystemIR {
   // `extraMembers` are top-level system-scoped declarations from sibling
   // files (the import graph) that compose into THIS system — subdomains
@@ -839,14 +875,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
         sourceModule: a.source?.$refText ?? "",
         urlStyle: a.urlStyle === "resource" ? "resource" : "literal",
         errorStatuses: Object.fromEntries((a.statuses ?? []).map((s) => [s.error, s.code])),
-        routes: (a.routes ?? []).map((r) => ({
-          method: r.method,
-          path: r.path,
-          target: {
-            context: r.target.context?.$refText ?? "",
-            handler: r.target.handler,
-          },
-        })),
+        routes: (a.routes ?? []).map(lowerRoute),
       }),
     );
   const storages = members

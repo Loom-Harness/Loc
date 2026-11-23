@@ -74,7 +74,8 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
 
   "types.ts": 2,
 
-  "ui.ts": 19,
+  // `RouteIR.sends`: present only on a `send <Ctx>.<Record>` route.
+  "ui.ts": 20,
 
   "workflow.ts": 9,
 

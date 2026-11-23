@@ -20,12 +20,13 @@ import {
 } from "../../ir/util/projection-aggregate.js";
 import { aggregateArgColumn, sqlColumnName } from "../../ir/util/projection-column.js";
 import { lines } from "../../util/code-builder.js";
-import { pythonIdent, snake } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { pyRef } from "../_imports/python.js";
 import { numericKindOf } from "../_numeric/codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { joinReadFieldNames } from "../_projection/join-read.js";
+import { camelId, DOMAIN_NAMES, opProjection } from "../_symbols/plan.js";
 import { pyCalendarDateWire } from "./codec-spelling.js";
 import { paramPyType, responsePyType } from "./emit/http-models.js";
 import {
@@ -71,6 +72,7 @@ function requireLowered(proj: ProjectionIR, pred: PyPredicate | null): PyPredica
   );
 }
 
+const N = DOMAIN_NAMES.python;
 const REQUEST = pyRef("fastapi", "Request");
 
 /** A query-time projection's DECLARED parameters as FastAPI query parameters
@@ -81,7 +83,7 @@ const REQUEST = pyRef("fastapi", "Request");
  *  against its annotation and answers the shared 422 before the body runs. */
 function projectionParamSig(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): string[] {
   return projectionQueryParams(proj, ctx).map((p) => {
-    const ident = pythonIdent(p.name);
+    const ident = N.binding(p.name);
     const type = paramPyType(p.type, ctx);
     return ident === p.name
       ? `${ident}: ${type}`
@@ -94,7 +96,7 @@ const ROOT_MODEL = pyRef("pydantic", "RootModel");
 const FUNC = pyRef("sqlalchemy", "func");
 const schemaRow = (name: string): string => pyRef("app.db.schema", name);
 const repoClass = (agg: string): string =>
-  pyRef(`app.db.repositories.${snake(agg)}_repository`, `${agg}Repository`);
+  pyRef(`app.db.repositories.${N.stem(agg)}_repository`, `${agg}Repository`);
 
 export function buildPyQueryProjectionsFile(
   ctx: EnrichedBoundedContextIR,
@@ -259,7 +261,8 @@ function projectionRoute(
   const source = proj.query!.source!;
   const isShorthand =
     (proj.query!.selects?.length ?? 0) === 0 && !!ctx.aggregates.find((a) => a.name === source);
-  const fn = snake(proj.name);
+  const slug = snake(proj.name);
+  const fn = N.stem(proj.name);
   // A `requires` gate (default-deny) — or a currentUser-scoped where/select —
   // binds the request principal off the request scope; a failing gate raises
   // ForbiddenError (→ 403) BEFORE the query runs, the read-side twin of a find
@@ -276,10 +279,10 @@ function projectionRoute(
     "session: SessionDep",
   ].join(", ");
   const projArgs = projectionQueryParams(proj, ctx)
-    .map((p) => pyWireToDomain(pythonIdent(p.name), p.type, ctx))
+    .map((p) => pyWireToDomain(N.binding(p.name), p.type, ctx))
     .join(", ");
   const out: string[] = [
-    `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
+    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="${camelId(opProjection(proj.name))}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
     needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate
@@ -291,7 +294,7 @@ function projectionRoute(
         ]
       : []),
     `    repo = ${repoClass(source)}(session, ${dispatcherExpr})`,
-    `    rows = await repo.${fn}(${projArgs})`,
+    `    rows = await repo.${N.op(proj.name)}(${projArgs})`,
   ].filter((l): l is string => l != null);
   // join alias → { mapVar, idRow } and the bulk-load lines (dependency order).
   const aliasMap = new Map<string, { mapVar: string; idRow: string }>();
@@ -300,17 +303,17 @@ function projectionRoute(
   for (let i = 0; i < auxes.length; i++) {
     const aux = auxes[i]!;
     const join = joins[i];
-    const mapVar = snake(aux.mapVar);
-    const repoVar = `${snake(aux.aggName)}_repo`;
+    const mapVar = N.binding(aux.mapVar);
+    const repoVar = `${N.stem(aux.aggName)}_repo`;
     out.push(`    ${repoVar} = ${repoClass(aux.aggName)}(session, ${dispatcherExpr})`);
     // First hop reads the source aggregate rows (proper id types); later hops
     // read hydrated aggregates from the prior map.
     const idsSource =
       aux.path.length === 1
-        ? `[r.${snake(aux.path[0]!)} for r in rows]`
+        ? `[r.${N.prop(aux.path[0]!)} for r in rows]`
         : (() => {
             const prev = aliasMap.get(joins[i - 1]?.alias ?? "");
-            const finalField = snake(aux.path[aux.path.length - 1]!);
+            const finalField = N.prop(aux.path[aux.path.length - 1]!);
             return prev ? `[a.${finalField} for a in ${prev.mapVar}.values()]` : "[]";
           })();
     out.push(
@@ -362,7 +365,7 @@ function projectionRoute(
       // it never runs on the absent row (`.isoformat()` on `None` would
       // AttributeError right where the guard exists to prevent exactly that).
       const tmp = `__j${joinTmp++}`;
-      const raw = `${tmp}.${snake(joined.member)}`;
+      const raw = `${tmp}.${N.prop(joined.member)}`;
       const wired = t ? wireValue(raw, t, ctx, false) : raw;
       valueExpr = `(${wired} if (${tmp} := ${joined.mapVar}.get(str(${joined.idRow}))) is not None else None)`;
     } else {
@@ -394,7 +397,8 @@ function aggregateProjectionRoute(
   // The source's own row class — a TPH concrete's mapped subclass carries its
   // discriminator — the same row the filter lowering names.
   const row = schemaRow(rowClassName(source));
-  const fn = snake(proj.name);
+  const slug = snake(proj.name);
+  const fn = N.stem(proj.name);
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
   const sig = [
@@ -405,7 +409,7 @@ function aggregateProjectionRoute(
   const cols = aggregates.map((s) => pyAggregate(s.aggregate, row, agg, ctx)).join(", ");
   const where = `${pred ? `.where(${pred.expr})` : ""}${pyIgnoringOption(proj.query)}`;
   const out: string[] = [
-    `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
+    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="${camelId(opProjection(proj.name))}")`,
     `async def ${fn}_projection(${sig}) -> dict[str, object]:`,
     needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate
@@ -490,7 +494,8 @@ function groupedProjectionRoute(
   // The source's own row class — a TPH concrete's mapped subclass carries its
   // discriminator — the same row the filter lowering names.
   const row = schemaRow(rowClassName(source));
-  const fn = snake(proj.name);
+  const slug = snake(proj.name);
+  const fn = N.stem(proj.name);
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
   const sig = [
@@ -510,7 +515,7 @@ function groupedProjectionRoute(
     if (!key) {
       throw new Error("internal: a grouped projection's grouping expr must name a source column");
     }
-    const col = `${row}.${snake(key.column)}`;
+    const col = `${row}.${N.prop(key.column)}`;
     if (key.transform === undefined) return col;
     const sql = SQLALCHEMY_INTRINSIC_SQL[GROUP_KEY_TRANSFORM_INTRINSIC[key.transform]];
     if (!sql) {
@@ -529,7 +534,7 @@ function groupedProjectionRoute(
   const byCols = grouped.groupBy.map(keyCol).join(", ");
   const where = `${pred ? `.where(${pred.expr})` : ""}${pyIgnoringOption(proj.query)}`;
   const out: string[] = [
-    `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
+    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="${camelId(opProjection(proj.name))}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
     needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate
@@ -610,7 +615,8 @@ function rowSourcedProjectionRoute(
   pred: PyPredicate | null,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const fn = snake(proj.name);
+  const slug = snake(proj.name);
+  const fn = N.stem(proj.name);
   const where = pred ? `.where(${pred.expr})` : "";
   // A `requires` gate (default-deny) — or a currentUser-scoped select — binds the
   // request principal off the request scope; a failing gate raises ForbiddenError
@@ -623,7 +629,7 @@ function rowSourcedProjectionRoute(
     "session: SessionDep",
   ].join(", ");
   const out: string[] = [
-    `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
+    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="${camelId(opProjection(proj.name))}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
     needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate

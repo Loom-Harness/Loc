@@ -16,7 +16,7 @@ import {
   upperFirst,
 } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import { typeReachesMoney } from "../../_frontend/api-module.js";
+import { typeParsesFormText } from "../../_frontend/api-module.js";
 import { arrayInputRendererFor } from "../../_frontend/form-array-input.js";
 import {
   formSeedTs,
@@ -96,7 +96,7 @@ function formStateTypeFor(
   fields: readonly { type: TypeIR }[],
   home: WalkerHome,
 ): string | undefined {
-  return fields.some((f) => typeReachesMoney(f.type, home)) ? `${action}FormState` : undefined;
+  return fields.some((f) => typeParsesFormText(f.type, home)) ? `${action}FormState` : undefined;
 }
 
 export function emitCreateForm(
@@ -405,7 +405,9 @@ function emitFormOfOperationByName(
   ctx.collectedTestids.add(testidNamespace);
   ctx.collectedTestids.add(`${testidNamespace}-form`);
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
-  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, home);
+  // The request schema carries every param, a masked merge-patch key the form
+  // leaves out included, so its money fields decide the generics.
+  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, op.params, home);
   if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
   const gate = opGateFor(ctx, agg, op);
   if (gate) addImport(ctx, `../api/${lowerFirst(agg.name)}`, gate.hook);
@@ -982,7 +984,9 @@ function emitFormOfOperation(
   ctx.collectedTestids.add(testidNamespace);
   ctx.collectedTestids.add(`${testidNamespace}-form`);
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
-  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, home);
+  // The request schema carries every param, a masked merge-patch key the form
+  // leaves out included, so its money fields decide the generics.
+  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, op.params, home);
   if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
   const gate = opGateFor(ctx, agg, op);
   if (gate) addImport(ctx, `../api/${lowerFirst(agg.name)}`, gate.hook);

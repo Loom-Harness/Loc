@@ -31,28 +31,61 @@ const DEFAULT_ACCENT_HEX = "#ffb98a";
 const DEFAULT_SUCCESS_HEX = "#22c55e";
 const DEFAULT_WARNING_HEX = "#f59e0b";
 const DEFAULT_ERROR_HEX = "#ef4444";
-/** Default body / heading family.  System-ui chain falls back
- *  cleanly without bundling a webfont; Inter takes over when the
- *  page already has it loaded. */
-const DEFAULT_FONT_FAMILY =
-  '"Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+/** Default body / heading family: the platform's own UI font.  No web font
+ *  is loaded unless the theme names one, so the default names none. */
+const SYSTEM_FONT_STACK =
+  'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const DEFAULT_FONT_FAMILY_MONO =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
 const DEFAULT_RADIUS = "md";
 const DEFAULT_COLOR_SCHEME: "light" | "dark" | "auto" = "light";
 
+/** Every `theme {}` token, the declared value or its default.  The one place
+ *  a default is chosen: every target's theme reads these. */
+export interface ResolvedTheme {
+  primary: string;
+  neutral: string;
+  secondary: string;
+  accent: string;
+  success: string;
+  warning: string;
+  error: string;
+  radius: string;
+  fontFamily: string;
+  fontFamilyMono: string;
+  colorScheme: "light" | "dark" | "auto";
+}
+
+export function resolveTheme(t: ThemeIR | undefined): ResolvedTheme {
+  return {
+    primary: t?.primary ?? DEFAULT_PRIMARY_HEX,
+    neutral: t?.neutral ?? DEFAULT_NEUTRAL_HEX,
+    secondary: t?.secondary ?? DEFAULT_SECONDARY_HEX,
+    accent: t?.accent ?? DEFAULT_ACCENT_HEX,
+    success: t?.success ?? DEFAULT_SUCCESS_HEX,
+    warning: t?.warning ?? DEFAULT_WARNING_HEX,
+    error: t?.error ?? DEFAULT_ERROR_HEX,
+    radius: t?.radius ?? DEFAULT_RADIUS,
+    fontFamily: t?.fontFamily ?? SYSTEM_FONT_STACK,
+    fontFamilyMono: t?.fontFamilyMono ?? DEFAULT_FONT_FAMILY_MONO,
+    colorScheme: t?.colorScheme ?? DEFAULT_COLOR_SCHEME,
+  };
+}
+
 export function prepareThemeVM(t: ThemeIR | undefined): ThemeVM {
-  const primary = t?.primary ?? DEFAULT_PRIMARY_HEX;
-  const neutral = t?.neutral ?? DEFAULT_NEUTRAL_HEX;
-  const secondary = t?.secondary ?? DEFAULT_SECONDARY_HEX;
-  const accent = t?.accent ?? DEFAULT_ACCENT_HEX;
-  const success = t?.success ?? DEFAULT_SUCCESS_HEX;
-  const warning = t?.warning ?? DEFAULT_WARNING_HEX;
-  const error = t?.error ?? DEFAULT_ERROR_HEX;
-  const radius = t?.radius ?? DEFAULT_RADIUS;
-  const fontFamily = t?.fontFamily ?? DEFAULT_FONT_FAMILY;
-  const fontFamilyMonospace = t?.fontFamilyMono ?? DEFAULT_FONT_FAMILY_MONO;
-  const colorScheme = t?.colorScheme ?? DEFAULT_COLOR_SCHEME;
+  const {
+    primary,
+    neutral,
+    secondary,
+    accent,
+    success,
+    warning,
+    error,
+    radius,
+    fontFamily,
+    fontFamilyMono: fontFamilyMonospace,
+    colorScheme,
+  } = resolveTheme(t);
   return {
     brandShades: generateShades(primary),
     neutralShades: generateShades(neutral),

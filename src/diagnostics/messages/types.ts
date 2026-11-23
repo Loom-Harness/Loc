@@ -286,12 +286,12 @@ export const messages = {
     `Unsupported template format '${p.format}'. Supported ICU formats are ` +
     `\`number\` (incl. \`::currency/USD\`, \`::percent\`), \`date\`/\`time\`, ` +
     `\`plural\`/\`selectordinal\`, and \`select\`.`,
-  "loom.interp-format-dropped-in-domain": (p: { format: unknown; host: unknown }) =>
-    `This '${p.format}' hole sits in a '${p.host}' body, which runs as backend domain code: ` +
-    `every backend renders the hole as its bare value and DROPS the branch text ` +
-    `(\`{n, plural, one {# item} other {# items}}\` yields "3", not "3 items"). ` +
-    `Only a ui page slot renders ICU '${p.format}' (through the i18n runtime). ` +
-    `Spell the branches with \`match\` or a ternary here, or move the template into the page.`,
+  "loom.interp-format-in-domain": (p: { format: unknown; host: unknown }) =>
+    `This hole's '${p.format}' format code sits in a '${p.host}' body, which runs as backend ` +
+    `domain code, where no translation layer renders format codes — only a ui page does. ` +
+    `Write the text with the plain methods instead: \`s.padStart(n, "0")\` / \`padEnd\`, ` +
+    `\`d.format("yyyyMMdd")\` on a date or datetime, \`x.format(2)\` on a decimal or money; ` +
+    `pick between sentences with \`match\` or a ternary; or move the template into the page.`,
   "loom.interp-format-invalid#syntax": (p: { format: unknown; detail: unknown }) =>
     `This '${p.format}' hole is not valid ICU: ${p.detail}. Every '${p.format}' needs an ` +
     `\`other\` branch; a \`plural\` / \`selectordinal\` branch is selected by a CLDR ` +
@@ -409,6 +409,29 @@ export const messages = {
     expected: unknown;
   }) =>
     `'${p.member}' argument ${p.i} is '${p.actual}' but the signature ${p.member}${p.signature} expects '${p.expected}'.`,
+  "loom.intrinsic-format-pattern#not-literal":
+    "A `format` pattern must be a string literal, so it is checked when the model compiles " +
+    'and prints the same on every backend — write it inline, e.g. `d.format("yyyy-MM-dd")`.',
+  "loom.intrinsic-format-pattern#invalid": (p: { pattern: unknown; problem: unknown }) =>
+    `"${p.pattern}" is not a format pattern: ${p.problem}.  The fixed, locale-independent ` +
+    `tokens are yyyy, MM, dd, HH, mm and ss; any other letter is quoted ('T'), and '' is a quote.`,
+  "loom.intrinsic-format-pattern#time-on-date": (p: { pattern: unknown }) =>
+    `"${p.pattern}" prints a time of day (HH, mm or ss), but a \`date\` has none — ` +
+    `format a \`datetime\` instead, or drop the time tokens.`,
+  "loom.intrinsic-parse#outside-context": (p: { member: unknown }) =>
+    `'.${p.member}()' parses text in domain code, inside a context — it answers with the context's ` +
+    `built-in \`ParseError\` on failure, so it has no meaning here.`,
+  "loom.intrinsic-parse#call": (p: { member: unknown }) =>
+    `'.${p.member}' is a parse method: call it with no arguments, '.${p.member}()', and \`match\` ` +
+    `its result — the parsed value or a \`ParseError\`.`,
+  "loom.intrinsic-parse#internal": (p: { member: unknown }) =>
+    `'.${p.member}()' is internal to the built-in parse service and throws on text it has not ` +
+    `checked — parse with the matching \`to…()\` method and \`match\` its result instead.`,
+  "loom.intrinsic-parse#reserved-name": (p: { name: unknown }) =>
+    `'${p.name}' is a built-in name of the text parse methods (\`s.toInt()\`, \`s.toLong()\`, ` +
+    `\`s.toDecimal()\`, \`s.toDate()\`): a parse answers with the built-in \`ParseError\` record, ` +
+    `whose \`expected\` is a \`ParseTarget\` and whose \`reason\` is a \`ParseFailure\`, through the ` +
+    `built-in \`TextParser\` service. Rename your declaration.`,
   "loom.intrinsic-unknown": (p: { name: unknown; member: unknown; known: unknown }) =>
     `'${p.name}' has no intrinsic '.${p.member}()'${p.known}.`,
   "loom.nullable-receiver": (p: { member: unknown; recv: unknown }) =>

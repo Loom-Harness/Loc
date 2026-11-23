@@ -50,6 +50,7 @@ import {
 } from "../../../ir/util/response-wire.js";
 import { snake } from "../../../util/naming.js";
 import { provenancedEntries } from "../../_payload/provenanced-wire.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { elixirDecimalNumHelper, elixirMoneyRoundHelper } from "./numeric-codec.js";
 import { provColumn } from "./provenance-emit.js";
@@ -181,7 +182,7 @@ export interface WireSerializeResult {
    *  `defp serialize(record)` head, used by the single-aggregate REST/ES
    *  controllers.  When the aggregate declares a `mask unless` field this is the
    *  REDACTING serializer (delegates to `serialize_unmasked/1`, then nils each
-   *  masked key unless the ambient principal — `Process.get(:loom_current_user)`,
+   *  masked key unless the ambient principal — `Process.get(:current_principal)`,
    *  stashed by the Auth plug — satisfies its predicate, fail-closed); the raw
    *  map moves to the `serialize_unmasked/1` helper for audit snapshots. */
   serialize: string;
@@ -609,7 +610,7 @@ function renderShapeSerialize(
   ).join("\n");
   const serialize =
     `  defp serialize${sfx}(${headVar}) do\n` +
-    `    current_user = Process.get(:loom_current_user)\n` +
+    `    current_user = Process.get(:${RT.currentPrincipal})\n` +
     `    wire = serialize_unmasked${sfx}(${headVar})\n` +
     `${redactLines}\n` +
     `    wire\n` +

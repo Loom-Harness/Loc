@@ -103,9 +103,10 @@ describe("python — scaffolded handlers consume record params (M-T5.10)", () =>
     expect(ctrl).toContain("    code: WireStr");
     expect(ctrl).toContain("    status: WireStr");
     expect(ctrl).toContain("    total: MoneyModel");
-    // Call args flatten in declared order; the VO field coerces to the domain class.
+    // The record builds from the flat fields in declared order; the VO field
+    // coerces to the domain class.
     expect(ctrl).toContain(
-      "result = await create_order(session, body.code, body.status, Money(body.total.amount, body.total.currency))",
+      "result = await dispatch_create_order_command(session, CreateOrderCommand(code=body.code, status=body.status, total=Money(body.total.amount, body.total.currency)))",
     );
   });
 });

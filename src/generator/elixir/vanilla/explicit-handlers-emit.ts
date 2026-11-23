@@ -26,6 +26,7 @@
 // persists through its own context fn (`<op>_<agg>`).
 // ---------------------------------------------------------------------------
 
+import { dispatchedRecord } from "../../../ir/plan/command-bus.js";
 import {
   handlerNeedsCurrentUser,
   handlerRunsInTransaction,
@@ -46,9 +47,11 @@ import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { type EntryResult, entryResult } from "../../../ir/util/entry-result.js";
 import { requestRecordFor, routedAbsenceAnswers404 } from "../../../ir/util/handler-contracts.js";
 import {
+  type PagedRunStmt,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
+  pagedRunReadsList,
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../../ir/util/paged-run.js";
@@ -62,7 +65,7 @@ import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-
 import { hatchStub } from "../../../util/hatch.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { claimsDerivedSlot } from "../../_api/explicit-route-mount.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
 import { projectionRowModule } from "../dispatch-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -82,6 +85,7 @@ import {
   renderEntryOutcome,
   renderEntryResponders,
 } from "./entry-result-emit.js";
+import type { ElixirHelperUses } from "./helper-uses.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   PAGE_CALL_ARGS,
@@ -249,7 +253,7 @@ function assembleHandlerBody(
         ? [
             `case ${resultExpr} do`,
             `  nil -> {:error, {:not_found, ${JSON.stringify(FIND_ABSENT_DETAIL)}}}`,
-            `  loom_found -> {:ok, loom_found}`,
+            `  ${RT.found} -> {:ok, ${RT.found}}`,
             `end`,
           ]
         : [`{:ok, ${resultExpr}}`]),
@@ -559,16 +563,55 @@ export function emitExplicitHandlers(
     if (!h.extern && h.returnType && pagedReturn(h.returnType)) continue;
     emit(h, "Query handler");
   }
+  const dispatched = [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])].flatMap((h) => {
+    const record = elixirDispatchRecord(h, ctx);
+    return record ? [{ h, record }] : [];
+  });
+  if (dispatched.length > 0) {
+    const ctxMod = `${appModule}.${N.type(ctx.name)}`;
+    const fns = dispatched.map(({ h, record }) => {
+      const takesActor = handlerTakesActor(h, ctx);
+      const user = takesActor ? "current_user" : "_current_user";
+      const args = takesActor ? "record, current_user" : "record";
+      return `  @spec ${elixirDispatchFn(record)}(map(), term()) :: {:ok, term()} | {:error, term()}
+  def ${elixirDispatchFn(record)}(record, ${user} \\\\ nil) when is_map(record),
+    do: ${ctxMod}.Handlers.${N.type(h.name)}.run(${args})`;
+    });
+    out.set(
+      `lib/${appSnake}/${ctxSnake}/dispatch.ex`,
+      `# Auto-generated.
+defmodule ${ctxMod}.Dispatch do
+  @moduledoc """
+  The one entry each request record of \`${ctx.name}\` is dispatched through:
+  the record as its string-keyed wire map, and the caller.
+  """
+
+${fns.join("\n\n")}
+end
+`,
+    );
+  }
+}
+
+/** The record a handler is dispatched through on elixir (`dispatchedRecord`,
+ *  the bus entry it catches), on a handler with a body, a plain result (not
+ *  `T or E`) and no `paged` carrier. */
+function elixirDispatchRecord(h: Handler, ctx: EnrichedBoundedContextIR): string | undefined {
+  if (h.extern || entryResult(h)) return undefined;
+  if (h.returnType && pagedReturn(h.returnType)) return undefined;
+  return dispatchedRecord(ctx, h.name)?.record;
+}
+
+/** The dispatch function for a record (`ShipOrder` → `ship_order`). */
+function elixirDispatchFn(record: string): string {
+  return N.stem(record);
 }
 
 /** Recover the synthesized `repo-run` statement of a paged-run queryHandler
  *  (`queryHandler H(...): <Agg> paged { let r = Repo.run(<Criterion>(args));
  *  return r }`) — carrying the aggregate + the paged FIND name (`retrievalName`
  *  = `findAllBy<Criterion>`) so the route can call its context function. */
-function pagedRunStmt(
-  h: Handler,
-  ctx: EnrichedBoundedContextIR,
-): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
+function pagedRunStmt(h: Handler, ctx: EnrichedBoundedContextIR): PagedRunStmt {
   const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
@@ -679,6 +722,7 @@ export function emitExplicitRoutesController(
   routes: readonly RouteIR[],
   contexts: readonly EnrichedBoundedContextIR[],
   out: Map<string, string>,
+  uses: ElixirHelperUses,
   sys?: SystemIR,
 ): ApiRoute[] {
   if (routes.length === 0) return [];
@@ -730,7 +774,11 @@ export function emitExplicitRoutesController(
     if (!handler.extern && handler.returnType && pagedReturn(handler.returnType)) {
       hasPaged = true;
       const run = pagedRunStmt(handler, ctx);
-      const ctxFn = `${appModule}.${N.type(ctx.name)}.${N.stem(pagedRunFindName(run))}_${N.stem(run.aggName)}`;
+      // The whole collection pages through the context's own list read
+      // (`list_<agg>s`, the one the derived index calls).
+      const ctxFn = pagedRunReadsList(run)
+        ? `${appModule}.${N.type(ctx.name)}.list_${N.stem(run.aggName)}s`
+        : `${appModule}.${N.type(ctx.name)}.${N.stem(pagedRunFindName(run))}_${N.stem(run.aggName)}`;
       // Each criterion param is read coerced to its declared type (checked
       // first, below) — the paged FIND over a document carrier filters in
       // memory, where `6 >= "6"` is silently false.
@@ -831,7 +879,12 @@ ${pagingElseArm("ProblemDetails", "    ")}
       : "params";
     const entry = handler.extern ? undefined : entryResult(handler);
     if (entry) entries.push({ r: entry, ctx });
-    const call = `${normalizeRouteParams(queryParams)}    ${entry ? "respond_entry" : "respond"}(conn, ${handlerMod}.run(${runArgs}))`;
+    // A record-dispatched handler is called through its context's `Dispatch`.
+    const record = elixirDispatchRecord(handler, ctx);
+    const callee = record
+      ? `${appModule}.${N.type(ctx.name)}.Dispatch.${elixirDispatchFn(record)}`
+      : `${handlerMod}.run`;
+    const call = `${normalizeRouteParams(queryParams)}    ${entry ? "respond_entry" : "respond"}(conn, ${callee}(${runArgs}))`;
     actions.push(`  def ${action}(conn, params) do
 ${checkRouteParams(queryParams, ctx, call)}
   end`);
@@ -878,7 +931,7 @@ defmodule ${webModule}.${controller} do
   HTTP entry points for the explicit \`route ... -> <Ctx>.<Handler>\` bindings
   of api \`${apiName}\`.
   """
-${renderRequiredParamsPlug(requiredBodyKeys)}${renderStrictParamsPlug(strictBodyKeys)}
+${renderRequiredParamsPlug(requiredBodyKeys)}${renderStrictParamsPlug(strictBodyKeys, uses)}
 ${actions.join("\n\n")}
 
   # Shared result handler.  Each handler's run/1 result flows through here;

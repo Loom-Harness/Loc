@@ -6,6 +6,7 @@ import {
   foldedEventNames,
   singleReadOrder,
 } from "../../../ir/plan/index.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   recordDurableLines,
@@ -79,12 +80,13 @@ import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { rewrite } from "../../../util/emission-sink.js";
 import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
-import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
+import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN, ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { csIdSqlType, csJsonSqlType, csSqlType } from "../codec-spelling.js";
@@ -116,6 +118,8 @@ import {
 } from "./repository.js";
 import { csStateHolderOf } from "./state-holder.js";
 import { handleSaveOverloadLines, saveParamsCs } from "./version-check-cs.js";
+
+const N = DOMAIN_NAMES.csharp;
 
 /** The locals a relational Dapper `find` method (list / single / paged)
  *  declares for itself — each yields to a same-named find param. */
@@ -291,7 +295,7 @@ function elementRowClasses(cols: readonly DapperColumn[]): string[] {
       "    {",
       ...vc.leaves.map(
         (l) =>
-          `        public ${l.rowCs.endsWith("?") ? l.rowCs : `${l.rowCs}?`} ${escapeCsharpIdent(l.col)} { get; set; }`,
+          `        public ${l.rowCs.endsWith("?") ? l.rowCs : `${l.rowCs}?`} ${N.field(l.col)} { get; set; }`,
       ),
       "    }",
       "",
@@ -316,9 +320,9 @@ function valueCollectionSync(
       .map((n) => `@${n}${vc.leaves.find((l) => l.col === n)?.cast ?? ""}`)
       .join(", ");
     const binds = [
-      `${escapeCsharpIdent(vc.parentFk)} = ${ownerId}`,
+      `${N.field(vc.parentFk)} = ${ownerId}`,
       "ordinal = __i",
-      ...vc.leaves.map((l) => `${escapeCsharpIdent(l.col)} = ${l.save}`),
+      ...vc.leaves.map((l) => `${N.field(l.col)} = ${l.save}`),
     ].join(", ");
     return [
       `${indent}await conn.ExecuteAsync(new CommandDefinition("DELETE FROM ${sqlIdent(vc.childTable)} WHERE ${sqlIdent(vc.parentFk)} = @owner", new { owner = ${ownerId} }, transaction: __tx, cancellationToken: cancellationToken));`,
@@ -458,7 +462,7 @@ function leafAccess(
   let cur: TypeIR = t;
   let optional = t.kind === "optional";
   for (const seg of path) {
-    out += `${optional ? "?." : "."}${upperFirst(seg)}`;
+    out += `${optional ? "?." : "."}${N.prop(seg)}`;
     const inner = cur.kind === "optional" ? cur.inner : cur;
     const vo = inner.kind === "valueobject" ? findValueObjectInScope(vos, inner.name) : undefined;
     const f = vo?.fields.find((x) => x.name === seg);
@@ -490,19 +494,12 @@ function composeValueObject(
       const nested = composeValueObject(inner.name, name, row, vos, columnNullable || fOptional);
       if (!fOptional) return nested;
       const probe = absenceProbe(name, inner, vos);
-      const absent = probe.map((l) => `${row}.${escapeCsharpIdent(l.column)} is null`).join(" && ");
+      const absent = probe.map((l) => `${row}.${N.field(l.column)} is null`).join(" && ");
       return `${absent} ? null : ${nested}`;
     }
     const nullable = columnNullable || fOptional;
-    return scalarColumn(
-      inner,
-      col,
-      "",
-      "",
-      nullable,
-      `${row}.${escapeCsharpIdent(col)}`,
-      !fOptional,
-    ).hydrate!;
+    return scalarColumn(inner, col, "", "", nullable, `${row}.${N.field(col)}`, !fOptional)
+      .hydrate!;
   });
   return `${voName}.FromStored(${args.join(", ")})`;
 }
@@ -525,9 +522,9 @@ export function fieldColumns(
 ): DapperColumn[] {
   const { type, nullable } = unwrapOptional(f.type);
   const col = snake(f.name);
-  const prop = upperFirst(f.name);
+  const prop = N.prop(f.name);
   const acc = `${accBase}.${prop}`;
-  const read = `r.${escapeCsharpIdent(col)}`;
+  const read = `r.${N.field(col)}`;
   switch (type.kind) {
     case "primitive":
     case "enum":
@@ -563,7 +560,7 @@ export function fieldColumns(
           "",
           leafAccess(acc, f.type, l.path, vos),
           l.nullable,
-          `r.${escapeCsharpIdent(l.column)}`,
+          `r.${N.field(l.column)}`,
           !l.nullable,
           l.optional,
         ),
@@ -571,7 +568,7 @@ export function fieldColumns(
       const composed = composeValueObject(type.name, f.name, "r", vos, nullable);
       const probe = absenceProbe(f.name, type, vos);
       const hydrate = nullable
-        ? `${probe.map((l) => `r.${escapeCsharpIdent(l.column)} is null`).join(" && ")} ? (${type.name}?)null : ${composed}`
+        ? `${probe.map((l) => `r.${N.field(l.column)} is null`).join(" && ")} ? (${type.name}?)null : ${composed}`
         : composed;
       return cols.map((c, i) =>
         i === 0
@@ -609,7 +606,7 @@ export function fieldColumns(
             "",
             leafAccess("__e", el, l.path, vos),
             l.nullable,
-            `x.${escapeCsharpIdent(l.column)}`,
+            `x.${N.field(l.column)}`,
             !l.nullable,
             l.optional,
           ),
@@ -704,7 +701,7 @@ function arrayElemCs(elem: TypeIR): string {
  *  the read DTO's `<Field>Provenance` projection is populated on both adapters. */
 function provColumn(f: FieldIR): DapperColumn {
   const col = `${snake(f.name)}_provenance`;
-  const prop = `${upperFirst(f.name)}Provenance`;
+  const prop = `${N.prop(f.name)}Provenance`;
   return {
     col,
     sql: JSON_SQL,
@@ -713,7 +710,7 @@ function provColumn(f: FieldIR): DapperColumn {
     cast: JSON_CAST,
     save: `aggregate.${prop} is null ? null : System.Text.Json.JsonSerializer.Serialize(aggregate.${prop}, ProvJson.Options)`,
     stateProp: prop,
-    hydrate: `r.${escapeCsharpIdent(col)} is null ? null : System.Text.Json.JsonSerializer.Deserialize<ProvLineage>(r.${escapeCsharpIdent(col)}, ProvJson.Options)`,
+    hydrate: `r.${N.field(col)} is null ? null : System.Text.Json.JsonSerializer.Deserialize<ProvLineage>(r.${N.field(col)}, ProvJson.Options)`,
   };
 }
 
@@ -728,7 +725,7 @@ function provColumn(f: FieldIR): DapperColumn {
  *  `_Create(State)` containment slot. */
 function embeddedContainmentColumn(cont: ContainmentIR): DapperColumn {
   const col = snake(cont.name);
-  const prop = upperFirst(cont.name);
+  const prop = N.prop(cont.name);
   const snapT = `${cont.partName}Snapshot`;
   if (cont.collection) {
     return {
@@ -739,7 +736,7 @@ function embeddedContainmentColumn(cont: ContainmentIR): DapperColumn {
       cast: JSON_CAST,
       save: `System.Text.Json.JsonSerializer.Serialize(aggregate.${prop}.Select(__x => __x.ToSnapshot()).ToList(), __json)`,
       stateProp: prop,
-      hydrate: `System.Text.Json.JsonSerializer.Deserialize<List<${snapT}>>(r.${escapeCsharpIdent(col)}, __json)!.Select(${cont.partName}.FromSnapshot).ToList()`,
+      hydrate: `System.Text.Json.JsonSerializer.Deserialize<List<${snapT}>>(r.${N.field(col)}, __json)!.Select(${cont.partName}.FromSnapshot).ToList()`,
     };
   }
   if (cont.optional) {
@@ -751,7 +748,7 @@ function embeddedContainmentColumn(cont: ContainmentIR): DapperColumn {
       cast: JSON_CAST,
       save: `aggregate.${prop} is null ? null : System.Text.Json.JsonSerializer.Serialize(aggregate.${prop}.ToSnapshot(), __json)`,
       stateProp: prop,
-      hydrate: `r.${escapeCsharpIdent(col)} is null ? null : ${cont.partName}.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<${snapT}>(r.${escapeCsharpIdent(col)}, __json)!)`,
+      hydrate: `r.${N.field(col)} is null ? null : ${cont.partName}.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<${snapT}>(r.${N.field(col)}, __json)!)`,
     };
   }
   return {
@@ -762,7 +759,7 @@ function embeddedContainmentColumn(cont: ContainmentIR): DapperColumn {
     cast: JSON_CAST,
     save: `System.Text.Json.JsonSerializer.Serialize(aggregate.${prop}.ToSnapshot(), __json)`,
     stateProp: prop,
-    hydrate: `${cont.partName}.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<${snapT}>(r.${escapeCsharpIdent(col)}, __json)!)`,
+    hydrate: `${cont.partName}.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<${snapT}>(r.${N.field(col)}, __json)!)`,
   };
 }
 
@@ -883,7 +880,7 @@ function flattenParts(children: readonly PartChild[]): PartChild[] {
 function containmentSlot(pc: PartChild, indent: string, keyExpr: string): string {
   const byOwner = `__${pc.cont.name}ByOwner`;
   const local = `__${pc.cont.name}`;
-  const head = `${indent}${upperFirst(pc.cont.name)} = ${byOwner}.TryGetValue(${keyExpr}, out var ${local}) ? ${local}`;
+  const head = `${indent}${N.prop(pc.cont.name)} = ${byOwner}.TryGetValue(${keyExpr}, out var ${local}) ? ${local}`;
   return pc.cont.collection ? `${head} : new List<${pc.part.name}>(),` : `${head} : null,`;
 }
 
@@ -901,10 +898,10 @@ function containmentValueType(pc: PartChild): string {
 function partRowAndMap(pc: PartChild): string {
   const rowCols = [
     `        public ${pc.partIdCs} id { get; set; }`,
-    `        public ${pc.parentIdCs} ${escapeCsharpIdent(pc.parentFk)} { get; set; }`,
+    `        public ${pc.parentIdCs} ${N.field(pc.parentFk)} { get; set; }`,
     ...pc.fieldCols.map(
       (c) =>
-        `        public ${c.rowCs} ${escapeCsharpIdent(c.col)} { get; set; }${c.rowCs === "string" ? " = default!;" : ""}`,
+        `        public ${c.rowCs} ${N.field(c.col)} { get; set; }${c.rowCs === "string" ? " = default!;" : ""}`,
     ),
   ];
   // The grandchild dictionaries are the concrete `Dictionary<…>` that
@@ -924,7 +921,7 @@ function partRowAndMap(pc: PartChild): string {
     `        ${pc.part.name}._Create(new ${csStateHolderOf(pc.part.name)}`,
     "        {",
     `            Id = new ${pc.part.name}Id(r.id),`,
-    `            ParentId = new ${pc.parentEntityId}Id(r.${escapeCsharpIdent(pc.parentFk)}),`,
+    `            ParentId = new ${pc.parentEntityId}Id(r.${N.field(pc.parentFk)}),`,
     ...stateInits(pc.fieldCols, "            "),
     ...childSlots,
     "        });",
@@ -1451,7 +1448,7 @@ export function collectFilterPrincipalRefs(
     if (!byParam.has(ref.param)) byParam.set(ref.param, ref);
   };
   const addClaim = (member: string, type?: TypeIR): void => {
-    const claimProp = upperFirst(member);
+    const claimProp = N.prop(member);
     // A principal list of typed ids (the operating org's lineage) binds as the
     // raw uuid array `= ANY(@…)` reads.
     if (type && isRefCollectionType(type)) {
@@ -1517,7 +1514,7 @@ export function collectFilterPrincipalRefs(
       // from the claim, NOT the claim's own text param (see `whereToSql`).
       const selfScope = guidFromStringSelfScope(e);
       if (selfScope) {
-        const prop = upperFirst(selfScope.claim);
+        const prop = N.prop(selfScope.claim);
         if (e.kind === "binary") consumed.add(unparen(selfScope.idOnLeft ? e.right : e.left));
         add({
           param: guidClaimParam(selfScope.claim),
@@ -1534,7 +1531,7 @@ export function collectFilterPrincipalRefs(
 /** The C# boolean a principal term binds, read off the accessor `base`. */
 function principalTermValue(pt: PrincipalTerm, base: string): string {
   const test = renderPrincipalTest(pt, {
-    claim: (field) => `${base}.${upperFirst(field)}`,
+    claim: (field) => `${base}.${N.prop(field)}`,
     value: (v) => renderCsExpr(v),
     isNull: (x) => `${x} == null`,
     isNotNull: (x) => `${x} != null`,
@@ -1569,7 +1566,7 @@ function dedupPrincipalRefs(refs: readonly FilterPrincipalRef[]): FilterPrincipa
  *  CancellationToken) — the SAME position the shared `I<Agg>Repository`
  *  interface renders (`renderParamsWithCt`), so the Dapper impl matches it. */
 function renderParams(params: ParamIR[], extra: readonly string[] = [], usesUser = false): string {
-  const ps = params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`);
+  const ps = params.map((p) => `${renderCsType(p.type)} ${N.binding(p.name)}`);
   return [
     ...ps,
     ...extra,
@@ -1731,7 +1728,7 @@ export function renderDapperRepository(
   const stampParam = (col: string): string | null =>
     onCreateCols.has(col) ? createLocal(col) : onUpdateCols.has(col) ? updateLocal(col) : null;
   const saveParams = rowCols
-    .map((c) => `${escapeCsharpIdent(c.col)} = ${stampParam(c.col) ?? c.save}`)
+    .map((c) => `${N.field(c.col)} = ${stampParam(c.col) ?? c.save}`)
     .join(", ");
   // A stamp value referencing the request principal resolves through the same
   // ambient accessor the EF AuditableInterceptor uses: `currentUser.<claim>` →
@@ -1981,7 +1978,7 @@ export function renderDapperRepository(
         ...associations.flatMap((a) => {
           const ownerCs = idTypes().cs;
           const targetCs = idTypes().cs;
-          const prop = upperFirst(a.fieldName);
+          const prop = N.prop(a.fieldName);
           return [
             `        var __${a.fieldName}Rows = (await conn.QueryAsync<(${ownerCs} owner, ${targetCs} target)>(new CommandDefinition("SELECT ${sqlIdent(a.ownerFk)}, ${sqlIdent(a.targetFk)} FROM ${sqlIdent(a.joinTable)} WHERE ${sqlIdent(a.ownerFk)} = ANY(@ids) ORDER BY ${sqlIdent(a.ownerFk)}, ${sqlIdent(a.targetFk)}", new { ids = __ids }, cancellationToken: cancellationToken))).ToList();`,
             `        var __${a.fieldName}ByOwner = __${a.fieldName}Rows.GroupBy(t => t.owner).ToDictionary(g => g.Key, g => g.Select(t => new ${a.targetAgg}Id(t.target)).ToList());`,
@@ -1995,7 +1992,7 @@ export function renderDapperRepository(
       )
     : "";
   const assocSaveLines = associations.flatMap((a) => {
-    const prop = upperFirst(a.fieldName);
+    const prop = N.prop(a.fieldName);
     return [
       `        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM ${sqlIdent(a.joinTable)} WHERE ${sqlIdent(a.ownerFk)} = @id", new { id = aggregate.Id.Value }, transaction: __tx, cancellationToken: cancellationToken));`,
       `        foreach (var __t in aggregate.${prop})`,
@@ -2041,7 +2038,7 @@ export function renderDapperRepository(
     const insertParams = [
       `id = ${pc.childVar}.Id.Value`,
       `${pc.parentFk} = ${ownerIdExpr}`,
-      ...partRowCols.map((c) => `${escapeCsharpIdent(c.col)} = ${c.save}`),
+      ...partRowCols.map((c) => `${N.field(c.col)} = ${c.save}`),
     ].join(", ");
     const iter = pc.cont.collection
       ? `        foreach (var ${pc.childVar} in ${ownerAccessor})`
@@ -2052,7 +2049,7 @@ export function renderDapperRepository(
       `            await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${sqlIdent(pc.table)} (${insertCols}) VALUES (${insertVals})", new { ${insertParams} }, transaction: __tx, cancellationToken: cancellationToken));`,
       ...valueCollectionSync(pc.fieldCols, `${pc.childVar}.Id.Value`, "            "),
       ...pc.children.flatMap((gc) =>
-        saveInsert(gc, `${pc.childVar}.Id.Value`, `${pc.childVar}.${upperFirst(gc.cont.name)}`),
+        saveInsert(gc, `${pc.childVar}.Id.Value`, `${pc.childVar}.${N.prop(gc.cont.name)}`),
       ),
       "        }",
     ];
@@ -2061,7 +2058,7 @@ export function renderDapperRepository(
   // CASCADE clears any grandchildren) then re-insert the whole subtree.
   const containSaveLines = partChildren.flatMap((pc) => [
     `        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM ${sqlIdent(pc.table)} WHERE ${sqlIdent(pc.parentFk)} = @id", new { id = aggregate.Id.Value }, transaction: __tx, cancellationToken: cancellationToken));`,
-    ...saveInsert(pc, "aggregate.Id.Value", `aggregate.${upperFirst(pc.cont.name)}`),
+    ...saveInsert(pc, "aggregate.Id.Value", `aggregate.${N.prop(pc.cont.name)}`),
   ]);
   // DeleteAsync is TRANSACTIONAL whenever it issues more than one statement, or
   // when the aggregate is audited.
@@ -2116,7 +2113,7 @@ export function renderDapperRepository(
   );
   const findMethods = (repo?.finds ?? []).map((raw) => {
     const f = domainFindShape(raw, agg.name);
-    const name = upperFirst(f.name);
+    const name = csFindMethodName(f.name);
     const ret = renderCsType(f.returnType);
     const isList = f.returnType.kind === "array";
     // The method's own locals step aside (`__`-prefixed) only when a declared
@@ -2143,7 +2140,7 @@ export function renderDapperRepository(
       // The anon-object member name stays the DECLARED name (Dapper binds it to
       // the `@<name>` SQL parameter); the verbatim `@` prefix is only the C#
       // identifier escape, so both halves take it (F2-ADP-7).
-      const n = escapeCsharpIdent(p.name);
+      const n = N.binding(p.name);
       if (pt.kind === "id")
         return p.type.kind === "optional" ? `${n} = ${n}?.Value` : `${n} = ${n}.Value`;
       if (pt.kind === "enum") {
@@ -2194,6 +2191,7 @@ export function renderDapperRepository(
     // to a literal ASC/DESC.
     if (pagedReturn(f.returnType)) {
       const fromClause = `FROM ${table}${where}${andFilter(where !== "", f)}`;
+      const codePoint = codePointSortFields(agg.fields);
       const sortArms = sortableFields(agg)
         .filter((wf) => wf !== "id")
         // The KEY is the wire sort name (matched against the request param, so
@@ -2201,10 +2199,14 @@ export function renderDapperRepository(
         // therefore a SQL identifier — a reserved-word column sorted here
         // emitted `ORDER BY order` and failed at RUNTIME, invisible to the
         // compile tier because the whole thing is a string (M-T6.42).
-        .map((wf) => `"${wf}" => "${sqlIdent(snake(wf))}"`)
+        // A text or enum key sorts by code point (`src/ir/plan/sort-order.ts`).
+        .map(
+          (wf) =>
+            `"${wf}" => "${sqlIdent(snake(wf))}${codePoint.has(wf) ? ' COLLATE \\"C\\"' : ""}"`,
+        )
         .join(", ");
       const declaredTerms = defaultSortOrder(f.defaultSort);
-      const declaredOrder = declaredTerms ? dapperOrderSql(declaredTerms) : undefined;
+      const declaredOrder = declaredTerms ? dapperOrderSql(declaredTerms, codePoint) : undefined;
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, ["int page", "int pageSize", "string sort", "string dir"], usesUser)})`,
         `    {`,
@@ -2316,7 +2318,7 @@ export function renderDapperRepository(
   // call-site offset/limit paging).  The `where` is the inlined predicate
   // (criterion bodies included) rendered by `whereToSql`.
   const retrievalMethods = retrievals.map((r) => {
-    const name = upperFirst(r.name);
+    const name = N.type(r.name);
     // Same collision rule as the find path: the method's own locals move, the
     // declared params (and so the DynamicParameters keys) never do.
     const L = csLocalNamer(
@@ -2327,7 +2329,7 @@ export function renderDapperRepository(
     // As on the find path: a refusal is `loom.query-emission-invalid`, not a stub.
     const whereSql = whereToSql(r.where, sqlCtx);
     // The declared terms with the `id` tie-break, or `id` alone (`readOrderFor`).
-    const orderSql = ` ORDER BY ${dapperOrderSql(readOrderFor(r.sort))}`;
+    const orderSql = ` ORDER BY ${dapperOrderSql(readOrderFor(r.sort), codePointSortFields(agg.fields))}`;
     // A retrieval's `ignoring` clause arrives at RUNTIME (the `FilterBypass
     // bypass` port param a workflow's inline `Repo.run(...) ignoring …` binds),
     // so unlike the find path the SQL cannot be decided at emit time: the
@@ -2346,7 +2348,7 @@ export function renderDapperRepository(
     const paramAdds = [
       ...r.params.map((p) => {
         const pt = p.type.kind === "optional" ? p.type.inner : p.type;
-        const n = escapeCsharpIdent(p.name);
+        const n = N.binding(p.name);
         // Id → its wrapped `.Value`; enum → `.ToString()`, for the find path's
         // reason (Dapper binds a C# enum as its ordinal, and the column is
         // `text`: `operator does not exist: text = integer`, a 500).
@@ -2480,7 +2482,7 @@ export function renderDapperRepository(
       // is a CS1597 error, so the no-initializer arm ends at `}`.
       ...cols.map(
         (c) =>
-          `        public ${c.rowCs} ${escapeCsharpIdent(c.col)} { get; set; }${c.rowCs === "string" ? " = default!;" : ""}`,
+          `        public ${c.rowCs} ${N.field(c.col)} { get; set; }${c.rowCs === "string" ? " = default!;" : ""}`,
       ),
       "    }",
       "",
@@ -3174,7 +3176,7 @@ export function renderDapperEventSourcedRepository(
       "                var __data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json);",
       "                try",
       "                {",
-      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at${metaSel}) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now()${metaCols.map((c) => `, @${c}`).join("")})", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data${(tenancy?.metadata ?? []).map((m) => `, ${m.column} = aggregate.${upperFirst(m.field)}`).join("")} }, ${txArg}cancellationToken: cancellationToken));`,
+      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at${metaSel}) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now()${metaCols.map((c) => `, @${c}`).join("")})", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data${(tenancy?.metadata ?? []).map((m) => `, ${m.column} = aggregate.${N.prop(m.field)}`).join("")} }, ${txArg}cancellationToken: cancellationToken));`,
       "                }",
       '                catch (Npgsql.PostgresException __ex) when (__ex.SqlState == "23505")',
       "                {",
@@ -3324,8 +3326,16 @@ function renderDapperDateOnlyHandler(ns: string): string {
 }
 
 /** `col DIR, …` — a list of order terms over the candidate's own columns. */
-function dapperOrderSql(terms: readonly ReadOrderTerm[]): string {
+/** ORDER BY text; a text or enum column sorts by code point (`COLLATE "C"`,
+ *  the one sort order — `src/ir/plan/sort-order.ts`). */
+function dapperOrderSql(
+  terms: readonly ReadOrderTerm[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
   return terms
-    .map((t) => `${sqlIdent(snake(t.field))} ${t.direction === "desc" ? "DESC" : "ASC"}`)
+    .map(
+      (t) =>
+        `${sqlIdent(snake(t.field))}${codePoint.has(t.field) ? ' COLLATE \\"C\\"' : ""} ${t.direction === "desc" ? "DESC" : "ASC"}`,
+    )
     .join(", ");
 }

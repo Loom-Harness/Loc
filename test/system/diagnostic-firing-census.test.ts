@@ -1386,7 +1386,7 @@ system S {
   }
 }`,
   "loom.e2e-principal-claim-not-carried": principalSys({
-    e2e: `  test e2e "e" against d as { nick: "bob" } { let n = api.notes.create({ text: "a" }) }`,
+    e2e: `  test e2e "e" against d as { id: "00000000-0000-0000-0000-000000000001" } { let n = api.notes.create({ text: "a" }) }`,
   }),
   "loom.e2e-principal-oidc": principalSys({
     extra: `  auth { oidc { issuer: "https://idp.example.com/realms/x"  clientId: "web" } }`,
@@ -2015,11 +2015,6 @@ system P {
   deployable site2 { platform: gateway port: 8081 gathers: [ web at "/" ] }`,
     { ui: true },
   ),
-  "loom.gateway-part-ungatherable": topology(
-    `deployable mob { platform: flutter targets: api ui: WebApp port: 3001 }
-  deployable site { platform: gateway port: 8080 gathers: [ mob at "/" ] }`,
-    { ui: true, uiFramework: "flutter" },
-  ),
   "loom.gateway-path-duplicate": topology(
     `deployable web { platform: web targets: api ui: WebApp port: 3001 }
   deployable web2 { platform: web targets: api ui: WebApp port: 3002 }
@@ -2054,6 +2049,15 @@ system S {
     aggregate Order with crudish { total: int }
     repository Orders for Order
     queryHandler Q(n: int): int { if n > 0 { return 1 } else { return 2 } }
+  } }
+}`,
+  // A command handler that answers a value must declare its result type.
+  "loom.handler-return-untyped": `
+system S {
+  subdomain D { context Orders {
+    aggregate Order with crudish { total: int }
+    repository Orders for Order
+    commandHandler C(n: int) { return n }
   } }
 }`,
   // A name that binds to nothing inside a `commandHandler` body — the handler
@@ -2247,10 +2251,9 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable d { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
 }`,
-  // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
-  // domain code, where every backend renders the hole as its bare value — the
-  // branch text ("items") is dropped.  The warning says so where it happens.
-  "loom.interp-format-dropped-in-domain": `
+  // Ruling 178: a format code in backend domain code is refused — only a ui
+  // page has the translation layer that renders one.
+  "loom.interp-format-in-domain": `
 system IcuDrop {
   subdomain S { context Sales {
     aggregate Order with crudish {
@@ -2271,6 +2274,24 @@ system IcuInvalid {
       body: Text { \`You have {count, plural, one {# order}}\` }
     }
   }
+}`,
+  // Ruling 178: a format pattern is the fixed token set; `yy` is not in it.
+  "loom.intrinsic-format-pattern": `
+system FmtPattern {
+  subdomain S { context Sales {
+    aggregate Order with crudish {
+      placed: date
+      derived label: string = placed.format("yy-MM-dd")
+    }
+  } }
+}`,
+  // The built-in parse declarations' names are reserved.
+  "loom.intrinsic-parse": `
+system ParseName {
+  subdomain S { context Sales {
+    error ParseError { input: string }
+    aggregate Order with crudish { qty: int }
+  } }
 }`,
   "loom.invariant-guard-not-bool": orderTypes("invariant total > 0 when total"),
   "loom.invariant-not-bool": orderTypes("invariant name"),
@@ -2816,6 +2837,20 @@ system S {
   "loom.paged-envelope-unknown-member": uiPage(
     `QueryView { of: Catalog.Item.all, paged: true, data: rows => Text { rows.frob } }`,
   ),
+  // The whole-collection read in a paged handler over an event-log aggregate.
+  "loom.paged-list-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate P persistedAs: eventLog with crudish { name: string }
+    repository Ps for P
+    queryHandler ListPs(): P paged { let r = Ps.all()  return r }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 }
+}`,
+  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
+  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
   // A paged find's own `page` parameter: the paged read adds a `page` query
   // control of its own, so the key would arrive twice and every generated
   // repository signature would declare `page` twice.
@@ -2832,8 +2867,6 @@ system PagedParam {
   } }
 }`,
 
-  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
-  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
   "loom.paged-query-handler-shape": `
 system S {
   subdomain Sales { context Orders {
@@ -3501,6 +3534,105 @@ system S {
   // domain-service operation and handler arms share the check.
   "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
 
+  // A binding block names a field the record does not declare.
+  "loom.route-send-binding": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    commandHandler RenameHandler(cmd: Rename) { let p = Ps.get(cmd.id) }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename { nope: header "X-Nope" }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A binding block parses and validates but binds from outside the JSON body.
+  "loom.route-send-binding-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    commandHandler RenameHandler(cmd: Rename) { let p = Ps.get(cmd.id) }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename { name: header "X-Name" }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A sent record no handler catches.
+  "loom.route-send-handler": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A path placeholder naming no field of the sent record.
+  "loom.route-send-placeholder": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    commandHandler RenameHandler(cmd: Rename) { let p = Ps.get(cmd.id) }
+
+  } }
+  api A from M {
+    route POST "/ps/{pid}/rename" send C.Rename
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A route sends a record its context does not declare.
+  "loom.route-send-record": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Missing
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A sent record a workflow create catches.
+  "loom.route-send-workflow-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    workflow Renaming { create(cmd: Rename) { let p = Ps.get(cmd.id) } }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
   // A cross-aggregate invariant that reads through a repository.  It validated
   // clean and emitted `Technicians.get(...)` into the per-instance floor —
   // TS2304 on hono, the same unresolvable symbol on .NET/java, and on elixir the

@@ -74,7 +74,7 @@ describe("vanilla — Slice 4 RFC 7807 ProblemDetails parity", () => {
     const files = await generateSystemFiles(VANILLA_SOURCE);
     const pd = files.get([...files.keys()].find((k) => k.endsWith("/problem_details.ex"))!)!;
     // The pointer is built from the WHOLE path the error sits at — the walk's
-    // parent prefix, the field, and a value object's inner `loom_path` — not
+    // parent prefix, the field, and a value object's inner `field_path` — not
     // from the bare field, which could only ever produce a depth-1 pointer.
     expect(pd).toContain(
       "%{pointer: pointer_of(segments), message: interpolated, code: error_code(opts)}",

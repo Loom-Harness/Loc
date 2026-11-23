@@ -6,11 +6,11 @@
               <FormLabel>{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</FormLabel>
               <FormControl>
                 <Input
-                  type="number"
-                  step="1"
+                  type="text"
+                  inputMode="numeric"
                   data-testid="{{testId}}"
-                  value={(field.value as number | "") ?? ""}
-                  onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseInt(e.target.value, 10) || 0)}
+                  value={field.value == null ? "" : String(field.value)}
+                  onChange={(e) => field.onChange(e.target.value)}
                   onBlur={field.onBlur}
                   ref={field.ref}
                   name={field.name}

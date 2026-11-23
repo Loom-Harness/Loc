@@ -1314,12 +1314,10 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   string catalog — see [`new-plan/archive/T1-done.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/T1-done.md) § M-T1.11.
   **Formats only render in a `ui` page slot** (on the JS/TS frontends through
   `Intl`; on LiveView through CLDR in the negotiated locale — `D-HEEX-I18N-FORMAT`).  In backend domain code (a
-  `derived`, `function` or `operation` body) every backend renders a formatted
-  hole as its bare value: `{qty, number, ::currency/USD}` loses its formatting,
-  and `{qty, plural, one {# item} other {# items}}` / `select` / `selectordinal`
-  lose their branch text entirely (`"3"`, not `"3 items"`) — which the warning
-  `loom.interp-format-dropped-in-domain` reports.  Spell the branches with
-  `match` or a ternary in domain code.
+  `derived`, `function`, `operation`, handler, workflow or listener body) a
+  format code is the error `loom.interp-format-in-domain`: write the text with
+  the plain methods instead — `padStart` / `padEnd`, `date.format("yyyyMMdd")`,
+  `decimal.format(2)` — and spell branch text with `match` or a ternary.
 - **Escaping** — a literal brace or backtick in the text is `\{` / `\}` / `` \` ``;
   `\n` / `\t` / `\\` behave as in a string literal.
 - **Not queryable** — an interpolated string desugars to `+`/`convert`, so (like any

@@ -38,7 +38,7 @@ import type { OriginRef } from "../../../ir/types/origin.js";
 import { workflowBodyReadsOwnState } from "../../../ir/util/workflow-own-state.js";
 import { snake } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import type { WorkflowPipelineTarget } from "../../_workflow/stmt-target.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
@@ -347,7 +347,7 @@ interface EsSub {
  *  transaction body (4 spaces); the claim binds `event_id`. */
 export function elixirClaimWrap(appModule: string, consumerKey: string, inner: string): string {
   return [
-    `    event_id = Process.get(:loom_event_id)`,
+    `    event_id = Process.get(:${RT.eventId})`,
     "",
     `    if event_id && ${appModule}.Repo.query!(${JSON.stringify(inboxClaimSql("$1", "$2", true))}, [${JSON.stringify(consumerKey)}, to_string(event_id)]).num_rows == 0 do`,
     `      :ok`,

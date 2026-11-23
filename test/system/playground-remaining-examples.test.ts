@@ -47,6 +47,7 @@ const examples = [
   "web/src/examples/banking-system.ddd",
   "web/src/examples/inventory-system.ddd",
   "web/src/examples/provenance-system.ddd",
+  "web/src/examples/provenance-masks-system.ddd",
   "web/src/examples/acme.ddd",
   "web/src/examples/dotnet-backend.ddd",
   // Hand-authored NESTED `area { … }` blocks — the one picker entry that

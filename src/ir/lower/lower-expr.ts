@@ -72,6 +72,7 @@ import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { isIntrinsicMatcher, isThrowKind } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor } from "../../util/intrinsics.js";
 import { modelTextEntry } from "../../util/model-text-key.js";
+import { PARSE_SERVICE, parseMethod } from "../../util/parse-methods.js";
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ANCESTORS,
@@ -904,6 +905,29 @@ function applySuffixToRecv(
         if (declared) callIR.resultType = declared;
         return { recv: callIR, recvType: declared ?? { kind: "primitive", name: "string" } };
       }
+    }
+    // `s.toInt()` — a parse method on a string is a call into the context's
+    // built-in parse service (`parse-methods.ts`), the text as its argument,
+    // so every backend renders the service's checks, not a host parser.
+    const parse =
+      recvType.kind === "primitive" && recvType.name === "string"
+        ? parseMethod(ms.member)
+        : undefined;
+    const parseSvc = parse ? findDomainServiceByName(env, PARSE_SERVICE) : undefined;
+    const parseOp = parseSvc?.operations.find((o) => o.name === ms.member);
+    if (parseOp?.returnType) {
+      const resultType = lowerType(parseOp.returnType, env);
+      return {
+        recv: {
+          kind: "call",
+          callKind: "domain-service",
+          name: ms.member,
+          args: [recv],
+          serviceRef: { service: PARSE_SERVICE, op: ms.member },
+          resultType,
+        },
+        recvType: resultType,
+      };
     }
     // `<resource>.<verb>(args)` — a verb call on an ambient resource
     // handle lowers to a `resource-op` call.  The verb's

@@ -117,13 +117,14 @@ const WIRE_PRIMITIVES: PrimitiveName[] = [
 // ---------------------------------------------------------------------------
 
 describe("zodForRequest / zodForResponse — where the two wire sides diverge", () => {
-  it("diverges on EXACTLY one primitive — File — and agrees on every other", () => {
+  it("diverges on the parsed-text kinds and File, and agrees on every other", () => {
     const diverging = WIRE_PRIMITIVES.filter(
       (name) => zodForRequest(prim(name)) !== zodForResponse(prim(name), false),
     );
-    // Whole-set assertion, not per-row: adding a divergence (e.g. making
-    // `money` request-only) OR removing File's fails here.
-    expect(diverging).toEqual(["File"]);
+    // Whole-set assertion, not per-row: a form holds a number's or an amount's
+    // TEXT, which the request side parses by the form text rule; a response
+    // carries the wire value.  Adding a divergence OR removing one fails here.
+    expect(diverging).toEqual(["int", "long", "decimal", "money", "File"]);
   });
 
   it("File: the REQUEST form is the response form plus `.nullable()` (an empty form has no file yet)", () => {
@@ -135,23 +136,22 @@ describe("zodForRequest / zodForResponse — where the two wire sides diverge", 
     expect(response).toContain("url: z.string()");
   });
 
-  it("money is TEXTUALLY symmetric — both sides emit `moneySchema` (F1b lives in the type aliases, not here)", () => {
-    // `moneySchema` is a TRANSFORM, so `z.input` (string | Decimal) ≠
-    // `z.output` (Decimal).  That asymmetry is why the scaffolded form emits
-    // the RHF three-generic `useForm<FormState, unknown, Request>` — but the
-    // SCHEMA TEXT this module emits is the same symbol on both sides.  Pinned
-    // so nobody "fixes" F1b by forking the two tables here.
-    expect(zodForRequest(prim("money"))).toBe("moneySchema");
+  it("a parsed-text kind requests through the form text rule and reads the wire value", () => {
+    // The request schema parses the typed text (`lib/form-text`, `moneyText`);
+    // the response schema reads what the server sent.
+    expect(zodForRequest(prim("money"))).toBe("moneyText");
     expect(zodForResponse(prim("money"), false)).toBe("moneySchema");
+    expect(zodForRequest(prim("int"))).toBe('formNumber("int")');
+    expect(zodForRequest(prim("long"))).toBe('formNumber("long")');
+    expect(zodForRequest(prim("decimal"))).toBe('formNumber("decimal")');
   });
 
   it("agrees on the numeric / scalar primitives that must match field-for-field", () => {
-    for (const name of ["int", "long", "decimal", "string", "bool", "datetime", "guid", "json"]) {
+    for (const name of ["string", "bool", "datetime", "guid", "json"]) {
       expect(zodForRequest(prim(name as PrimitiveName))).toBe(
         zodForResponse(prim(name as PrimitiveName), false),
       );
     }
-    expect(zodForRequest(prim("int"))).toBe("z.number().int()");
     expect(zodForRequest(prim("bool"))).toBe("z.boolean()");
     expect(zodForRequest(prim("json"))).toBe("z.unknown()");
   });
@@ -181,7 +181,8 @@ describe("zodForRequest / zodForResponse — where the two wire sides diverge", 
   });
 
   it("wrappers peel identically on both sides — optional → `.nullish()`, array → `z.array(...)`", () => {
-    expect(zodForRequest(opt(prim("int")))).toBe("z.number().int().nullish()");
+    // An optional parsed-text kind reads its blank as absent (P-UI-6).
+    expect(zodForRequest(opt(prim("int")))).toBe('formNumberOpt("int")');
     expect(zodForResponse(prim("int"), true)).toBe("z.number().int().nullish()");
     expect(zodForRequest(arr(prim("string")))).toBe("z.array(z.string())");
     expect(zodForResponse(arr(prim("string")), false)).toBe("z.array(z.string())");
@@ -279,7 +280,7 @@ describe("emitObjectWithRefines", () => {
     // The field's own refine carries the limit's code and bound (`field.min
     // {min}`, from `fieldLimitChecks`) for the hook and the form to localize.
     expect(out).toContain(
-      '  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }),',
+      '  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { code: "field.min", values: {"min":1} } }),',
     );
     // Absorbed — it must NOT be double-applied as an object refine as well.
     expect(out.at(-1)).toBe("});");
@@ -292,7 +293,7 @@ describe("emitObjectWithRefines", () => {
     ];
     const out = emitObjectWithRefines("CreateOrderRequest", fields, invs, available);
     expect(out).toContain(
-      '  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }).refine((v: any) => v <= 9, { message: "Qty must be at most 9", params: { loomCode: "field.max", loomValues: {"max":9} } }),',
+      '  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { code: "field.min", values: {"min":1} } }).refine((v: any) => v <= 9, { message: "Qty must be at most 9", params: { code: "field.max", values: {"max":9} } }),',
     );
   });
 
@@ -321,7 +322,7 @@ describe("emitObjectWithRefines", () => {
     const out = emitObjectWithRefines("CreateOrderRequest", fields, [inv], available);
     expect(out).toContain("  qty: z.number().int(),"); // NOT folded
     expect(out.at(-1)).toContain('message: "At least one, please"');
-    expect(out.at(-1)).toContain("loomCode");
+    expect(out.at(-1)).toContain("params: { code: ");
   });
 
   it("drops an invariant whose field is not in the request body (neither chain nor refine)", () => {
@@ -375,7 +376,7 @@ describe("emitValueObjectSchema", () => {
       [{ expr: bin(">=", fieldRef("amount"), intLit(0)), source: "amount >= 0" }],
     );
     expect(emitValueObjectSchema(money)).toContain(
-      '  amount: z.number().int().refine((v: any) => v >= 0, { message: "Amount must be at least 0", params: { loomCode: "field.min", loomValues: {"min":0} } }),',
+      '  amount: formNumber("int").refine((v: any) => v >= 0, { message: "Amount must be at least 0", params: { code: "field.min", values: {"min":0} } }),',
     );
   });
 });

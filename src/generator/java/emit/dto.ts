@@ -19,9 +19,10 @@ import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { responseMaskPlan, responseWireFor } from "../../../ir/util/response-wire.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import { wireSurfaceTypes } from "../../_payload/union-wire.js";
+import { SCHEMA_NAMES } from "../../_symbols/plan.js";
 import { jid, jsonProp } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { renderJavaExpr } from "../render-expr.js";
@@ -365,12 +366,12 @@ export function renderDtoFiles(
   // matching the Hono/.NET/Phoenix/Python paged schema exactly.
   if (pagedAutoAll) {
     out.push({
-      name: `${agg.name}Paged.java`,
+      name: `${SCHEMA_NAMES.paged(agg.name)}.java`,
       category: "response-dto",
       content: recordFile(
         pkg,
         basePkg,
-        `${agg.name}Paged`,
+        SCHEMA_NAMES.paged(agg.name),
         [
           `${J.List}<${agg.name}Response> items`,
           "int page",
@@ -556,7 +557,7 @@ export function voRecord(
   const body =
     dir === "Response"
       ? [
-          `    public static ${vo}Response from(${vo} value) {`,
+          `    public static ${vo}Response from(${javaProjectRef(vo, "valueobject")} value) {`,
           `        return new ${vo}Response(${fields
             .map((f) => domainToWire(eff(f.type, f.optional), `value.${jid(f.name)}()`))
             .join(", ")});`,
@@ -719,7 +720,7 @@ function wireRecord(
   // imports + second method ride in only when a mask is present, so mask-free
   // records stay byte-identical.
   const body = [
-    `    public static ${recordName} from(${entity.name} value) {`,
+    `    public static ${recordName} from(${javaProjectRef(entity.name)} value) {`,
     `        return new ${recordName}(${args.join(", ")});`,
     `    }`,
     ...(maskedAny
@@ -728,7 +729,7 @@ function wireRecord(
           `    /** Response projection with \`mask unless\` fields redacted to null`,
           `     *  unless the ambient principal satisfies each field's predicate`,
           `     *  (fail-closed — unauthenticated redacts). */`,
-          `    public static ${recordName} fromMasked(${entity.name} value) {`,
+          `    public static ${recordName} fromMasked(${javaProjectRef(entity.name)} value) {`,
           `        ${javaRef(`${basePkg}.auth`, "User")} __maskUser = ${javaRef(`${basePkg}.auth`, "CurrentUserAccessor")}.currentOrNull();`,
           `        return new ${recordName}(${maskedArgs.join(", ")});`,
           `    }`,

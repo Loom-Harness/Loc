@@ -1,8 +1,9 @@
-import { readSortFor } from "../../../ir/enrich/read-scope.js";
+import { type ReadOrderTerm, readSortFor } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { clientSortTieBreak, domainFindShape, singleReadOrder } from "../../../ir/plan/index.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import type {
   EnrichedAggregateIR,
   FindIR,
@@ -17,25 +18,32 @@ import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import {
   bypassedFilterNames,
   type FilterBypass,
   wrapWithFilterBypass,
   writeScopeFilterName,
 } from "../capability-filter.js";
-import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
+import { isMangled, javaLocals, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import { J } from "../java-symbols.js";
-import { boxedJavaType, renderJavaExpr, renderJavaType } from "../render-expr.js";
+import {
+  boxedJavaType,
+  javaSortComparator,
+  renderJavaExpr,
+  renderJavaType,
+} from "../render-expr.js";
 import { renderJpqlWhere } from "../render-jpql.js";
 import { sqlRestrictionIdent } from "../sql-ident.js";
 import { renderJavaCacheEvict } from "./by-id-cache.js";
 import { JAVA_FIND_ABSENCE_THROW, javaNotFoundThrow } from "./common.js";
 import { ADMIT_METHOD, hasAdmittedReferences, refAdmissionMethod } from "./ref-admission.js";
 
+const N = DOMAIN_NAMES.java;
 const OPTIONAL = javaRef("java.util", "Optional");
 const COMPARATOR = javaRef("java.util", "Comparator");
 const PAGE = javaRef("org.springframework.data.domain", "Page");
@@ -165,7 +173,7 @@ function versionCasSql(
 
 // A JPA property PATH — every segment is the (possibly mangled) java field the
 // entity emitter declared, not the `.ddd` name.
-const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => jid(s.name)).join(".");
+const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => N.field(s.name)).join(".");
 
 /** `Sort.by(Sort.Order.asc("a.b"), …, Sort.Order.asc("id"))` for the
  *  Specification path — the declared terms with the `id` tie-break, or `id`
@@ -181,31 +189,93 @@ function springSort(sort: readonly SortTermIR[]): string {
  *  caller's `?sort=` key takes after that key (`clientSortTieBreak`). */
 function javaClientSortTieBreak(): string {
   const orders = clientSortTieBreak().map(
-    (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(jid(t.field))})`,
+    (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(N.field(t.field))})`,
   );
   return `.and(${SORT}.by(${orders.join(", ")}))`;
 }
 
-/** ` order by e.a.b asc, …, e.id asc` for the JPQL path (`readSortFor`). */
-function jpqlOrderBy(sort: readonly SortTermIR[]): string {
+/** The Spring `Sort` of a page sorted by the caller's whitelisted key (held
+ *  in `prop`, its java attribute name), then the tie-break.  A text or enum
+ *  key sorts by code point like every other sort (`src/ir/plan/sort-order.ts`):
+ *  Spring's `Sort` has no collation, so that key is an unsafe JPQL order over
+ *  the read's `@Query`. */
+function javaClientSort(agg: EnrichedAggregateIR, prop: string): string {
+  const dir = `"desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC`;
+  const byField = `${SORT}.by(${dir}, ${prop})`;
+  const codePoint = codePointSortFields(agg.fields);
+  const collated = sortableFields(agg).filter((wf) => wf !== "id" && codePoint.has(wf));
+  if (collated.length === 0) return `${byField}${javaClientSortTieBreak()}`;
+  const keys = collated.map((wf) => JSON.stringify(wf)).join(", ");
+  return `(java.util.Set.of(${keys}).contains(__sortField) ? org.springframework.data.jpa.domain.JpaSort.unsafe(${dir}, "collate(" + ${prop} + " as ucs_basic)") : ${byField})${javaClientSortTieBreak()}`;
+}
+
+/** The Spring `Sort` of a read's declared order (`defaultSortOrder`): a text
+ *  or enum column through an unsafe JPQL `collate(… as ucs_basic)` order. */
+function javaDeclaredSort(terms: readonly ReadOrderTerm[], codePoint: ReadonlySet<string>): string {
+  const one = (t: ReadOrderTerm): string => {
+    const name = N.field(t.field);
+    const dir = `${SORT}.Direction.${t.direction === "desc" ? "DESC" : "ASC"}`;
+    return codePoint.has(t.field)
+      ? `org.springframework.data.jpa.domain.JpaSort.unsafe(${dir}, ${JSON.stringify(`collate(${name} as ucs_basic)`)})`
+      : `${SORT}.by(${dir}, ${JSON.stringify(name)})`;
+  };
+  return terms.map(one).reduce((acc, t) => `${acc}.and(${t})`);
+}
+
+/** ` order by e.a.b asc, …, e.id asc` for the JPQL path (`readSortFor`).  A
+ *  text or enum column sorts by code point (the one sort order —
+ *  `src/ir/plan/sort-order.ts`): HQL's `collate(… as …)`. */
+function jpqlOrderBy(sort: readonly SortTermIR[], codePoint: ReadonlySet<string>): string {
   return ` order by ${readSortFor(sort)
-    .map((t) => `e.${dottedSortPath(t)} ${t.direction}`)
+    .map((t) =>
+      t.path.length === 1 && codePoint.has(t.path[0]!.name)
+        ? `collate(e.${dottedSortPath(t)} as ucs_basic) ${t.direction}`
+        : `e.${dottedSortPath(t)} ${t.direction}`,
+    )
     .join(", ")}`;
+}
+
+/** Whether a retrieval's order needs a code-point collation on any term. */
+function sortCollates(sort: readonly SortTermIR[], codePoint: ReadonlySet<string>): boolean {
+  return readSortFor(sort).some((t) => t.path.length === 1 && codePoint.has(t.path[0]!.name));
+}
+
+/** A Specification that only ORDERS — the retrieval's terms, text and enum
+ *  columns collated by code point through Hibernate's `collate`.  A Spring
+ *  `Sort` cannot carry a collation, so this read passes `Sort.unsorted()` and
+ *  orders inside the query (Spring drops a spec's ordering from the count
+ *  query itself). */
+function javaOrderingSpec(sort: readonly SortTermIR[], codePoint: ReadonlySet<string>): string {
+  const orders = readSortFor(sort).map((t) => {
+    const name = t.path[0]!.name;
+    const path = t.path.map((s) => `.get(${JSON.stringify(N.field(s.name))})`).join("");
+    const key =
+      t.path.length === 1 && codePoint.has(name)
+        ? `((org.hibernate.query.criteria.HibernateCriteriaBuilder) cb).collate(root${path}.as(String.class), "ucs_basic")`
+        : `root${path}`;
+    return `cb.${t.direction}(${key})`;
+  });
+  return `(root, query, cb) -> { query.orderBy(java.util.List.of(${orders.join(", ")})); return null; }`;
 }
 
 /** A `sort:` term as a chained accessor key extractor over `x`
  *  (`x.a().b()`) for an in-memory `Comparator`. */
 function inMemorySortKey(t: SortTermIR): string {
-  return `x -> x.${t.path.map((s) => `${jid(s.name)}()`).join(".")}`;
+  return `x -> x.${t.path.map((s) => `${N.prop(s.name)}()`).join(".")}`;
 }
 
 /** The in-memory `Comparator<Agg>` chain for a retrieval's `sort:`, or
  *  null when unsorted.  Each term is keyed off the accessor path; `desc`
  *  reverses that single term (`Comparator.comparing(...).reversed()`). */
-function inMemoryComparator(sort: readonly SortTermIR[], agg: string): string | null {
+function inMemoryComparator(sort: readonly SortTermIR[], agg: EnrichedAggregateIR): string | null {
   if (sort.length === 0) return null;
   const term = (t: SortTermIR): string => {
-    const base = `${COMPARATOR}.<${agg}, Comparable>comparing(${inMemorySortKey(t)})`;
+    // A root field compares by the one sort order; a deeper path by value.
+    const keyType =
+      t.path.length === 1 ? agg.fields.find((f) => f.name === t.path[0]!.name)?.type : undefined;
+    const base = keyType
+      ? `${COMPARATOR}.comparing((${agg.name} x) -> x.${t.path.map((p) => `${N.prop(p.name)}()`).join(".")}, ${javaSortComparator(keyType)})`
+      : `${COMPARATOR}.<${agg.name}, Comparable>comparing(${inMemorySortKey(t)})`;
     return t.direction === "desc" ? `${base}.reversed()` : base;
   };
   return sort
@@ -251,7 +321,7 @@ export const IN_MEMORY_READ_NAMES: ReadonlySet<string> = new Set([
 export function inMemoryParamExpr(locals: ReadonlyMap<string, string>): {
   paramExpr?: (name: string) => string | undefined;
 } {
-  return [...locals].some(([n, l]) => l !== jid(n))
+  return [...locals].some(([n, l]) => l !== N.binding(n))
     ? { paramExpr: (n) => movedLocalOrUndefined(locals, n) }
     : {};
 }
@@ -291,7 +361,7 @@ export function inMemoryRetrievalLines(
       accessorProps: true,
       ...inMemoryParamExpr(locals),
     });
-    const cmp = inMemoryComparator(r.sort, agg.name);
+    const cmp = inMemoryComparator(r.sort, agg);
     const promotedClause = promotedClauseFor?.(r.name, "x") ?? "";
     const filtered = `${baseCall ?? "findAll()"}.stream().filter(x -> ${where})${promotedClause}`;
     const sorted = cmp ? `${filtered}.sorted(${cmp})` : filtered;
@@ -300,13 +370,13 @@ export function inMemoryRetrievalLines(
     const pagedParams = [bareParams, "Integer offset, Integer limit"].filter(Boolean).join(", ");
     return [
       `    @Override`,
-      `    public ${J.List}<${agg.name}> run${upperFirst(r.name)}(${bareParams}) {`,
+      `    public ${J.List}<${javaProjectRef(agg.name)}> run${N.type(r.name)}(${bareParams}) {`,
       ...prelude,
       `        return ${sorted}.toList();`,
       `    }`,
       ``,
       `    @Override`,
-      `    public ${J.List}<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+      `    public ${J.List}<${javaProjectRef(agg.name)}> run${N.type(r.name)}(${pagedParams}) {`,
       ...prelude,
       `        return ${sorted}`,
       `            .skip(offset == null ? 0L : offset.longValue())`,
@@ -356,6 +426,7 @@ export function isPagedAutoAll(repo: RepositoryIR | undefined): boolean {
 export function inMemoryPagedSortLines(
   agg: EnrichedAggregateIR,
   payloads: readonly PayloadIR[],
+  find: FindIR,
 ): string[] {
   const fields = sortableFields(agg).filter((wf) => wf !== "id");
   const wireType = (wf: string): TypeIR | undefined =>
@@ -367,21 +438,45 @@ export function inMemoryPagedSortLines(
     // reference names the java accessor, which is mangled when the `.ddd` name
     // is a reserved word.
     if (prim === "int")
-      return `            case "${wf}" -> java.util.Comparator.comparingInt(${agg.name}::${jid(wf)});`;
+      return `            case "${wf}" -> java.util.Comparator.comparingInt(${javaProjectRef(agg.name)}::${N.prop(wf)});`;
     if (prim === "long")
-      return `            case "${wf}" -> java.util.Comparator.comparingLong(${agg.name}::${jid(wf)});`;
-    return `            case "${wf}" -> java.util.Comparator.comparing(${agg.name}::${jid(wf)});`;
+      return `            case "${wf}" -> java.util.Comparator.comparingLong(${javaProjectRef(agg.name)}::${N.prop(wf)});`;
+    // The one sort order (`src/ir/plan/sort-order.ts`): text by code point,
+    // an enum by name, an absent key last ascending.
+    const field = agg.fields.find((f) => f.name === wf)?.type ?? t;
+    return `            case "${wf}" -> java.util.Comparator.comparing(${javaProjectRef(agg.name)}::${N.prop(wf)}, ${javaSortComparator(field)});`;
   };
   return [
     `        String __sortField = java.util.List.of(${sortableFields(agg)
       .map((wf) => `"${wf}"`)
       .join(", ")}).contains(sort) ? sort : "id";`,
-    `        java.util.Comparator<${agg.name}> __cmp = switch (__sortField) {`,
+    `        java.util.Comparator<${javaProjectRef(agg.name)}> __cmp = switch (__sortField) {`,
     ...fields.map(arm),
     `            default -> java.util.Comparator.comparing(o -> o.id().toString());`,
     `        };`,
     `        if ("desc".equals(dir)) __cmp = __cmp.reversed();`,
+    ...declaredInMemoryOrderLines(agg, find),
   ];
+}
+
+/** An unwhitelisted `sort` (the route's `""` default) takes the read's
+ *  declared order (`defaultSortOrder`), term by term, by the one sort order. */
+function declaredInMemoryOrderLines(agg: EnrichedAggregateIR, find: FindIR): string[] {
+  const declared = defaultSortOrder(find.defaultSort);
+  if (!declared) return [];
+  const term = (t: ReadOrderTerm): string => {
+    const type = agg.fields.find((f) => f.name === t.field)?.type;
+    // The `id` tie-break compares its text, as the unsorted default does.
+    const cmp = type
+      ? `java.util.Comparator.comparing(${javaProjectRef(agg.name)}::${N.prop(t.field)}, ${javaSortComparator(type)})`
+      : `java.util.Comparator.comparing((${agg.name} o) -> o.${N.prop(t.field)}().toString())`;
+    return t.direction === "desc" ? `${cmp}.reversed()` : cmp;
+  };
+  const chain = declared.map(term).reduce((acc, t) => `${acc}.thenComparing(${t})`);
+  const whitelist = sortableFields(agg)
+    .map((wf) => `"${wf}"`)
+    .join(", ");
+  return [`        if (!java.util.List.of(${whitelist}).contains(sort)) __cmp = ${chain};`];
 }
 
 /** Names a declared-find delegate in the repository IMPL spells itself — the
@@ -423,7 +518,7 @@ function findSignature(
     ...(isPagedFind(find) ? ["int page", "int pageSize", "String sort", "String dir"] : []),
   ].join(", ");
   const ret = findReturn(find.returnType, basePkg);
-  return `${ret} ${jid(find.name)}(${params})`;
+  return `${ret} ${N.op(find.name)}(${params})`;
 }
 
 function findReturn(t: TypeIR, basePkg: string): string {
@@ -460,9 +555,9 @@ export function renderJavaRepositoryInterface(
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
     return [
-      `    List<${agg.name}> run${upperFirst(r.name)}(${params});`,
+      `    List<${javaProjectRef(agg.name)}> run${N.type(r.name)}(${params});`,
       ``,
-      `    List<${agg.name}> run${upperFirst(r.name)}(${pagedParams});`,
+      `    List<${javaProjectRef(agg.name)}> run${N.type(r.name)}(${pagedParams});`,
     ];
   });
   const pagedAll = isPagedAutoAll(repo);
@@ -477,22 +572,22 @@ export function renderJavaRepositoryInterface(
     ``,
     `@org.jmolecules.ddd.annotation.Repository`,
     `public interface ${agg.name}Repository {`,
-    `    ${agg.name} save(${agg.name} aggregate);`,
+    `    ${javaProjectRef(agg.name)} save(${javaProjectRef(agg.name)} aggregate);`,
     ``,
-    `    Optional<${agg.name}> findById(${idClass} id);`,
+    `    Optional<${javaProjectRef(agg.name)}> findById(${idClass} id);`,
     ``,
     `    /** @throws ${ctx.basePkg}.domain.common.AggregateNotFoundException on a miss (→ 404). */`,
-    `    ${agg.name} getById(${idClass} id);`,
+    `    ${javaProjectRef(agg.name)} getById(${idClass} id);`,
     ``,
-    `    List<${agg.name}> findAll();`,
+    `    List<${javaProjectRef(agg.name)}> findAll();`,
     ``,
     // Paged relational findAll — a bounded page over the single table,
     // server-side sorted.  The plain `List findAll()` above stays for the
     // internal retrieval / in-memory readers.
     pagedAll
-      ? `    ${pagedRef(ctx.basePkg)}<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir);\n`
+      ? `    ${pagedRef(ctx.basePkg)}<${javaProjectRef(agg.name)}> findAllPaged(int page, int pageSize, String sort, String dir);\n`
       : null,
-    `    void delete(${agg.name} aggregate);`,
+    `    void delete(${javaProjectRef(agg.name)} aggregate);`,
     // Drop a loaded aggregate's unsaved changes, so no later flush writes them.
     // A store that writes only on `save` has nothing to drop, hence the no-op
     // default; the JPA impl detaches the managed entity.
@@ -500,7 +595,7 @@ export function renderJavaRepositoryInterface(
       ? [
           ``,
           `    /** Drop the unsaved changes of a loaded aggregate: nothing writes them later. */`,
-          `    default void discard(${agg.name} aggregate) { }`,
+          `    default void discard(${javaProjectRef(agg.name)} aggregate) { }`,
         ]
       : []),
     findLines.length > 0 ? `` : null,
@@ -547,14 +642,14 @@ export function renderJavaSpringDataRepository(
       { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
     );
     const declaredParams = f.params.map(
-      (p) => `@${PARAM}("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`,
+      (p) => `@${PARAM}("${N.binding(p.name)}") ${renderJavaType(p.type)} ${N.binding(p.name)}`,
     );
     if (isPagedFind(f)) {
       // Spring Data derives the count query from the @Query + Pageable.
       const arg = f.returnType.kind === "genericInstance" ? f.returnType.arg : f.returnType;
       return [
         `    @${QUERY}("select e from ${agg.name} e${where}")`,
-        `    ${PAGE}<${boxedJavaType(arg)}> ${jid(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
+        `    ${PAGE}<${boxedJavaType(arg)}> ${N.op(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
         ``,
       ];
     }
@@ -568,14 +663,14 @@ export function renderJavaSpringDataRepository(
         .join(", ");
       return [
         `    @${QUERY}("select e from ${agg.name} e${where} order by ${order}")`,
-        `    java.util.List<${agg.name}> ${jid(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
+        `    java.util.List<${javaProjectRef(agg.name)}> ${N.op(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
         ``,
       ];
     }
     const ret = findReturn(f.returnType, ctx.basePkg);
     return [
       `    @${QUERY}("select e from ${agg.name} e${where}")`,
-      `    ${ret} ${jid(f.name)}(${declaredParams.join(", ")});`,
+      `    ${ret} ${N.op(f.name)}(${declaredParams.join(", ")});`,
       ``,
     ];
   });
@@ -597,12 +692,14 @@ export function renderJavaSpringDataRepository(
         ctx.bypassByRetrieval?.get(r.name),
       );
       const params = r.params
-        .map((p) => `@${PARAM}("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`)
+        .map(
+          (p) => `@${PARAM}("${N.binding(p.name)}") ${renderJavaType(p.type)} ${N.binding(p.name)}`,
+        )
         .join(", ");
       const sigParams = [params, `${PAGEABLE} pageable`].filter(Boolean).join(", ");
       return [
-        `    @${QUERY}("select e from ${agg.name} e${where}${jpqlOrderBy(r.sort)}")`,
-        `    ${J.List}<${agg.name}> run${upperFirst(r.name)}(${sigParams});`,
+        `    @${QUERY}("select e from ${agg.name} e${where}${jpqlOrderBy(r.sort, codePointSortFields(agg.fields))}")`,
+        `    ${J.List}<${javaProjectRef(agg.name)}> run${N.type(r.name)}(${sigParams});`,
         ``,
       ];
     });
@@ -615,7 +712,7 @@ export function renderJavaSpringDataRepository(
   if (ctx.staticRestriction) {
     principalOverrides.push(
       `    @${QUERY}("select e from ${agg.name} e where e.id = :id")`,
-      `    ${OPTIONAL}<${agg.name}> findById(@${PARAM}("id") ${idClass} id);`,
+      `    ${OPTIONAL}<${javaProjectRef(agg.name)}> findById(@${PARAM}("id") ${idClass} id);`,
       ``,
     );
   }
@@ -628,7 +725,7 @@ export function renderJavaSpringDataRepository(
   if (isPagedAutoAll(repo)) {
     pagedAllLines.push(
       `    @${QUERY}("select e from ${agg.name} e")`,
-      `    ${PAGE}<${agg.name}> findAllPaged(${PAGEABLE} pageable);`,
+      `    ${PAGE}<${javaProjectRef(agg.name)}> findAllPaged(${PAGEABLE} pageable);`,
       ``,
     );
   }
@@ -675,7 +772,7 @@ export function renderJavaSpringDataRepository(
     `import ${ctx.basePkg}.domain.ids.*;`,
     `import ${ctx.basePkg}.domain.enums.*;`,
     ``,
-    `public interface ${agg.name}JpaRepository extends JpaRepository<${javaRef(ctx.entityPkg, agg.name)}, ${idClass}>${anyReified ? `, ${JPA_SPECIFICATION_EXECUTOR}<${agg.name}>` : ""} {`,
+    `public interface ${agg.name}JpaRepository extends JpaRepository<${javaRef(ctx.entityPkg, agg.name)}, ${idClass}>${anyReified ? `, ${JPA_SPECIFICATION_EXECUTOR}<${javaProjectRef(agg.name)}>` : ""} {`,
     ...allMethodLines,
     `}`,
     ``,
@@ -717,7 +814,7 @@ export function renderJavaRepositoryImpl(
   // `rows` is the size.
   const runLogged = (r: RetrievalIR, call: string): string[] => [
     `        var result = ${call};`,
-    `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "run${upperFirst(r.name)}", "rows", result.size());`,
+    `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "run${N.type(r.name)}", "rows", result.size());`,
     `        return result;`,
   ];
   const retrievalDelegates = retrievals.flatMap((r) => {
@@ -745,20 +842,24 @@ export function renderJavaRepositoryImpl(
         renderJavaExpr(a, { thisName: "this", ...inMemoryParamExpr(locals) }),
       );
       const spec = `${criteria}.${r.criterionRef.name}(${args.join(", ")})`;
+      const codePoint = codePointSortFields(agg.fields);
+      const collated = sortCollates(r.sort, codePoint);
+      const orderedSpec = collated ? `${spec}.and(${javaOrderingSpec(r.sort, codePoint)})` : spec;
+      const sortArg = collated ? `${SORT}.unsorted()` : springSort(r.sort);
       return [
         `    @Override`,
-        `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
+        `    public List<${javaProjectRef(agg.name)}> run${N.type(r.name)}(${params}) {`,
         ...wrapBypass(retrievalBypass, [
-          ...runLogged(r, `jpa.findAll(${spec}, ${springSort(r.sort)})`),
+          ...runLogged(r, `jpa.findAll(${orderedSpec}, ${sortArg})`),
         ]),
         `    }`,
         ``,
         `    @Override`,
-        `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+        `    public List<${javaProjectRef(agg.name)}> run${N.type(r.name)}(${pagedParams}) {`,
         ...wrapBypass(retrievalBypass, [
           ...runLogged(
             r,
-            `jpa.findAll(${spec}, new ${offsetLimitPageRequest}(offset, limit, ${springSort(r.sort)})).getContent()`,
+            `jpa.findAll(${orderedSpec}, new ${offsetLimitPageRequest}(offset, limit, ${sortArg})).getContent()`,
           ),
         ]),
         `    }`,
@@ -768,18 +869,18 @@ export function renderJavaRepositoryImpl(
     const jpaArgs = (pageable: string): string => [bareArgs, pageable].filter(Boolean).join(", ");
     return [
       `    @Override`,
-      `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
+      `    public List<${javaProjectRef(agg.name)}> run${N.type(r.name)}(${params}) {`,
       ...wrapBypass(retrievalBypass, [
-        ...runLogged(r, `jpa.run${upperFirst(r.name)}(${jpaArgs(`${PAGEABLE}.unpaged()`)})`),
+        ...runLogged(r, `jpa.run${N.type(r.name)}(${jpaArgs(`${PAGEABLE}.unpaged()`)})`),
       ]),
       `    }`,
       ``,
       `    @Override`,
-      `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+      `    public List<${javaProjectRef(agg.name)}> run${N.type(r.name)}(${pagedParams}) {`,
       ...wrapBypass(retrievalBypass, [
         ...runLogged(
           r,
-          `jpa.run${upperFirst(r.name)}(${jpaArgs(`new ${offsetLimitPageRequest}(offset, limit, ${SORT}.unsorted())`)})`,
+          `jpa.run${N.type(r.name)}(${jpaArgs(`new ${offsetLimitPageRequest}(offset, limit, ${SORT}.unsorted())`)})`,
         ),
       ]),
       `    }`,
@@ -810,9 +911,10 @@ export function renderJavaRepositoryImpl(
       const sortWhitelist = sortableFields(agg)
         .map((wf) => JSON.stringify(wf))
         .join(", ");
-      const declaredOrder = defaultSortOrder(f.defaultSort)
-        ?.map((t) => `Sort.Order.${t.direction}(${JSON.stringify(jid(t.field))})`)
-        .join(", ");
+      const declaredTerms = defaultSortOrder(f.defaultSort);
+      const declaredOrder = declaredTerms
+        ? javaDeclaredSort(declaredTerms, codePointSortFields(agg.fields))
+        : undefined;
       return [
         `    @Override`,
         `    public ${sig} {`,
@@ -822,11 +924,11 @@ export function renderJavaRepositoryImpl(
           // An unwhitelisted `sort` (the route's `""` default) takes the read's
           // declared order (`defaultSortOrder`).
           declaredOrder
-            ? `        ${SORT} __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()} : ${SORT}.by(${declaredOrder});`
-            : `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()};`,
-          `        var result = jpa.${jid(f.name)}(${args});`,
+            ? `        ${SORT} __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? ${javaClientSort(agg, sortPropertyVar(agg))} : ${declaredOrder};`
+            : `        ${SORT} __sort = ${javaClientSort(agg, sortPropertyVar(agg))};`,
+          `        var result = jpa.${N.op(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
-          `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
+          `        return new ${pagedRef(ctx.basePkg)}<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
         ]),
         `    }`,
         ``,
@@ -908,7 +1010,7 @@ export function renderJavaRepositoryImpl(
     ``,
     provenance || versioned ? `    @${TRANSACTIONAL}` : null,
     `    @Override`,
-    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
+    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${javaProjectRef(agg.name)} aggregate) {`,
     // Reference admission runs first, so a refused reference leaves the row unwritten.
     admitsReferences ? `        ${ADMIT_METHOD}(aggregate);` : null,
     // Optimistic concurrency (`versioned`): the counter is COMMAND-driven, not
@@ -927,7 +1029,7 @@ export function renderJavaRepositoryImpl(
           `        if (jpa.bumpVersion(aggregate.id().value(), __expectedVersion) == 1) {`,
           `            aggregate._applyVersion(__expectedVersion + 1);`,
           `        } else if (jpa.countRowsById(aggregate.id().value()) > 0) {`,
-          `            throw new ${OPTIMISTIC_LOCK_FAILURE}(${agg.name}.class, aggregate.id().value());`,
+          `            throw new ${OPTIMISTIC_LOCK_FAILURE}(${javaProjectRef(agg.name)}.class, aggregate.id().value());`,
           `        }`,
         ]
       : []),
@@ -971,7 +1073,7 @@ export function renderJavaRepositoryImpl(
     ``,
     ...(admitsReferences ? refAdmissionMethod(agg, ctx) : []),
     `    @Override`,
-    `    public Optional<${agg.name}> findById(${idClass} id) {`,
+    `    public Optional<${javaProjectRef(agg.name)}> findById(${idClass} id) {`,
     ...(versioned
       ? [
           `        var __shared = _isManaged(id);`,
@@ -982,7 +1084,7 @@ export function renderJavaRepositoryImpl(
     `    }`,
     ``,
     `    @Override`,
-    `    public ${agg.name} getById(${idClass} id) {`,
+    `    public ${javaProjectRef(agg.name)} getById(${idClass} id) {`,
     // Command load (authorization): when the aggregate's write scope is
     // narrower than its read scope, the by-id query runs with the entity's
     // `<Agg>_writeScope` filter enabled on top of the read filters — a
@@ -996,7 +1098,7 @@ export function renderJavaRepositoryImpl(
       ? [
           `        var __session = em.unwrap(org.hibernate.Session.class);`,
           `        __session.enableFilter(${JSON.stringify(writeScope)});`,
-          `        ${OPTIONAL}<${agg.name}> found;`,
+          `        ${OPTIONAL}<${javaProjectRef(agg.name)}> found;`,
           `        try {`,
           `            found = jpa.findById(id);`,
           `        } finally {`,
@@ -1019,7 +1121,7 @@ export function renderJavaRepositoryImpl(
     ...(versioned ? independentHandleLines(agg.name, idClass) : []),
     ``,
     `    @Override`,
-    `    public List<${agg.name}> findAll() {`,
+    `    public List<${javaProjectRef(agg.name)}> findAll() {`,
     `        return jpa.findAll();`,
     `    }`,
     ``,
@@ -1029,19 +1131,19 @@ export function renderJavaRepositoryImpl(
     ...(pagedAll
       ? [
           `    @Override`,
-          `    public ${pagedRef(ctx.basePkg)}<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
+          `    public ${pagedRef(ctx.basePkg)}<${javaProjectRef(agg.name)}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
           `        String __sortField = java.util.List.of(${pagedAllSortWhitelist}).contains(sort) ? sort : "id";`,
           ...sortPropertyLines(agg),
-          `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()};`,
+          `        ${SORT} __sort = ${javaClientSort(agg, sortPropertyVar(agg))};`,
           `        var result = jpa.findAllPaged(${PAGE_REQUEST}.of(page - 1, pageSize, __sort));`,
           `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "all", "rows", result.getTotalElements());`,
-          `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
+          `        return new ${pagedRef(ctx.basePkg)}<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
           `    }`,
           ``,
         ]
       : []),
     `    @Override`,
-    `    public void delete(${agg.name} aggregate) {`,
+    `    public void delete(${javaProjectRef(agg.name)} aggregate) {`,
     `        jpa.delete(aggregate);`,
     ctx.cache ? renderJavaCacheEvict(ctx.cache, "delete", "aggregate.id().value()") : null,
     `    }`,
@@ -1051,7 +1153,7 @@ export function renderJavaRepositoryImpl(
       ? [
           ``,
           `    @Override`,
-          `    public void discard(${agg.name} aggregate) {`,
+          `    public void discard(${javaProjectRef(agg.name)} aggregate) {`,
           `        em.detach(aggregate);`,
           `    }`,
         ]
@@ -1097,26 +1199,26 @@ function independentHandleLines(aggName: string, idClass: string): string[] {
     `        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) return false;`,
     `        var __session = em.unwrap(org.hibernate.Session.class);`,
     `        if (__session.getStatistics().getEntityCount() == 0) return false;`,
-    `        return __session.getManagedEntities(${aggName}.class).stream()`,
+    `        return __session.getManagedEntities(${javaProjectRef(aggName)}.class).stream()`,
     `            .anyMatch(__e -> __e.id().equals(id));`,
     `    }`,
     ``,
     `    /** A handle that is not the managed instance of a row another handle holds. */`,
-    `    private boolean _isSecondHandle(${aggName} aggregate) {`,
+    `    private boolean _isSecondHandle(${javaProjectRef(aggName)} aggregate) {`,
     `        return !em.contains(aggregate) && _isManaged(aggregate.id());`,
     `    }`,
     ``,
     `    /** An independent, detached handle on a row an earlier load already holds. */`,
-    `    private ${aggName} _loadSecondHandle(${idClass} id) {`,
+    `    private ${javaProjectRef(aggName)} _loadSecondHandle(${idClass} id) {`,
     `        var __session = em.unwrap(org.hibernate.Session.class);`,
     `        __session.flush();`,
     `        try (var __fork = __session.sessionWithOptions().connection().flushMode(org.hibernate.FlushMode.MANUAL).openSession()) {`,
-    `            return __fork.find(${aggName}.class, id);`,
+    `            return __fork.find(${javaProjectRef(aggName)}.class, id);`,
     `        }`,
     `    }`,
     ``,
     `    /** Write a second handle without merging it onto the managed first one. */`,
-    `    private ${aggName} _saveSecondHandle(${aggName} aggregate) {`,
+    `    private ${javaProjectRef(aggName)} _saveSecondHandle(${javaProjectRef(aggName)} aggregate) {`,
     `        var __session = em.unwrap(org.hibernate.Session.class);`,
     `        try (var __fork = __session.sessionWithOptions().connection().flushMode(org.hibernate.FlushMode.MANUAL).openSession()) {`,
     `            __fork.merge(aggregate);`,
@@ -1216,7 +1318,7 @@ function sortPropertyLines(agg: EnrichedAggregateIR): string[] {
   const mangled = mangledSortables(agg);
   if (mangled.length === 0) return [];
   const arms = mangled
-    .map((wf) => `case ${JSON.stringify(wf)} -> ${JSON.stringify(jid(wf))}; `)
+    .map((wf) => `case ${JSON.stringify(wf)} -> ${JSON.stringify(N.field(wf))}; `)
     .join("");
   return [
     `        String __sortProperty = switch (__sortField) { ${arms}default -> __sortField; };`,

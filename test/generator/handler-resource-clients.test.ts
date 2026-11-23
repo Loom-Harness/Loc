@@ -140,15 +140,16 @@ system Plain {
     expect(create).not.toContain("using D.Resources;");
   });
 
-  it("java: the handler bean calls the routed client class and imports the package", async () => {
+  it("java: the handler bean calls the routed client class and imports it", async () => {
     const files = await generateSystemFiles(src("java"));
     const cmd = fileEndingWith(files, "ArchiveOrderHandler.java");
-    expect(cmd).toContain("import com.loom.d.resources.*;");
+    expect(cmd).toContain("import com.loom.d.resources.S3Resources;");
+    expect(cmd).toContain("import com.loom.d.resources.SmtpResources;");
     expect(cmd).toContain("S3Resources.salesFilesPut(");
     expect(cmd).toContain("RabbitmqResources.salesJobsEnqueue(");
     expect(cmd).toContain("SmtpResources.mailSend(");
     const qry = fileEndingWith(files, "PeekArchiveHandler.java");
-    expect(qry).toContain("import com.loom.d.resources.*;");
+    expect(qry).toContain("import com.loom.d.resources.S3Resources;");
     expect(qry).toContain("S3Resources.salesFilesGet(");
   });
 

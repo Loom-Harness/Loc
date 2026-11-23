@@ -2,7 +2,7 @@
 
 The one expression language shared by invariants, derived fields, operation bodies, repository `find` filters, `criterion` predicates, projection `select` clauses, and page bodies. Every backend consumes the *same* fully-resolved `ExprIR` — names already carry a `refKind`, member accesses a `receiverType`, calls a `callKind` — so the only thing that differs across targets is leaf spelling: operator syntax, money arithmetic, and collection-op shape. This chapter shows that divergence directly.
 
-> **Grammar:** `Expression` (`Lambda` · `MatchExpr` · `TernaryExpr`), `OrExpr`..`MultiplicativeExpr`, `UnaryExpr`, `PostfixExpr` / `PostfixSuffix` (`MemberSuffix` / `CallSuffix`), `CallArg`, `PrimaryExpr` (`LiteralExpr`, `NowExpr`, `ThisRef`, `IdRef`, `NameRef`, `ParenExpr`, `ListLit`, `TemplateString` / `TemplateHole`, `PrimitiveConversion`, `BuilderCall`, `ObjectLit`), `MatchSubject` (`AwaitExpr`), `VariantArm` · **Validators:** `loom.ternary-condition` / `loom.ternary-branches`, `loom.intrinsic-*`, `loom.interp-format-unknown` / `loom.interp-format-invalid` / `loom.interp-hole-type` / `loom.interp-format-dropped-in-domain`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.distinct-non-scalar` / `loom.avg-non-numeric` / `loom.join-non-string` / `loom.reduction-non-comparable` / `loom.bare-collection-accessor`, `loom.collection-op-in-ui` / `loom.frontend-collection-op-unsupported`, `loom.user-visible-concat`, `loom.match-*`, `loom.money-literal-malformed`, `loom.unknown-name` / `loom.unknown-member` / `loom.unknown-user-claim`, `loom.call-arg-count` / `loom.call-arg-type` (`src/language/validators/types.ts`, `temporal.ts`, `template.ts`, `match.ts`, `i18n-strings.ts`, `statements.ts`) · **Lowering:** [`lower-expr.ts`](../../src/ir/lower/lower-expr.ts); shared dispatch in [`_expr/target.ts`](../../src/generator/_expr/target.ts) · **Docs:** [`../stdlib.md`](../stdlib.md), [`../criterion.md`](../criterion.md), [`../language.md`](../language.md)
+> **Grammar:** `Expression` (`Lambda` · `MatchExpr` · `TernaryExpr`), `OrExpr`..`MultiplicativeExpr`, `UnaryExpr`, `PostfixExpr` / `PostfixSuffix` (`MemberSuffix` / `CallSuffix`), `CallArg`, `PrimaryExpr` (`LiteralExpr`, `NowExpr`, `ThisRef`, `IdRef`, `NameRef`, `ParenExpr`, `ListLit`, `TemplateString` / `TemplateHole`, `PrimitiveConversion`, `BuilderCall`, `ObjectLit`), `MatchSubject` (`AwaitExpr`), `VariantArm` · **Validators:** `loom.ternary-condition` / `loom.ternary-branches`, `loom.intrinsic-*`, `loom.interp-format-unknown` / `loom.interp-format-invalid` / `loom.interp-hole-type` / `loom.interp-format-in-domain`, `loom.intrinsic-format-pattern`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.distinct-non-scalar` / `loom.avg-non-numeric` / `loom.join-non-string` / `loom.reduction-non-comparable` / `loom.bare-collection-accessor`, `loom.collection-op-in-ui` / `loom.frontend-collection-op-unsupported`, `loom.user-visible-concat`, `loom.match-*`, `loom.money-literal-malformed`, `loom.unknown-name` / `loom.unknown-member` / `loom.unknown-user-claim`, `loom.call-arg-count` / `loom.call-arg-type` (`src/language/validators/types.ts`, `temporal.ts`, `template.ts`, `match.ts`, `i18n-strings.ts`, `statements.ts`) · **Lowering:** [`lower-expr.ts`](../../src/ir/lower/lower-expr.ts); shared dispatch in [`_expr/target.ts`](../../src/generator/_expr/target.ts) · **Docs:** [`../stdlib.md`](../stdlib.md), [`../criterion.md`](../criterion.md), [`../language.md`](../language.md)
 
 How the rest of the pipeline sees an expression: the `ExprIR.kind` switch and **all** recursion live once in `renderExprWith` (`src/generator/_expr/target.ts`); each backend supplies only a leaf table (`TS_TARGET` / `CS_TARGET` / `JAVA_TARGET` / `PY_TARGET` / `ELIXIR_TARGET`). The union has **21 kinds** today — `literal`, `this`, `id`, `ref`, `member`, `method-call`, `call`, `action-ref`, `lambda`, `new`, `object`, `list`, `authz-filter`, `paren`, `unary`, `binary`, `ternary`, `convert`, `duration`, `i18nFormat`, `match` (`src/ir/types/loom-ir.ts`). The leaf-divergence axes are: operator spelling, name casing, **money arithmetic**, collection ops, `refColl.contains` membership, regex, `ref` role, and `callKind` call syntax. Every example below puts the expression inside a `derived` field or repository `find` so it actually emits; the outputs were generated from one scratch system with one deployable per backend (`node bin/cli.js generate system expr.ddd -o out`).
 
@@ -374,7 +374,15 @@ A call to a sibling `function` or `private operation` is a bare `recompute()` in
 
 ## Scalar intrinsics
 
-Primitive receivers carry a closed method catalogue ([`../stdlib.md`](../stdlib.md), regenerate with `npm run docs:stdlib`): `string` — `.length` (a member, not a call), `trim`, `toUpper`, `toLower`, `substring`, `startsWith`, `endsWith`, `contains`, `replace`, `split`, plus the regex test `matches(re)`; `int`/`long` — `abs`, `min`, `max`, `divTrunc`; `decimal`/`money` — `abs`, `min`, `max`, `round(places?)`, `floor`, `ceil`; `datetime` — `startOfDay`. The catalogue is validated at the call site: `toUpper("x")` → `loom.intrinsic-arity`, `note.shout()` → `loom.intrinsic-unknown` (the message lists what *is* available), a bare `note.toUpper` → `loom.intrinsic-bare`, `startsWith(s: "a")` → `loom.intrinsic-named-arg`, `startsWith(3)` → `loom.intrinsic-arg-type`, and any intrinsic on a `T?` receiver → `loom.nullable-receiver`.
+Primitive receivers carry a closed method catalogue ([`../stdlib.md`](../stdlib.md), regenerate with `npm run docs:stdlib`): `string` — `.length` (a member, not a call), `trim`, `toUpper`, `toLower`, `substring`, `startsWith`, `endsWith`, `contains`, `replace`, `split`, `padStart(n, fill)`, `padEnd(n, fill)`, plus the regex test `matches(re)`; `int`/`long` — `abs`, `min`, `max`, `divTrunc`; `decimal`/`money` — `abs`, `min`, `max`, `round(places?)`, `floor`, `ceil`, `format(places)`; `date` — `year`, `month`, `day`, `daysUntil`, `addDays`, `addMonths`, `addYears`, `startOfMonth`, `endOfMonth`, `monthsUntil`, `format(pattern)`; `datetime` — `startOfDay`, `toDate`, `format(pattern)`; `duration` — `toDays`, `toHours`, `toMinutes`. The catalogue is validated at the call site: `toUpper("x")` → `loom.intrinsic-arity`, `note.shout()` → `loom.intrinsic-unknown` (the message lists what *is* available), a bare `note.toUpper` → `loom.intrinsic-bare`, `startsWith(s: "a")` → `loom.intrinsic-named-arg`, `startsWith(3)` → `loom.intrinsic-arg-type`, and any intrinsic on a `T?` receiver → `loom.nullable-receiver`.
+
+Formatting is invariant — the same text on every backend, no host locale:
+
+| Call | Result |
+|---|---|
+| `string(seq).padStart(6, "0")` | `"000123"` — pads to `n` code points with `fill` repeated and cut to fit; never truncates; an empty `fill` pads nothing |
+| `issued.format("yyyyMMdd")` | `"20261115"` — the tokens `yyyy MM dd HH mm ss`, other letters quoted (`'T'`, `''` is a quote); a `datetime` prints in UTC; the pattern must be a literal in this set (`loom.intrinsic-format-pattern`), and a `date` has no `HH`/`mm`/`ss` |
+| `amount.format(2)` | `"2.66"` for `2.665` — exactly `places` decimals, rounded half-even, `.` separator, no grouping, never `-0.00` |
 
 A member *read* on a primitive is judged against that same catalogue plus the one field-shaped scalar member (`string.length`) — a primitive is a value, not a record, so anything else it is asked for does not exist (`loom.unknown-primitive-member`). The message lists what *is* reachable; `money` and `json` and `File` get their own wording, because for each the fix is to declare a record (or to use the primitive that renders the value), not to correct a spelling. Membership outranks nullability: one optional level is unwrapped first, so `nickname.length` on a `string?` stays legal and the deref is `loom.nullable-receiver`'s business.
 
@@ -473,6 +481,8 @@ renders `this._note2.toUpperCase()` (node), `this.Note2.ToUpperInvariant()` (.NE
 ## Collection operators
 
 The closed set over a list-typed receiver: `.count`, `.first`, `.firstOrNull`, `.distinct` (members, no parens), `.sum(λ)`, `.all(λ)`, `.any(λ)`, `.where(λ)`, `.map(λ)`, `.sortBy(λ, desc?)`, `.min(λ)`, `.max(λ)`, `.avg(λ)`, `.take(n)`, `.skip(n)`, `.join(sep)`, `.contains(x)`. Typing: `count` → `int`; `sum`/`map` → the lambda's body type; `min`/`max`/`firstOrNull` → optional; `avg` → `money?` for a money projection else `decimal?`. Gates: `.sum` without a lambda is `loom.bare-collection-accessor`; `.distinct` over entities / id references is `loom.distinct-non-scalar`; `.join` over a non-string list is `loom.join-non-string`; `.min`/`.max` over a non-comparable projection is `loom.reduction-non-comparable`; `.avg` over a non-numeric one is `loom.avg-non-numeric`. Each is flagged `isCollectionOp` at lowering and lowered to the host's idiom — there is no shared runtime.
+
+**One sort order.** `sortBy` sorts by the same rule as a database `sort:` on every target ([`src/ir/plan/sort-order.ts`](../../src/ir/plan/sort-order.ts)): stable (descending keeps ties in order); text by **code point** (no locale, no case folding — the database sorts with `COLLATE "C"`); an enum by its member **name**, not declaration order; an absent key **last** ascending and first descending. Several keys reuse the query's `sort:` items — `xs.sortBy(sort: [status, code desc])` — which the macro layer unfolds into chained single-key sorts, last key first (a stable sort applied last-key-first is the multi-key order).
 
 **Page bodies take the reshaping ops only.** The ops that RESHAPE a collection — `count`, `where`, `any`, `all`, `map`, `sortBy`, `take`, `skip`, `join` — have a real renderer on every frontend (React / Vue / Svelte / Angular / Feliz / Flutter, and the Phoenix LiveView walker), so `rows.where(o => o.open).count` is an ordinary page expression. The other eight (`sum`, `min`, `max`, `avg`, `first`, `firstOrNull`, `distinct`, `contains`) are refused in a page / component / store body with `loom.frontend-collection-op-unsupported` (`src/ir/validate/checks/ui-checks.ts`), because the frontends disagree on how the RESULT is represented (`money` is a `Decimal` object on the JS frontends and Phoenix but a native scalar on Feliz and Flutter; emptiness and value equality differ). Compute the value in a repository `find`, an aggregate `derived` or a `projection`, and bind the result in the page. The filter op is spelled `where`; `filter` is not a Loom op ([`stdlib.md`](../stdlib.md)).
 
@@ -657,7 +667,7 @@ def due(self) -> datetime:
 
 A backtick template `` `Order {qty} x {note}` `` (`TemplateString`) interleaves literal segments with `{expr}` holes. It lowers to plain concatenation of the segments and the `string()`-converted holes, so no backend sees a new node. A hole must be a string or an implicitly stringifiable value — the same set as [concatenation](#string-concatenation); a bare `datetime` hole is `loom.interp-hole-type`. A literal brace is `\{` / `\}`, a literal backtick `` \` ``.
 
-A hole may carry an **ICU format suffix** (`TemplateHole.format`): `{total, number, ::currency/USD}`, `{n, plural, one {# item} other {# items}}`, `{kind, select, …}`, `{when, date, short}`. The suffix narrows the hole — `number`/`plural` need a numeric, `date`/`time` need a `datetime` (which *lifts* the datetime rejection), `select` takes a string or enum; an unknown format word is `loom.interp-format-unknown`, whose message names the whole admitted set — `number` (incl. `::currency/USD`, `::percent`), `date`/`time`, `plural`/`selectordinal`, `select`. Each mismatch has its own slug of `loom.interp-hole-type` (`#number-format`, `#date-format`, `#select-format`, `#not-stringifiable`). A `plural`/`select`/`selectordinal` body must be ICU every runtime renders — `loom.interp-format-invalid#syntax` for a missing `other` branch, a plural selector that is no CLDR category (`zero`/`one`/`two`/`few`/`many`/`other`) or `=N`, or unbalanced braces; `#nested-arg` for a branch that reads a value other than the hole's own (use `#`). The catalog key of such a message hashes the whole ICU body, so editing a branch re-keys it; `ddd i18n check` then judges each translation's branches against its own locale's CLDR categories (cardinal for `plural`, ordinal for `selectordinal`). In a page slot the template extracts to the i18n catalog and renders through `t()`; in domain code it is concatenation, and every backend renders a formatted hole as its bare value — a `number`/`date` format loses its formatting, and a `plural`/`select`/`selectordinal` hole loses its branch text (`"3"`, not `"3 items"`), which the warning `loom.interp-format-dropped-in-domain` reports in a `derived`, `function` or `operation` body (use `match` or a ternary there):
+A hole may carry an **ICU format suffix** (`TemplateHole.format`): `{total, number, ::currency/USD}`, `{n, plural, one {# item} other {# items}}`, `{kind, select, …}`, `{when, date, short}`. The suffix narrows the hole — `number`/`plural` need a numeric, `date`/`time` need a `datetime` (which *lifts* the datetime rejection), `select` takes a string or enum; an unknown format word is `loom.interp-format-unknown`, whose message names the whole admitted set — `number` (incl. `::currency/USD`, `::percent`), `date`/`time`, `plural`/`selectordinal`, `select`. Each mismatch has its own slug of `loom.interp-hole-type` (`#number-format`, `#date-format`, `#select-format`, `#not-stringifiable`). A `plural`/`select`/`selectordinal` body must be ICU every runtime renders — `loom.interp-format-invalid#syntax` for a missing `other` branch, a plural selector that is no CLDR category (`zero`/`one`/`two`/`few`/`many`/`other`) or `=N`, or unbalanced braces; `#nested-arg` for a branch that reads a value other than the hole's own (use `#`). The catalog key of such a message hashes the whole ICU body, so editing a branch re-keys it; `ddd i18n check` then judges each translation's branches against its own locale's CLDR categories (cardinal for `plural`, ordinal for `selectordinal`). In a page slot the template extracts to the i18n catalog and renders through `t()`. In domain code — a `derived`, `function`, `operation`, handler, workflow or listener body — a template is concatenation with no translation layer, so a format code there is the error `loom.interp-format-in-domain`; the plain methods print the same text on every backend (`seq.padStart(6, "0")`, `issued.format("yyyyMMdd")`, `total.format(2)` — [scalar intrinsics](#scalar-intrinsics)), and branch text is a `match` or a ternary:
 
 ```ddd
 aggregate Order {
@@ -693,6 +703,44 @@ def summary(self) -> str:
 "summary" => "Order " <> to_string(record.qty) <> " x " <> record.note,
 ```
 ::: end
+
+## Parsing text
+
+`s.toInt()`, `s.toLong()`, `s.toDecimal()` and `s.toDate()` turn a `string` into a value in domain code. A parse never throws: it answers `T or ParseError`, and the caller `match`es it:
+
+```ddd
+operation read(raw: string) {
+  let q = raw.toInt()
+  match q {
+    int v => { qty := v }
+    ParseError e => { problem := string(e.expected) + ":" + string(e.reason) }
+  }
+}
+```
+
+```ts
+// node — the call goes to the context's built-in TextParser service
+const q = TextParser.toInt(raw);
+switch (q.type) { case "int": … case "ParseError": … }
+```
+
+`ParseError`, its two enums and the `TextParser` service are built in: the context that parses gets them, and declaring any of those names yourself is `loom.intrinsic-parse`.
+
+```ddd
+error ParseError { input: string  expected: ParseTarget  reason: ParseFailure }
+enum ParseTarget { Int, Long, Decimal, Date }
+enum ParseFailure { Empty, Malformed, OutOfRange }
+```
+
+The rules are one set, written once as the service's Loom operations, so every backend accepts the same text:
+
+| text | reason |
+| --- | --- |
+| `""` | `Empty` |
+| anything but the exact form — surrounding space, `+`, grouping (`1,5`), an exponent (`1e3`), `.5`, `5.`, a date not `yyyy-MM-dd` | `Malformed` |
+| int outside −2147483648…2147483647; long outside ±9007199254740991 (the largest integer every backend holds exactly); a decimal with more than 28 significant digits; a date that is no calendar day (`2026-02-29`, `2026-04-31`) or before year 1 | `OutOfRange` |
+
+Leading zeros are allowed and do not count toward a limit (`"007"` is 7), and `"-0"` is 0. A parse method on a nullable receiver needs the usual guard (`loom.nullable-receiver`); called with arguments, or outside a context (a page, an e2e body), it is `loom.intrinsic-parse`.
 
 ## Conversions
 

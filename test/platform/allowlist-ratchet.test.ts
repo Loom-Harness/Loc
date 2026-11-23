@@ -93,10 +93,12 @@ const REGISTERED: Ratchet[] = [
     // 19 -> 17: -IntConfigValue, -BoolConfigValue — both left the grammar (no
     // sourceType config key is numeric or boolean).
     //
-    // 17 -> 18: +GatheredPart — a gateway's `gathers:` entry is refused with
-    // `loom.reserved-not-emitted` until the gateway is emitted (#6136, open),
-    // so showcase.ddd cannot carry one; that emission drains the entry.
-    max: 18,
+    // 17 -> 19: +RecordRef, +RouteBind — a route that `send`s its request
+    // record stays out of the shared showcase for the reason the explicit
+    // transport layer does, and is covered on all five backends by
+    // corpus/send-routes (#6227, open); its binding block is refused until
+    // the `bytes` type lands (#6367, open), which drains RouteBind.
+    max: 19,
   },
   // Per-backend corpus compile-tier skips (a widening gate FIXES the emitter
   // and drops the entry — see each file's header).

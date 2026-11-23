@@ -1,8 +1,10 @@
+import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
 import type { ExistsReadNode } from "../../ir/util/in-app-exists.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
+import { formatTokens, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import {
   escapePythonIdent,
@@ -30,6 +32,7 @@ import {
 import { pyRef } from "../_imports/python.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
+import { numericHelper } from "./emit/numeric.js";
 import { PY, pyIdType, pyNewId, pyVoOrEnum } from "./py-symbols.js";
 
 // ---------------------------------------------------------------------------
@@ -427,6 +430,10 @@ function renderMember(recv: string, e: MemberExpr, ctx: PyRenderContext): string
 // snippet owns the host spelling (`.strip()`).  Exported so the intrinsic
 // completeness test can pin that every catalogue row has a Python arm.
 export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+  "string.uncheckedInt": (recv) => `int(${recv})`,
+  "string.uncheckedLong": (recv) => `int(${recv})`,
+  "string.uncheckedDecimal": (recv) => `float(${recv})`,
+  "string.uncheckedDate": (recv) => `${PY.datetime}.fromisoformat(${recv}).date()`,
   "string.trim": (recv) => `${recv}.strip()`,
   "string.toUpper": (recv) => `${recv}.upper()`,
   "string.toLower": (recv) => `${recv}.lower()`,
@@ -455,11 +462,11 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // `int(a / b)` would round-trip through a float — exact only below 2**53, and
   // Python's ints are arbitrary precision, so the loss is real and silent.  `//`
   // is exact but FLOORS, which disagrees with java/.NET/elixir/node on negative
-  // operands.  `trunc_div` (app/domain/numeric.py, wired centrally by
-  // `wireNumericHelpers`) is both exact and truncating — the intrinsic's whole
+  // operands.  `trunc_div` (app/domain/numeric.py, imported where it is
+  // used) is both exact and truncating — the intrinsic's whole
   // contract is a deterministic cross-backend truncating division.
-  "int.divTrunc": (recv, args) => `trunc_div(${recv}, ${args[0]})`,
-  "long.divTrunc": (recv, args) => `trunc_div(${recv}, ${args[0]})`,
+  "int.divTrunc": (recv, args) => `${numericHelper("trunc_div")}(${recv}, ${args[0]})`,
+  "long.divTrunc": (recv, args) => `${numericHelper("trunc_div")}(${recv}, ${args[0]})`,
   "int.min": (recv, args) => `min(${recv}, ${args[0]})`,
   "long.min": (recv, args) => `min(${recv}, ${args[0]})`,
   "decimal.min": (recv, args) => `min(${recv}, ${args[0]})`,
@@ -514,6 +521,22 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
     `(lambda __d: __d.replace(day=${PY.calendar}.monthrange(__d.year, __d.month)[1]))(${recv})`,
   "date.monthsUntil": (recv, args) =>
     `(lambda __a, __b: (lambda __m, __c: __m - (1 if __m > 0 and __c > __b.day else 0) + (1 if __m < 0 and __c < __b.day else 0))((__b.year - __a.year) * 12 + __b.month - __a.month, min(__a.day, ${PY.calendar}.monthrange(__b.year, __b.month)[1])))(${recv}, ${args[0]})`,
+  // ---- duration — a `timedelta`.  Its exact microsecond count, divided with
+  // truncation toward zero (Python's `//` floors, so a negative count is
+  // divided by magnitude and the sign restored).
+  "duration.toDays": (recv) => pyTruncUnits(recv, 86_400_000_000),
+  "duration.toHours": (recv) => pyTruncUnits(recv, 3_600_000_000),
+  "duration.toMinutes": (recv) => pyTruncUnits(recv, 60_000_000),
+  // ---- formatting — invariant text (the catalogue contract).  `len` counts
+  // code points, the unit of `.length`.
+  "string.padStart": (recv, args) =>
+    `(lambda __s, __k, __f: (__f * __k)[:__k] + __s)(${recv}, max(0, (${args[0]}) - len(${recv})), ${args[1]})`,
+  "string.padEnd": (recv, args) =>
+    `(lambda __s, __k, __f: __s + (__f * __k)[:__k])(${recv}, max(0, (${args[0]}) - len(${recv})), ${args[1]})`,
+  "date.format": (recv, args) => pyDateFormat(`(${recv})`, args[0]!),
+  "datetime.format": (recv, args) => pyDateFormat(`(${recv}).astimezone(${PY.UTC})`, args[0]!),
+  "decimal.format": (recv, args) => pyFixed(`${PY.Decimal}(str(${recv}))`, args[0]!),
+  "money.format": (recv, args) => pyFixed(`(${recv})`, args[0]!),
 };
 
 function renderMethodCall(
@@ -624,10 +647,21 @@ export const PY_COLLECTION_RENDERERS: Record<
   first: (recv) => `${recv}[0]`,
   firstOrNull: (recv) => `(${recv}[0] if ${recv} else None)`,
   map: (recv, args) => `[(${args[0]})(__x) for __x in ${recv}]`,
-  sortBy: (recv, args, e) =>
-    e && isDescendingSort(e)
-      ? `sorted(${recv}, key=${args[0]}, reverse=True)`
-      : `sorted(${recv}, key=${args[0]})`,
+  // The one sort order (`src/ir/plan/sort-order.ts`): `sorted` is stable and
+  // `reverse=True` keeps ties in order; `str` compares by code point and a
+  // `StrEnum` member by its name.  An absent key sorts last ascending: the key
+  // becomes `(absent, value)`, which also keeps `None` from ever meeting `<`
+  // (no walrus: it is refused inside the comprehension a `map` wraps this in).
+  sortBy: (recv, args, e) => {
+    const lam = e?.args[0];
+    const keyType = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
+    const key = sortKeyOf(keyType).optional
+      ? `lambda __x: (lambda __k: (__k is None, __k))((${args[0]})(__x))`
+      : args[0];
+    return e && isDescendingSort(e)
+      ? `sorted(${recv}, key=${key}, reverse=True)`
+      : `sorted(${recv}, key=${key})`;
+  },
   distinct: (recv) => `list(dict.fromkeys(${recv}))`,
   take: (recv, args) => `${recv}[:${args[0]}]`,
   skip: (recv, args) => `${recv}[${args[0]}:]`,
@@ -783,7 +817,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // whose remainder already truncates (sign of the dividend), so it needs no
   // `trunc_mod`.  See `renderDecimalArithmetic`.
   if (isDecimalArithmetic(e)) return renderDecimalArithmetic(left, right, e);
-  if (e.op === "%") return `trunc_mod(${left}, ${right})`;
+  if (e.op === "%") return `${numericHelper("trunc_mod")}(${left}, ${right})`;
   // A5 temporal — Python's datetime/timedelta overload the native
   // operators (`datetime ± timedelta`, `datetime - datetime → timedelta`,
   // timedelta algebra/scaling) directly, so no dedicated arm is needed.
@@ -864,7 +898,7 @@ function renderNullableDecimalOrdering(
   const l = prim(e.leftType);
   const r = prim(e.rightType);
   if (!numeric(l) || !numeric(r) || (!decimalLike(l) && !decimalLike(r))) return null;
-  return `present_order(${left}, ${JSON.stringify(e.op)}, ${right})`;
+  return `${numericHelper("present_order")}(${left}, ${JSON.stringify(e.op)}, ${right})`;
 }
 
 /**
@@ -1070,4 +1104,31 @@ export function renderPyType(t: TypeIR): string {
  *  month's last day (the catalogue's end-of-month rule). */
 function pyShiftMonths(d: string, months: string): string {
   return `(lambda __d, __t: __d.replace(year=__t // 12, month=__t % 12 + 1, day=min(__d.day, ${PY.calendar}.monthrange(__t // 12, __t % 12 + 1)[1])))(${d}, (${d}).year * 12 + (${d}).month - 1 + ${months})`;
+}
+
+/** A `timedelta` as a whole number of `unitMicros`-long units, cut toward
+ *  zero. */
+function pyTruncUnits(td: string, unitMicros: number): string {
+  return `(lambda __u: -(-__u // ${unitMicros}) if __u < 0 else __u // ${unitMicros})((${td}) // ${PY.timedelta}(microseconds=1))`;
+}
+
+/** A pattern printed with `%`-formatting over the value's fields (`%04d` /
+ *  `%02d`, every literal `%` doubled) — no host locale and no `strftime`
+ *  year-padding quirk. */
+function pyDateFormat(value: string, pattern: string): string {
+  const tokens = formatTokens(patternFromRenderedLiteral(pattern));
+  const fmt = tokens
+    .map((t) =>
+      t.kind === "literal" ? t.text.replace(/%/g, "%%") : t.width === 4 ? "%04d" : "%02d",
+    )
+    .join("");
+  const fields = tokens.flatMap((t) => (t.kind === "field" ? [`__t.${t.field}`] : []));
+  if (fields.length === 0) return JSON.stringify(fmt.replace(/%%/g, "%"));
+  return `(lambda __t: ${JSON.stringify(fmt)} % (${fields.join(", ")},))(${value})`;
+}
+
+/** Fixed-point text: half-even, `f` notation (no exponent, no grouping), no
+ *  negative zero. */
+function pyFixed(dec: string, places: string): string {
+  return `(lambda __q: format(__q if __q != 0 else abs(__q), "f"))((${dec}).quantize(${PY.Decimal}(1).scaleb(-max(0, ${places})), rounding="ROUND_HALF_EVEN"))`;
 }

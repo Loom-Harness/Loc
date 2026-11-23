@@ -1177,7 +1177,7 @@ readonly productAll = useAllProducts(() => ({ page: this.pageNum(), pageSize: 20
 ```
 ::: end
 
-React renders four short-circuit expressions; Vue sibling `<template v-if>`s; Svelte one `{#if}/{:else if}` chain; Angular `@if` blocks over signals. Phoenix loads the page in `handle_params/3` (`Lv.Shop.list_products(page_num, 20, sort_key, sort_dir)`) and re-queries on `"loom-sort"` / `"loom-page"` events; Flutter wraps a Riverpod `FutureProvider` in `AsyncValue.when(loading/error/data)`; Feliz decodes into a `Remote<'T list>` Model field. A `QueryView` over a projection is only admitted for an unkeyed query-time projection (`loom.ui-projection-read-unsupported`).
+React renders four short-circuit expressions; Vue sibling `<template v-if>`s; Svelte one `{#if}/{:else if}` chain; Angular `@if` blocks over signals. Phoenix loads the page in `handle_params/3` (`Lv.Shop.list_products(page_num, 20, sort_key, sort_dir)`) and re-queries on `"__sort"` / `"__page"` events; Flutter wraps a Riverpod `FutureProvider` in `AsyncValue.when(loading/error/data)`; Feliz decodes into a `Remote<'T list>` Model field. A `QueryView` over a projection is only admitted for an unkeyed query-time projection (`loom.ui-projection-read-unsupported`).
 
 ## `Table`, `Column` and `DataGrid`
 

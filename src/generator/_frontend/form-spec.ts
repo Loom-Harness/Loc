@@ -1,3 +1,4 @@
+import { type FormTextKind, formTextKindOf } from "../../ir/plan/form-text.js";
 import type { BoundedContextIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import {
@@ -112,6 +113,10 @@ export interface FormFieldSpec {
   children?: FormFieldSpec[];
   /** `scalarArray`: the element's scalar kind. */
   elementKind?: FormScalarKind;
+  /** The parse rule the input's text answers to (`src/ir/plan/form-text.ts`):
+   *  set on an `int` (an `int` or a `long`), `decimal` or `money` field, and on
+   *  a `scalarArray` of those (each item answers to it). */
+  text?: FormTextKind;
   /** The declared type has no form input of its own: a `string` field over a
    *  type that is not a string (an unresolved value object, a record), or a
    *  `scalarArray` whose element is not a scalar, enum or reference (a `File`, a
@@ -325,8 +330,24 @@ export function formFieldSpec(
     default:
       break;
   }
+  const text = typeFormText(
+    kind === "scalarArray" && inner.kind === "array" ? inner.element : inner,
+  );
+  if (
+    text &&
+    (kind === "int" || kind === "decimal" || kind === "money" || kind === "scalarArray")
+  ) {
+    spec.text = text;
+  }
   spec.zero = zeroOf(spec);
   return spec;
+}
+
+/** The parse rule a declared type's form input answers to: its primitive's
+ *  text kind (`int`, `long`, `decimal`, `money`), optional wrapper peeled. */
+export function typeFormText(t: TypeIR): FormTextKind | undefined {
+  const inner = peel(t).inner;
+  return inner.kind === "primitive" ? formTextKindOf(inner.name) : undefined;
 }
 
 /** The value an untouched field submits (see {@link FormFieldSpec.zero}). */

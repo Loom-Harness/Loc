@@ -16,15 +16,18 @@ import { principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../../util/intrinsics.js";
-import { escapeTsIdent, snake } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
 import { QueryEmissionRefusal, refuseOutOfVocabulary } from "../../_expr/target.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { TS_INTRINSIC_RENDERERS } from "../render-expr.js";
 import { documentWriteScopeBody, writeScopeDeniesAll } from "../repository-document-builder.js";
 import { GUID_CLAIM_RE_LITERAL } from "../repository-find-predicate.js";
 import { tsNotFoundThrow } from "../wire-policy-ts.js";
+
+const N = DOMAIN_NAMES.ts;
 
 // ---------------------------------------------------------------------------
 // find `where` → MikroORM FilterQuery object literal.  Every predicate the IR
@@ -104,6 +107,7 @@ export const MIKRO_INTRINSIC_SQL: Record<string, (recv: string, args: string[]) 
   // `starts_with` has no pattern language, so no ESCAPE discipline is needed —
   // the twin of drizzle's `strpos(col, $p) = 1`.
   "string.startsWith": (r, a) => `starts_with(${r}, ${a[0]})`,
+  "string.contains": (r, a) => `strpos(${r}, ${a[0]}) > 0`,
   "int.abs": (r) => `abs(${r})`,
   "long.abs": (r) => `abs(${r})`,
   "decimal.abs": (r) => `abs(${r})`,
@@ -344,7 +348,7 @@ function comparisonEntry(e: Extract<ExprIR, { kind: "binary" }>, acc: string): s
 function filterValue(e: ExprIR, acc: string): string {
   switch (e.kind) {
     case "ref":
-      if (e.refKind === "param") return escapeTsIdent(e.name);
+      if (e.refKind === "param") return N.binding(e.name);
       if (e.refKind === "enum-value") return JSON.stringify(e.name);
       throw new Error(`mikroorm: unsupported ref '${e.refKind}' in find`);
     case "member":

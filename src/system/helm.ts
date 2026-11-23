@@ -1,12 +1,15 @@
 import { cacheStoragesOf } from "../ir/plan/cache.js";
-import type { SystemIR } from "../ir/types/loom-ir.js";
+import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
+import { gatewaysOf } from "../ir/util/gateway.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { emissionSink } from "../util/emission-sink.js";
+import { buildGatewayRoutes } from "./gateway.js";
 import {
   type BrokerModel,
   buildBrokers,
   buildWorkloads,
   kName,
+  renderGatewayIngressPaths,
   type WorkloadModel,
 } from "./kubernetes.js";
 
@@ -97,7 +100,7 @@ function renderHelpers(sys: SystemIR): string {
   ].join("\n");
 }
 
-function renderValues(_sys: SystemIR, workloads: WorkloadModel[], brokers: BrokerModel[]): string {
+function renderValues(sys: SystemIR, workloads: WorkloadModel[], brokers: BrokerModel[]): string {
   const lines: string[] = [];
   lines.push("# Auto-generated chart values.  Override per environment with");
   lines.push("# `--set key=value` or `-f values.prod.yaml`.");
@@ -162,6 +165,13 @@ function renderValues(_sys: SystemIR, workloads: WorkloadModel[], brokers: Broke
       lines.push("    enabled: false");
       lines.push('    host: ""');
     }
+  }
+  for (const gw of gatewaysOf(sys)) {
+    lines.push(`${gw.name}:`);
+    lines.push("  # The gateway's Ingress: /api and every gathered path on one host.");
+    lines.push("  ingress:");
+    lines.push("    enabled: true");
+    lines.push('    host: ""');
   }
   for (const b of brokers) {
     if (brokers[0] === b) {
@@ -345,6 +355,38 @@ function renderIngressTemplate(h: HelmNames, w: WorkloadModel): string {
   lines.push(`                name: ${h.fullname}-${w.name}`);
   lines.push("                port:");
   lines.push(`                  number: ${w.servicePort}`);
+  lines.push("{{- end }}");
+  return lines.join("\n") + "\n";
+}
+
+/** A gateway's Ingress: the cluster's front door over the parts it gathers,
+ *  on by default since it is what the gateway declares. */
+function renderGatewayIngressTemplate(h: HelmNames, sys: SystemIR, gateway: DeployableIR): string {
+  const v = `.Values.${gateway.name}`;
+  const name = kName(gateway.name);
+  const lines: string[] = [];
+  lines.push(`{{- if ${v}.ingress.enabled }}`);
+  lines.push("apiVersion: networking.k8s.io/v1");
+  lines.push("kind: Ingress");
+  lines.push("metadata:");
+  lines.push(`  name: ${h.fullname}-${name}`);
+  lines.push("  labels:");
+  lines.push(`    app.kubernetes.io/name: ${name}`);
+  lines.push(h.labels);
+  lines.push("spec:");
+  lines.push("  {{- with .Values.ingress.className }}");
+  lines.push("  ingressClassName: {{ . }}");
+  lines.push("  {{- end }}");
+  lines.push("  rules:");
+  lines.push(`    - host: {{ ${v}.ingress.host | default .Values.ingress.host | quote }}`);
+  lines.push("      http:");
+  lines.push("        paths:");
+  lines.push(
+    ...renderGatewayIngressPaths(
+      buildGatewayRoutes(sys, gateway),
+      (d) => `${h.fullname}-${kName(d)}`,
+    ),
+  );
   lines.push("{{- end }}");
   return lines.join("\n") + "\n";
 }
@@ -554,6 +596,12 @@ export function renderHelmChart(sys: SystemIR): Map<string, string> {
   }
   for (const b of brokers) {
     out.set(`helm/templates/${b.name}-broker.yaml`, renderBrokerTemplate(h, b));
+  }
+  for (const gw of gatewaysOf(sys)) {
+    out.set(
+      `helm/templates/${kName(gw.name)}-ingress.yaml`,
+      renderGatewayIngressTemplate(h, sys, gw),
+    );
   }
   out.set("helm/templates/NOTES.txt", renderNotes(sys, workloads));
   return out;

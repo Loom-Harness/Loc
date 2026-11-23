@@ -1,4 +1,5 @@
 import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
+import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import type {
   AggregateIR,
   BinOp,
@@ -16,6 +17,7 @@ import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { wireFixedDetail } from "../../ir/util/wire-policy.js";
 import type { WriteScopeContext } from "../../ir/util/write-scope-guards.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
+import { formatTokens, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import {
   elixirLocal,
@@ -905,6 +907,10 @@ function isRefIdsProjection(e: ExprIR, ctx: RenderCtx): boolean {
 // row has an Elixir arm in each table.
 export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> =
   {
+    "string.uncheckedInt": (recv) => `String.to_integer(${recv})`,
+    "string.uncheckedLong": (recv) => `String.to_integer(${recv})`,
+    "string.uncheckedDecimal": (recv) => `Decimal.new(${recv})`,
+    "string.uncheckedDate": (recv) => `Date.from_iso8601!(${recv})`,
     "string.trim": (recv) => `String.trim(${recv})`,
     "string.toUpper": (recv) => `String.upcase(${recv})`,
     "string.toLower": (recv) => `String.downcase(${recv})`,
@@ -975,6 +981,18 @@ export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: str
     "date.endOfMonth": (recv) => `Date.end_of_month(${recv})`,
     "date.monthsUntil": (recv, args) =>
       `(fn a, b -> m = (b.year - a.year) * 12 + b.month - a.month; c = min(a.day, Calendar.ISO.days_in_month(b.year, b.month)); cond do m > 0 and c > b.day -> m - 1; m < 0 and c < b.day -> m + 1; true -> m end end).(${recv}, ${args[0]})`,
+    // ---- duration — integer milliseconds; `div/2` truncates toward zero.
+    "duration.toDays": (recv) => `div(${recv}, 86_400_000)`,
+    "duration.toHours": (recv) => `div(${recv}, 3_600_000)`,
+    "duration.toMinutes": (recv) => `div(${recv}, 60_000)`,
+    // ---- formatting — invariant text (the catalogue contract).
+    "string.padStart": (recv, args) => `(${exPadFill(recv, args[0]!, args[1]!)} <> ${recv})`,
+    "string.padEnd": (recv, args) => `(${recv} <> ${exPadFill(recv, args[0]!, args[1]!)})`,
+    "date.format": (recv, args) => exDateFormat(recv, args[0]!),
+    "datetime.format": (recv, args) =>
+      exDateFormat(`DateTime.shift_zone!(${recv}, "Etc/UTC")`, args[0]!),
+    "decimal.format": (recv, args) => exFixed(recv, args[0]!),
+    "money.format": (recv, args) => exFixed(recv, args[0]!),
   };
 
 export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: string[]) => string> = {
@@ -986,6 +1004,7 @@ export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: strin
   // matches literally — see `src/util/intrinsics.ts`.  Args arrive pre-rendered
   // (a value-side param already carries its `^` pin).
   "string.startsWith": (recv, args) => `fragment("strpos(?, ?) = 1", ${recv}, ${args[0]})`,
+  "string.contains": (recv, args) => `fragment("strpos(?, ?) > 0", ${recv}, ${args[0]})`,
   // ---- numerics (A3 math batch) — Postgres SQL fragments ------------------
   // Args arrive pre-rendered (value-side params already carry the `^` pin) —
   // never add pins here.  Two-value min/max are SQL least()/greatest().
@@ -1221,9 +1240,8 @@ export const ELIXIR_COLLECTION_RENDERERS: Record<
   // MODULE as the sorter routes through its `compare/2` instead.
   sortBy: (recv, args, e) => {
     const sorter = sortSorter(e);
-    return sorter
-      ? `Enum.sort_by(${recv}, ${args[0]}, ${sorter})`
-      : `Enum.sort_by(${recv}, ${args[0]})`;
+    const key = sortKeyFn(e, args[0]!);
+    return sorter ? `Enum.sort_by(${recv}, ${key}, ${sorter})` : `Enum.sort_by(${recv}, ${key})`;
   },
   distinct: (recv) => `Enum.uniq(${recv})`,
   take: (recv, args) => `Enum.take(${recv}, ${args[0]})`,
@@ -1277,7 +1295,9 @@ function sortSorter(e: Extract<ExprIR, { kind: "method-call" }> | undefined): st
   const desc = e ? isDescendingSort(e) : false;
   const lam = e?.args[0];
   const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
-  const name = bodyT?.kind === "primitive" ? bodyT.name : undefined;
+  const optional = sortKeyOf(bodyT).optional;
+  const inner = bodyT?.kind === "optional" ? bodyT.inner : bodyT;
+  const name = inner?.kind === "primitive" ? inner.name : undefined;
   const mod = isDecimalStruct(name)
     ? "Decimal"
     : name === "datetime"
@@ -1285,8 +1305,72 @@ function sortSorter(e: Extract<ExprIR, { kind: "method-call" }> | undefined): st
       : name === "date"
         ? "Date"
         : null;
+  // An absent key sorts last ascending (the one sort order): the key is
+  // wrapped as `{absent?, value}` (`sortKeyFn`), and `nil` never meets a
+  // struct's `compare/2`.
+  if (optional && mod) {
+    const le = desc
+      ? `fn {an, a}, {bn, b} -> cond do an != bn -> an; an -> true; true -> ${mod}.compare(a, b) != :lt end end`
+      : `fn {an, a}, {bn, b} -> cond do an != bn -> bn; an -> true; true -> ${mod}.compare(a, b) != :gt end end`;
+    return le;
+  }
   if (!mod) return desc ? ":desc" : null;
   return desc ? `{:desc, ${mod}}` : mod;
+}
+
+/** `list` sorted by the key `keyFn` picks at RUNTIME (a paged read's `?sort=`
+ *  key over whole aggregates), in `dirVar` ("desc" or anything else) — the one
+ *  sort order (`src/ir/plan/sort-order.ts`): an absent key last ascending and
+ *  first descending, a `Decimal` / `DateTime` / `Date` through its
+ *  `compare/2` (term order is structural for a struct), everything else by
+ *  term order (a binary by code point, an enum atom by name).  `Enum.sort/2`
+ *  with a `<=` function is stable. */
+export function elixirRuntimeKeySort(list: string, keyFn: string, dirVar: string): string {
+  const le = `fn x, y ->
+          cond do
+            is_nil(x) -> is_nil(y)
+            is_nil(y) -> true
+            is_struct(x, Decimal) -> Decimal.compare(x, y) != :gt
+            is_struct(x, DateTime) -> DateTime.compare(x, y) != :gt
+            is_struct(x, Date) -> Date.compare(x, y) != :gt
+            true -> x <= y
+          end
+        end`;
+  return `(fn items, key, le -> Enum.sort(items, fn a, b -> if ${dirVar} == "desc", do: le.(key.(b), key.(a)), else: le.(key.(a), key.(b)) end) end).(
+      ${list},
+      ${keyFn},
+      ${le}
+    )`;
+}
+
+/** A paged in-memory read's sort: the caller's whitelisted `sort` key
+ *  (`runtime`), or — when the key names none of `whitelist` — the read's
+ *  declared order (`declared`, field-reading key functions with their
+ *  direction), applied as stable passes from the last term.  `runtime` alone
+ *  when the read declares no order. */
+export function elixirPagedSort(
+  list: string,
+  runtime: string,
+  whitelist: readonly string[],
+  declared: readonly { key: string; desc: boolean }[],
+): string {
+  if (declared.length === 0) return runtime;
+  const byDeclared = [...declared]
+    .reverse()
+    .reduce((acc, t) => elixirRuntimeKeySort(acc, t.key, t.desc ? `"desc"` : `"asc"`), list);
+  return `if sort in [${whitelist.map((w) => JSON.stringify(w)).join(", ")}] do
+        ${runtime}
+      else
+        ${byDeclared}
+      end`;
+}
+
+/** The key function `Enum.sort_by` sorts with: the projection, or — for an
+ *  optional key — `{absent?, value}`, so a present key (`false`) sorts first. */
+function sortKeyFn(e: Extract<ExprIR, { kind: "method-call" }> | undefined, lam: string): string {
+  const arg = e?.args[0];
+  const bodyT = arg?.kind === "lambda" && arg.body ? bodyTypeOf(arg.body) : undefined;
+  return sortKeyOf(bodyT).optional ? `fn x -> k = (${lam}).(x); {is_nil(k), k} end` : lam;
 }
 
 function reductionSorter(
@@ -2202,4 +2286,30 @@ export function renderTypespec(t: TypeIR, contextModule: string, typesModule?: s
  *  month count, so floor division gives the year for a negative step too. */
 function exShiftMonths(d: string, months: string): string {
   return `(fn d, t -> y = Integer.floor_div(t, 12); m = Integer.mod(t, 12) + 1; Date.new!(y, m, min(d.day, Calendar.ISO.days_in_month(y, m))) end).(${d}, (${d}).year * 12 + (${d}).month - 1 + ${months})`;
+}
+
+/** The fill a pad needs: `fill` repeated and cut to the missing number of
+ *  code points (a charlist is code points; `String.length` would count
+ *  graphemes), none when the receiver is already long enough. */
+function exPadFill(s: string, n: string, fill: string): string {
+  const k = `max(0, (${n}) - ${elixirCodePointLength(s)})`;
+  return `(String.duplicate(${fill}, ${k}) |> String.to_charlist() |> Enum.take(${k}) |> List.to_string())`;
+}
+
+/** A pattern printed field by field, each zero-padded to its width — no host
+ *  locale in play. */
+function exDateFormat(value: string, pattern: string): string {
+  const tokens = formatTokens(patternFromRenderedLiteral(pattern));
+  const parts = tokens.map((t) =>
+    t.kind === "literal"
+      ? JSON.stringify(t.text)
+      : `String.pad_leading(Integer.to_string(t.${t.field}), ${t.width}, "0")`,
+  );
+  if (parts.length === 0) return `""`;
+  return `(fn t -> ${parts.join(" <> ")} end).(${value})`;
+}
+
+/** Fixed-point text: half-even, `:normal` notation, no negative zero. */
+function exFixed(x: string, places: string): string {
+  return `(fn d -> d = Decimal.round(d, max(0, ${places}), :half_even); Decimal.to_string((if Decimal.equal?(d, 0), do: Decimal.abs(d), else: d), :normal) end).(${x})`;
 }

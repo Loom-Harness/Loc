@@ -38,6 +38,7 @@
 // ---------------------------------------------------------------------------
 
 import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
+import { dispatchedRecord } from "../../ir/plan/command-bus.js";
 import {
   handlerNeedsCurrentUser,
   handlerRunsInTransaction,
@@ -49,10 +50,10 @@ import type {
   CommandHandlerIR,
   EnrichedBoundedContextIR,
   ParamIR,
+  PayloadIR,
   QueryHandlerIR,
   RouteIR,
   TypeIR,
-  WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import {
@@ -66,9 +67,12 @@ import {
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
+  type PagedRunStmt,
+  pagedRunArgs,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
+  pagedRunReadsList,
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
@@ -79,7 +83,7 @@ import { lines } from "../../util/code-builder.js";
 import { hatchStub } from "../../util/hatch.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { HOOK_CONTRACT_NOTE } from "../_hatch-note.js";
-import { javaRef } from "../_imports/java.js";
+import { javaProjectRef, javaRef } from "../_imports/java.js";
 import { javaLogEvent } from "../_obs/render-java.js";
 import { opUnionResponses } from "../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
@@ -105,7 +109,7 @@ import {
   javaProjectionReadsClass,
   javaProjectionWireMethod,
 } from "./emit/projection-reads.js";
-import { domainToWire, javaIdValueType } from "./emit/wire.js";
+import { domainToWire, JAVA_PRIMITIVES, javaIdValueType } from "./emit/wire.js";
 import {
   boundLocal,
   domainServiceUnionPkgOf,
@@ -334,10 +338,7 @@ function renderExternImpl(
  *  (`queryHandler H(...): <Agg> paged { let r = Repo.run(<Criterion>(args));
  *  return r }`) — carrying the repo/aggregate + the paged FIND method name
  *  (`retrievalName` = `findAllBy<Criterion>`) + the criterion args. */
-function pagedRunStmt(
-  h: Handler,
-  ctx: EnrichedBoundedContextIR,
-): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
+function pagedRunStmt(h: Handler, ctx: EnrichedBoundedContextIR): PagedRunStmt {
   const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
@@ -372,7 +373,7 @@ function renderPagedRunHandlerClass(
     ...handlerRenderCtx(h, ctx),
     paramExpr: (n) => movedLocalOrUndefined(locals, n),
   };
-  const critArgs = run.retrievalArgs.map((a) => renderJavaExpr(a, renderCtx));
+  const critArgs = pagedRunArgs(run).map((a) => renderJavaExpr(a, renderCtx));
   const callArgs = [...critArgs, "page", "pageSize", "sort", "dir"].join(", ");
   const params = flat.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`).join(", ");
   const sigParams = [params, "int page", "int pageSize", "String sort", "String dir"]
@@ -419,10 +420,11 @@ function renderPagedRunHandlerClass(
     usesUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
     `    }`,
     ``,
-    `    public Paged<${agg}> handle(${sigParams}) {`,
+    `    public Paged<${javaProjectRef(agg)}> handle(${sigParams}) {`,
     usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
     ...gateLines,
-    `        return ${repoField(agg)}.${pagedRunFindName(run)}(${callArgs});`,
+    // The whole collection pages through the repository's own list read.
+    `        return ${repoField(agg)}.${pagedRunReadsList(run) ? "findAllPaged" : pagedRunFindName(run)}(${callArgs});`,
     `    }`,
     `}`,
     ``,
@@ -817,7 +819,105 @@ export function emitExplicitHandlers(
   };
   for (const h of ctx.commandHandlers ?? []) pushHandler(h, "command");
   for (const h of ctx.queryHandlers ?? []) pushHandler(h, "query");
+  files.push(...javaDispatchFiles(ctx, basePkg, appPkg, files));
   return files;
+}
+
+/** The handler a record is dispatched through on java (`dispatchedRecord`,
+ *  the bus entry it catches), on a handler with a body, a plain result (not
+ *  `T or E`) and no `paged` carrier, with the record it takes. */
+function javaDispatchRecord(h: Handler, ctx: EnrichedBoundedContextIR): PayloadIR | undefined {
+  if (h.extern || entryResult(h)) return undefined;
+  if (h.returnType && pagedReturn(h.returnType)) return undefined;
+  const entry = dispatchedRecord(ctx, h.name);
+  return entry ? ctx.payloads.find((p) => p.name === entry.record) : undefined;
+}
+
+/** `<Ctx>Dispatch.java` plus one Java record per dispatched request record:
+ *  `dispatch.shipOrder(new ShipOrder(id, carrier))` runs the record's handler,
+ *  which reads the caller from its own `CurrentUserAccessor`.  The route calls
+ *  the same entry. */
+function javaDispatchFiles(
+  ctx: EnrichedBoundedContextIR,
+  basePkg: string,
+  appPkg: string,
+  handlerFiles: readonly { name: string; content: string }[],
+): { name: string; content: string }[] {
+  const entries: { h: Handler; rec: PayloadIR; ret: string }[] = [];
+  // The handlers' own imports name every type their signatures use, so the
+  // records and the bean reuse them.
+  const imported = new Set<string>([
+    `import ${basePkg}.domain.common.*;`,
+    `import ${basePkg}.domain.enums.*;`,
+    `import ${basePkg}.domain.ids.*;`,
+    `import ${basePkg}.domain.valueobjects.*;`,
+  ]);
+  for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]) {
+    const rec = javaDispatchRecord(h, ctx);
+    const content = handlerFiles.find((f) => f.name === `${h.name}Handler.java`)?.content;
+    const ret = content?.match(/ {4}public (.+?) handle\(/)?.[1];
+    if (!rec || !content || !ret) continue;
+    entries.push({ h, rec, ret });
+    for (const l of content.split("\n")) {
+      if (/^import [\w.*]+;$/.test(l) && !l.startsWith("import org.springframework.")) {
+        imported.add(l);
+      }
+    }
+  }
+  if (entries.length === 0) return [];
+  const imports = [...imported].sort();
+  const records = entries.map(({ rec }) => ({
+    name: `${rec.name}.java`,
+    content: lines(
+      `package ${appPkg};`,
+      ``,
+      ...imports,
+      ``,
+      `public record ${rec.name}(${rec.fields
+        .map((f) => `${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)}`)
+        .join(", ")}) {}`,
+      ``,
+    ),
+  }));
+  const cls = javaDispatchClass(ctx.name);
+  const field = (h: Handler) => `${DOMAIN_NAMES.java.stem(h.name)}Handler`;
+  const dispatcher = lines(
+    `package ${appPkg};`,
+    ``,
+    `import org.springframework.stereotype.Service;`,
+    ...imports,
+    ``,
+    `@Service`,
+    `public class ${cls} {`,
+    ...entries.map(({ h }) => `    private final ${h.name}Handler ${field(h)};`),
+    ``,
+    `    public ${cls}(${entries.map(({ h }) => `${h.name}Handler ${field(h)}`).join(", ")}) {`,
+    ...entries.map(({ h }) => `        this.${field(h)} = ${field(h)};`),
+    `    }`,
+    ...entries.flatMap(({ h, rec, ret }) => {
+      const args = rec.fields.map((f) => `record.${DOMAIN_NAMES.java.binding(f.name)}()`);
+      const call = `${field(h)}.handle(${args.join(", ")})`;
+      return [
+        ``,
+        `    public ${ret} ${javaDispatchMethod(rec.name)}(${rec.name} record) {`,
+        ret === "void" ? `        ${call};` : `        return ${call};`,
+        `    }`,
+      ];
+    }),
+    `}`,
+    ``,
+  );
+  return [...records, { name: `${cls}.java`, content: dispatcher }];
+}
+
+/** `<Ctx>Dispatch`, the bean a context's request records are dispatched through. */
+function javaDispatchClass(context: string): string {
+  return `${DOMAIN_NAMES.java.type(context)}Dispatch`;
+}
+
+/** The dispatch bean's method for a record (`ShipOrder` → `shipOrder`). */
+function javaDispatchMethod(record: string): string {
+  return DOMAIN_NAMES.java.method(DOMAIN_NAMES.java.stem(record));
 }
 
 const HTTP_ANNOT: Record<string, string> = {
@@ -1094,8 +1194,13 @@ export function emitExplicitRouteController(
     const h = cmd ?? qry;
     if (!h) continue;
     const handlerName = `${h.name}Handler`;
-    const field = DOMAIN_NAMES.java.stem(handlerName);
-    injected.set(handlerName, field);
+    // A record-dispatched handler is called through its context's
+    // `<Ctx>Dispatch` bean, the record built from the bound fields.
+    const dispatched = javaDispatchRecord(h, ctx);
+    const field = dispatched
+      ? DOMAIN_NAMES.java.stem(javaDispatchClass(ctx.name))
+      : DOMAIN_NAMES.java.stem(handlerName);
+    injected.set(dispatched ? javaDispatchClass(ctx.name) : handlerName, field);
 
     // paged-run queryHandler: a GET whose criterion params ride the query
     // string alongside page/pageSize/sort/dir; calls the handler bean (→ domain
@@ -1166,22 +1271,31 @@ export function emitExplicitRouteController(
     if (bodyParams.length > 0) {
       const bodyRecName = `${h.name}Body`;
       const fields = bodyParams
-        // A reserved-word name mangles (`case_`) and keeps its wire key.
-        .map(
-          (p) =>
-            `${isMangled(p.name) ? `@${JSON_PROPERTY}("${p.name}") ` : ""}${renderJavaType(p.type)} ${DOMAIN_NAMES.java.prop(p.name)}`,
-        )
+        // A reserved-word name mangles (`case_`) and keeps its wire key.  A
+        // required member is `@NotNull`, so a body that leaves it out answers
+        // the shared 422 at `/<name>` before the handler loads anything — the
+        // order every other backend validates in.  A Java primitive can never
+        // be null (Jackson refuses a missing one), so it carries no mark.
+        .map((p) => {
+          const javaType = renderJavaType(p.type);
+          const required = p.type.kind !== "optional" && !JAVA_PRIMITIVES.has(javaType);
+          return `${isMangled(p.name) ? `@${JSON_PROPERTY}("${p.name}") ` : ""}${required ? `@${javaRef("jakarta.validation.constraints", "NotNull")} ` : ""}${javaType} ${DOMAIN_NAMES.java.prop(p.name)}`;
+        })
         .join(", ");
       bodyRecords.push(`record ${bodyRecName}(${fields}) {}`);
-      actionParamParts.push(`@RequestBody ${bodyRecName} body`);
+      actionParamParts.push(
+        `@${javaRef("jakarta.validation", "Valid")} @RequestBody ${bodyRecName} body`,
+      );
     }
     const actionParams = actionParamParts.join(", ");
     // Handler call args keep declared (flattened) param order: path params
     // coerce from the route token, body params read off `body.<name>()` (record
     // accessor).
-    const callArgs = effParams
+    const handleArgs = effParams
       .map((p) => pathArg.get(p.name)?.callArg ?? `body.${DOMAIN_NAMES.java.prop(p.name)}()`)
       .join(", ");
+    const callArgs = dispatched ? `new ${dispatched.name}(${handleArgs})` : handleArgs;
+    const handle = dispatched ? javaDispatchMethod(dispatched.name) : "handle";
     // A query always returns; a command returns only with an explicit type.  A
     // scaffolded read declares `<Agg>Response` — normalise to the entity the
     // handler actually returns so the boundary projection fires on it
@@ -1225,7 +1339,7 @@ export function emitExplicitRouteController(
     const callLines =
       hEr && h.returnType?.kind === "union"
         ? [
-            `        var result = ${field}.handle(${callArgs});`,
+            `        var result = ${field}.${handle}(${callArgs});`,
             ...entryControllerJava(hEr, h.returnType, ctx, "result", "        ", {
               problemDetail: javaRef("org.springframework.http", "ProblemDetail"),
               uri: javaRef("java.net", "URI"),
@@ -1236,18 +1350,18 @@ export function emitExplicitRouteController(
         : retType
           ? isBareString
             ? [
-                `        var result = ${field}.handle(${callArgs});`,
+                `        var result = ${field}.${handle}(${callArgs});`,
                 ...absentGuard,
                 `        return ResponseEntity.ok().contentType(${javaRef("org.springframework.http", "MediaType")}.APPLICATION_JSON)`,
                 `            .body(JSON.writeValueAsString(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)}));`,
               ]
             : [
-                `        var result = ${field}.handle(${callArgs});`,
+                `        var result = ${field}.${handle}(${callArgs});`,
                 ...absentGuard,
                 `        return ResponseEntity.ok(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)});`,
               ]
           : [
-              `        ${field}.handle(${callArgs});`,
+              `        ${field}.${handle}(${callArgs});`,
               `        return ResponseEntity.noContent().build();`,
             ];
     actions.push(

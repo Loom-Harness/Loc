@@ -21,6 +21,7 @@ import {
   formZeroText,
   renderFormField,
 } from "../_frontend/form-spec.js";
+import { type FelizTextKind, felizTextEncode } from "./form-text.js";
 import { fsIdent } from "./fs-ident.js";
 import type { FelizFieldArray, FelizFormField, FelizInputKind, FelizRowField } from "./wire.js";
 import { encodeExprFor } from "./wire-codec.js";
@@ -116,13 +117,11 @@ function isFlat(f: FormFieldSpec): boolean {
   );
 }
 
-/** How strictly a numeric cell's text must parse before the encoder converts
- *  it.  A numeric COLLECTION is a comma-separated list, which no single-value
- *  parse describes, so it is not marked. */
-function numericOf(f: FormFieldSpec): "integral" | "fractional" | undefined {
-  if (f.kind === "int") return "integral";
-  if (f.kind === "decimal" || f.kind === "money") return "fractional";
-  return undefined;
+/** The parse rule a cell's text answers to (`FormFieldSpec.text`): a number or
+ *  money cell, or a comma-separated list of numbers. */
+function textOf(f: FormFieldSpec, optional: boolean): FelizTextKind | undefined {
+  if (!f.text) return undefined;
+  return f.kind === "scalarArray" ? [f.text, false, "list"] : [f.text, optional];
 }
 
 /** The BARE string a constant/enum `= default` seeds into the all-string Feliz
@@ -166,13 +165,16 @@ function buildField(
   // The cell starts on the field's zero (a required enum on its first value, a
   // number on "0", an optional field empty) unless a default seeds it.
   const emptyValue = felizDefaultString(f.default) ?? formZeroText(f);
+  const text = textOf(f, optional);
   return {
     wireName,
     fsName: fsIdent(wireName),
     setMsg: `Set${formType}${upperFirst(wireName)}`,
-    encodeExpr: encodeExprFor(f.type, `form.${fsIdent(wireName)}`, optional),
+    encodeExpr: text
+      ? felizTextEncode(text, `form.${fsIdent(wireName)}`)
+      : encodeExprFor(f.type, `form.${fsIdent(wireName)}`, optional),
     inputKind,
-    numeric: numericOf(f),
+    ...(text ? { text } : {}),
     // An array cell is a comma-separated list: empty is the empty list, a
     // legitimate value (the wire schema carries no minimum), never "unfilled".
     required: !optional && !isArray,
@@ -267,6 +269,7 @@ function felizFieldArray(
     // is all-string, and a real per-row picker needs an INDEXED upload `Cmd`
     // (one in flight per row).  The flat form renders a real picker.
     const rowFile = kind === "file";
+    const rowText = rowFile ? undefined : textOf(sub, sub.optional);
     return {
       wireName: sub.name,
       fsName: fsIdent(sub.name),
@@ -282,13 +285,15 @@ function felizFieldArray(
         : {}),
       encodeExpr: rowFile
         ? `Encode.string row.${fsIdent(sub.name)}`
-        : encodeExprFor(sub.type, `row.${sub.name}`, sub.optional),
+        : rowText
+          ? felizTextEncode(rowText, `row.${sub.name}`)
+          : encodeExprFor(sub.type, `row.${sub.name}`, sub.optional),
       jsonKey: sub.name,
       enumValues: kind === "select" && sub.enumValues ? [...sub.enumValues] : undefined,
       required: !sub.optional,
       emptyValue: formZeroText(sub),
-      // A file cell degrades to text and encodes as a string — never numeric.
-      numeric: rowFile ? undefined : numericOf(sub),
+      // A file cell degrades to text and encodes as a string — never parsed.
+      ...(rowText ? { text: rowText } : {}),
     };
   });
   const elementName = f.valueObject ?? f.name;

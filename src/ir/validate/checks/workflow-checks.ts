@@ -24,6 +24,7 @@ import {
   workflowRequiresTransaction,
 } from "../../plan/index.js";
 import { verbsForKind } from "../../resource-verbs.js";
+import { pagedReturn } from "../../stdlib/generics.js";
 import { variantTag } from "../../stdlib/unions.js";
 import type { EffectKind } from "../../types/effect-ir.js";
 import type {
@@ -38,6 +39,7 @@ import type {
 } from "../../types/loom-ir.js";
 import { contextSaveResolver } from "../../util/domain-service-tier.js";
 import { bodyEffects } from "../../util/effects.js";
+import { pagedRunStmt } from "../../util/paged-run.js";
 import {
   walkExprDeep,
   walkStmtExprsDeep,
@@ -507,16 +509,19 @@ export function validateHandlerInlineRepoCalls(
  *  Repo.all()`) reads the whole table, and no repository emits an unbounded
  *  load to run it (the implicit relational `all()` is paged).  The rows of a
  *  list come from `Repo.all(<Criterion>(…))`, which runs a retrieval every
- *  backend emits. */
+ *  backend emits.  The one admitted bare read is the run a `paged` query
+ *  handler returns: it pages through the aggregate's own list read, so it
+ *  never loads the table (`loom.paged-query-handler-shape` owns its shape). */
 export function validateHandlerCollectionLets(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
 ): void {
   const handlers = [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])];
   for (const h of handlers) {
+    const pagedRun = h.returnType && pagedReturn(h.returnType) ? pagedRunStmt(h) : undefined;
     for (const top of h.statements) {
       walkWorkflowStmtsDeep(top, (st) => {
-        if (st.kind !== "repo-let" || st.op !== "select-many") return;
+        if (st.kind !== "repo-let" || st.op !== "select-many" || st === pagedRun) return;
         diags.push({
           severity: "error",
           code: "loom.workflow-load-array-unsupported",

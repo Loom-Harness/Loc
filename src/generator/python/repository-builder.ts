@@ -6,6 +6,7 @@ import {
   readSortFor,
 } from "../../ir/enrich/read-scope.js";
 import { clientSortTieBreak, singleReadOrder } from "../../ir/plan/index.js";
+import { codePointSortFields } from "../../ir/plan/sort-order.js";
 import { absenceProbe } from "../../ir/plan/value-object-columns.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type { PayloadIR } from "../../ir/types/loom-ir.js";
@@ -69,10 +70,11 @@ import { type ValueCollectionIR, valueCollectionsFor } from "../../ir/util/value
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { mapExprChildren } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
-import { pythonIdent, snake } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { pyCalendarDateWire } from "./codec-spelling.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { PY_PROV_SUFFIX, provColumn, provenancedFieldsOf } from "./emit/provenance.js";
@@ -106,6 +108,7 @@ const authUser = (name: string): string => pyRef("app.auth.user", name);
 const errors = (name: string): string => pyRef("app.domain.errors", name);
 const obsLog = (name: string): string => pyRef("app.obs.log", name);
 const wire = (name: string): string => pyRef("app.db.wire", name);
+const N = DOMAIN_NAMES.python;
 export const R = {
   select: sa("select"),
   delete: sa("delete"),
@@ -143,12 +146,12 @@ export const schemaRow = (name: string): string => pyRef("app.db.schema", name);
 
 /** `from app.domain.<snake(agg)> import <Agg>` — the aggregate class. */
 export const aggRef = (agg: { name: string }): string =>
-  pyRef(`app.domain.${snake(agg.name)}`, agg.name);
+  pyRef(`app.domain.${N.stem(agg.name)}`, agg.name);
 
 /** `from app.domain.<snake(agg)> import <Part>` — a part lives in its
  *  aggregate's module. */
 export const partRef = (agg: { name: string }, part: string): string =>
-  pyRef(`app.domain.${snake(agg.name)}`, part);
+  pyRef(`app.domain.${N.stem(agg.name)}`, part);
 
 // ---------------------------------------------------------------------------
 // Repository emission — `app/db/repositories/<snake(agg)>_repository.py`.
@@ -360,14 +363,14 @@ export function buildPyRepositoryFile(
   const allPred = declaredAllFilterPredicate(agg, repo, ctx);
   const allWhere = `${whereClause(allPred)}${allFindIgnoring(repo)}`;
   const allSortMap = sortableFields(agg)
-    .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
+    .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(N.prop(wf))}`)
     .join(", ");
   const allMethodLines = pagedAll
     ? [
         `    async def all(self, page: int, page_size: int, sort: str, dir: str) -> ${R.PagedResult}[${aggRef(agg)}]:`,
         "        offset = (page - 1) * page_size",
         `        _sort_columns = {${allSortMap}}`,
-        `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
+        `        _sort_attr = ${pyClientSortColumn(root, '_sort_columns.get(sort, "id")', agg)}`,
         `        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(), ${pyOrderTerms(root, clientSortTieBreak())})`,
         "        total = (",
         `            await self._session.execute(${R.select}(${R.func}.count()).select_from(${root})${allWhere})`,
@@ -448,8 +451,28 @@ export function buildPyRepositoryFile(
 // --- finds -------------------------------------------------------------------
 
 /** `Row.col.asc(), …` — a list of order terms over the row class's columns. */
-function pyOrderTerms(root: string, terms: readonly ReadOrderTerm[]): string {
-  return terms.map((t) => `${root}.${pythonIdent(t.field)}.${t.direction}()`).join(", ");
+function pyOrderTerms(
+  root: string,
+  terms: readonly ReadOrderTerm[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
+  return terms
+    .map(
+      (t) =>
+        `${root}.${N.prop(t.field)}${codePoint.has(t.field) ? '.collate("C")' : ""}.${t.direction}()`,
+    )
+    .join(", ");
+}
+
+/** The ORDER BY operand of the caller's whitelisted `?sort=` attribute
+ *  (`attr`): a text or enum column collates by code point like every other
+ *  sort (`src/ir/plan/sort-order.ts`). */
+function pyClientSortColumn(root: string, attr: string, agg: EnrichedAggregateIR): string {
+  const collated = sortableFields(agg).filter((wf) => codePointSortFields(agg.fields).has(wf));
+  const col = `getattr(${root}, ${attr})`;
+  if (collated.length === 0) return col;
+  const names = collated.map((wf) => JSON.stringify(N.prop(wf))).join(", ");
+  return `(lambda __c: __c.collate("C") if ${attr} in {${names}} else __c)(${col})`;
 }
 
 /** The method behind a widened single-row read (`find(C) ignoring …` /
@@ -473,7 +496,7 @@ export function relationalFindMethod(
   bulkHydrate = true,
 ): string {
   const root = schemaRow(rowClassName(agg.name));
-  const params = find.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
+  const params = find.params.map((p) => `${N.binding(p.name)}: ${renderPyType(p.type)}`);
   // currentUser-scoped finds take the actor as the trailing parameter;
   // the predicate renders `current_user.<claim>` as a plain bind value.  A
   // widened single-row read's method is called from bodies only, which hold
@@ -503,12 +526,14 @@ export function relationalFindMethod(
     // Server-side sort (M-T2.6): whitelist maps each wire key to its snake
     // column attr; an unknown key falls back to `id` (stable default order).
     const sortMap = sortableFields(agg)
-      .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
+      .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(N.prop(wf))}`)
       .join(", ");
     const declaredTerms = defaultSortOrder(find.defaultSort);
-    const declaredOrder = declaredTerms ? pyOrderTerms(root, declaredTerms) : undefined;
+    const declaredOrder = declaredTerms
+      ? pyOrderTerms(root, declaredTerms, codePointSortFields(agg.fields))
+      : undefined;
     return lines(
-      `    async def ${pythonIdent(find.name)}(${sig}) -> ${R.PagedResult}[${aggRef(agg)}]:`,
+      `    async def ${N.op(find.name)}(${sig}) -> ${R.PagedResult}[${aggRef(agg)}]:`,
       "        offset = (page - 1) * page_size",
       `        _sort_columns = {${sortMap}}`,
       ...(declaredOrder
@@ -516,10 +541,10 @@ export function relationalFindMethod(
             // An unwhitelisted `sort` (the route's `""` default) takes the
             // read's declared order (`defaultSortOrder`).
             "        _sort_key = _sort_columns.get(sort)",
-            `        _order = (getattr(${root}, _sort_key).desc() if dir == "desc" else getattr(${root}, _sort_key).asc(), ${pyOrderTerms(root, clientSortTieBreak())}) if _sort_key is not None else (${declaredOrder},)`,
+            `        _order = (${pyClientSortColumn(root, "_sort_key", agg)}.desc() if dir == "desc" else ${pyClientSortColumn(root, "_sort_key", agg)}.asc(), ${pyOrderTerms(root, clientSortTieBreak())}) if _sort_key is not None else (${declaredOrder},)`,
           ]
         : [
-            `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
+            `        _sort_attr = ${pyClientSortColumn(root, '_sort_columns.get(sort, "id")', agg)}`,
             `        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(), ${pyOrderTerms(root, clientSortTieBreak())})`,
           ]),
       `        total = (`,
@@ -537,7 +562,7 @@ export function relationalFindMethod(
   const sig = ["self", ...params].join(", ");
   if (isList) {
     return lines(
-      `    async def ${pythonIdent(find.name)}(${sig}) -> list[${aggRef(agg)}]:`,
+      `    async def ${N.op(find.name)}(${sig}) -> list[${aggRef(agg)}]:`,
       `        rows = (await self._session.execute(${R.select}(${root})${where})).scalars().all()`,
       `        items = ${hydrateListExpr(agg, bulkHydrate)}`,
       findExecutedLine(agg, find.name, "len(items)"),
@@ -549,7 +574,7 @@ export function relationalFindMethod(
   const firstMatch = singleReadOrder(find);
   const orderBy = firstMatch ? `.order_by(${pyOrderTerms(root, firstMatch)})` : "";
   return lines(
-    `    async def ${pythonIdent(find.name)}(${sig}) -> ${aggRef(agg)}${raises ? "" : " | None"}:`,
+    `    async def ${N.op(find.name)}(${sig}) -> ${aggRef(agg)}${raises ? "" : " | None"}:`,
     `        row = (await self._session.execute(${R.select}(${root})${where}${orderBy})).scalars().first()`,
     findExecutedLine(agg, find.name, "0 if row is None else 1"),
     "        if row is None:",
@@ -588,22 +613,44 @@ export function pyInMemoryPagedFind(
   opts: { sig: string; loadLines: readonly string[]; filteredExpr: string },
 ): string {
   const sortMap = sortableFields(agg)
-    .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
+    .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(N.prop(wf))}`)
     .join(", ");
   return lines(
-    `    async def ${pythonIdent(find.name)}(${opts.sig}) -> ${R.PagedResult}[${aggRef(agg)}]:`,
+    `    async def ${N.op(find.name)}(${opts.sig}) -> ${R.PagedResult}[${aggRef(agg)}]:`,
     ...opts.loadLines,
     `        matched = ${opts.filteredExpr}`,
     "        total = len(matched)",
     "        total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0",
     `        _sort_columns = {${sortMap}}`,
     '        _sort_attr = _sort_columns.get(sort, "id")',
-    '        matched = sorted(matched, key=lambda x: getattr(x, _sort_attr), reverse=dir == "desc")',
+    // An absent key sorts last ascending (first descending); text compares by
+    // code point (`src/ir/plan/sort-order.ts`).  An unwhitelisted `sort` (the
+    // route's `""` default) takes the read's declared order, one stable pass
+    // per term from the last.
+    ...pyDeclaredOrderLines(find),
+    `        ${pyDeclaredOrderLines(find).length > 0 ? "else:\n            " : ""}matched = sorted(matched, key=lambda x: (lambda __k: (__k is None, __k))(getattr(x, _sort_attr)), reverse=dir == "desc")`,
     "        offset = (page - 1) * page_size",
     "        page_items = matched[offset : offset + page_size]",
     findExecutedLine(agg, find.name, "len(page_items)"),
     `        return ${R.PagedResult}(items=page_items, page=page, page_size=page_size, total=total, total_pages=total_pages)`,
   );
+}
+
+/** The `if` head and per-term passes of a paged in-memory read's declared
+ *  order (`defaultSortOrder`), taken when the caller's `sort` names no
+ *  whitelisted column; empty when the read declares none. */
+function pyDeclaredOrderLines(find: FindIR): string[] {
+  const declared = defaultSortOrder(find.defaultSort);
+  if (!declared) return [];
+  return [
+    "        if sort not in _sort_columns:",
+    ...[...declared]
+      .reverse()
+      .map(
+        (t) =>
+          `            matched = sorted(matched, key=lambda x: (lambda __k: (__k is None, __k))(x.${N.prop(t.field)}), reverse=${t.direction === "desc" ? "True" : "False"})`,
+      ),
+  ];
 }
 
 /** The paged find's four extra wire parameters, in the order every backend's
@@ -688,11 +735,11 @@ function viewFindMethod(
   // this read only.
   const where = `${whereClause(pred)}${pyIgnoringOption(view)}`;
   const viewParams = (view.params ?? []).map(
-    (p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`,
+    (p) => `${N.binding(p.name)}: ${renderPyType(p.type)}`,
   );
   const viewSig = ["self", ...viewParams].join(", ");
   return lines(
-    `    async def ${pythonIdent(view.name)}(${viewSig}) -> list[${aggRef(agg)}]:`,
+    `    async def ${N.op(view.name)}(${viewSig}) -> list[${aggRef(agg)}]:`,
     `        rows = (await self._session.execute(${R.select}(${root})${where})).scalars().all()`,
     `        items = ${hydrateListExpr(agg)}`,
     findExecutedLine(agg, view.name, "len(items)"),
@@ -713,6 +760,7 @@ export function runMethod(
   bulkHydrate = true,
 ): string {
   const root = schemaRow(rowClassName(agg.name));
+  const name = `run_${N.stem(retrieval.name)}`;
   // The runner appends its own `offset` / `limit` paging keywords (callers
   // pass them by name), so a criterion param of either name would be a
   // duplicate argument — a SyntaxError.  The colliding param is renamed in the
@@ -727,19 +775,26 @@ export function runMethod(
   // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`)
   // — never the database's physical order, so a criterion `find` taking the
   // first match answers the same row as every other backend.
+  // A text or enum column sorts by code point (`COLLATE "C"`, the one sort
+  // order — `src/ir/plan/sort-order.ts`).
+  const codePoint = codePointSortFields(agg.fields);
   const orderBy = `.order_by(${readSortFor(retrieval.sort)
-    .map((t) => `${root}.${pythonIdent(t.path[0]!.name)}.${t.direction}()`)
+    .map((t) => {
+      const name = t.path[0]!.name;
+      const col = `${root}.${N.prop(name)}`;
+      return `${codePoint.has(name) ? `${col}.collate("C")` : col}.${t.direction}()`;
+    })
     .join(", ")})`;
   const params = [
     "self",
     ...retrieval.params.map(
-      (p) => `${pythonIdent(renames.get(p.name) ?? p.name)}: ${renderPyType(p.type)}`,
+      (p) => `${N.binding(renames.get(p.name) ?? p.name)}: ${renderPyType(p.type)}`,
     ),
     "offset: int | None = None",
     "limit: int | None = None",
   ];
   return lines(
-    `    async def run_${snake(retrieval.name)}(${params.join(", ")}) -> list[${aggRef(agg)}]:`,
+    `    async def ${name}(${params.join(", ")}) -> list[${aggRef(agg)}]:`,
     // A widened read's own retrieval (`… ignoring …`) drops the restrictions
     // its stance names; the shared retrieval carries none.
     `        query = ${R.select}(${root})${whereClause(pred)}${orderBy}${pyIgnoringOption(retrieval)}`,
@@ -749,7 +804,7 @@ export function runMethod(
     "            query = query.limit(limit)",
     "        rows = (await self._session.execute(query)).scalars().all()",
     `        items = ${hydrateListExpr(agg, bulkHydrate)}`,
-    findExecutedLine(agg, `run_${snake(retrieval.name)}`, "len(items)"),
+    findExecutedLine(agg, name, "len(items)"),
     "        return items",
   );
 }
@@ -771,13 +826,13 @@ export function pyInMemoryRunMethod(
     capability?: { expr: string; usesPrincipal: boolean } | null;
   },
 ): string {
-  const name = `run_${snake(retrieval.name)}`;
+  const name = `run_${N.stem(retrieval.name)}`;
   const renames = runnerParamRenames(retrieval.params.map((p) => p.name));
   const where = renames.size > 0 ? renameParamRefs(retrieval.where, renames) : retrieval.where;
   const params = [
     "self",
     ...retrieval.params.map(
-      (p) => `${pythonIdent(renames.get(p.name) ?? p.name)}: ${renderPyType(p.type)}`,
+      (p) => `${N.binding(renames.get(p.name) ?? p.name)}: ${renderPyType(p.type)}`,
     ),
     "offset: int | None = None",
     "limit: int | None = None",
@@ -789,12 +844,13 @@ export function pyInMemoryRunMethod(
   // principal — the call site passes none, exactly as for the relational runner.
   const bindPrincipal = !!opts.capability?.usesPrincipal || exprUsesCurrentUser(where);
   // Stable sorts applied last-key-first give the multi-key order with a
-  // per-term direction.
+  // per-term direction; an absent key sorts last ascending and first
+  // descending, text by code point (`src/ir/plan/sort-order.ts`).
   const sorts = [...retrieval.sort]
     .reverse()
     .map(
       (t) =>
-        `        result.sort(key=lambda x: x.${t.path.map((s) => pythonIdent(s.name)).join(".")}${t.direction === "desc" ? ", reverse=True" : ""})`,
+        `        result.sort(key=lambda x: (lambda __k: (__k is None, __k))(x.${t.path.map((s) => N.prop(s.name)).join(".")})${t.direction === "desc" ? ", reverse=True" : ""})`,
     );
   return lines(
     `    async def ${name}(${params.join(", ")}) -> list[${aggRef(agg)}]:`,
@@ -819,12 +875,12 @@ const RUNNER_PAGING_PARAMS: ReadonlySet<string> = new Set(["offset", "limit"]);
  *  free of every other param).  Empty when nothing collides. */
 function runnerParamRenames(params: readonly string[]): Map<string, string> {
   const renames = new Map<string, string>();
-  const taken = new Set(params.map((p) => pythonIdent(p)));
+  const taken = new Set(params.map((p) => N.binding(p)));
   for (const p of params) {
-    if (!RUNNER_PAGING_PARAMS.has(pythonIdent(p))) continue;
+    if (!RUNNER_PAGING_PARAMS.has(N.binding(p))) continue;
     let name = `${p}_`;
-    while (taken.has(pythonIdent(name))) name = `${name}_`;
-    taken.add(pythonIdent(name));
+    while (taken.has(N.binding(name))) name = `${name}_`;
+    taken.add(N.binding(name));
     renames.set(p, name);
   }
   return renames;
@@ -911,7 +967,7 @@ function hydrateVo(
       // IN the value object keeps its own null: with the VO present that one
       // really can be absent.  (Ported from #2872, which fixed the pre-recursion
       // inline version this helper replaced.)
-      const col = `${rowVar}.${pythonIdent(path)}`;
+      const col = `${rowVar}.${N.prop(path)}`;
       return hydrateScalar(
         nullableGroup && !leafOptional ? `${R.required}(${col})` : col,
         vf.type,
@@ -924,7 +980,7 @@ function hydrateVo(
   // Absent exactly when every leaf the shared rule probes is NULL.
   const probe = absenceProbe(prefix, { kind: "valueobject", name: voName }, ctx);
   if (probe.length === 0) return ctor;
-  const absent = probe.map((l) => `${rowVar}.${pythonIdent(l.prop)} is None`).join(" and ");
+  const absent = probe.map((l) => `${rowVar}.${N.prop(l.prop)} is None`).join(" and ");
   return `(None if ${absent} else ${ctor})`;
 }
 
@@ -937,7 +993,7 @@ export function hydrateField(rowVar: string, f: FieldIR, ctx: EnrichedBoundedCon
     const hydrated = hydrateVo(rowVar, t.name, f.name, opt, ctx);
     if (hydrated !== undefined) return hydrated;
   }
-  return hydrateScalar(`${rowVar}.${pythonIdent(f.name)}`, f.type, f.optional);
+  return hydrateScalar(`${rowVar}.${N.prop(f.name)}`, f.type, f.optional);
 }
 
 /** Reconstruct a value-object-collection list from its loaded child rows
@@ -952,9 +1008,9 @@ export function hydrateValueCollection(
 ): string {
   const vo = findValueObjectInScope(ctx, vc.voName);
   const args = (vo?.fields ?? [])
-    .map((vf) => hydrateScalar(`${rowVar}.${pythonIdent(vf.name)}`, vf.type, false))
+    .map((vf) => hydrateScalar(`${rowVar}.${N.prop(vf.name)}`, vf.type, false))
     .join(", ");
-  return `[${pyVoOrEnum(vc.voName)}(${args}) for ${rowVar} in ${snake(vc.fieldName)}_rows]`;
+  return `[${pyVoOrEnum(vc.voName)}(${args}) for ${rowVar} in ${N.stem(vc.fieldName)}_rows]`;
 }
 
 /** True when the aggregate carries at least one child collection that
@@ -1025,25 +1081,25 @@ function buildAggConstruction(
   for (const f of agg.fields) {
     if (isValueCollectionField(f)) {
       const vc = valueCollectionsFor(agg).find((c) => c.fieldName === f.name);
-      if (vc) kwargs.push(`${pythonIdent(f.name)}=${hydrateValueCollection(vc, "__r", ctx)}`);
+      if (vc) kwargs.push(`${N.binding(f.name)}=${hydrateValueCollection(vc, "__r", ctx)}`);
       continue;
     }
     if (isRefCollectionType(f.type)) {
       const assoc = assocFor(agg, f.name);
       if (!assoc) continue;
       kwargs.push(
-        `${pythonIdent(f.name)}=[${pyIdType(assoc.targetAgg)}(__r.${assoc.targetFk}) for __r in ${snake(f.name)}_rows]`,
+        `${N.binding(f.name)}=[${pyIdType(assoc.targetAgg)}(__r.${assoc.targetFk}) for __r in ${N.stem(f.name)}_rows]`,
       );
       continue;
     }
-    kwargs.push(`${pythonIdent(f.name)}=${hydrateField("row", f, ctx)}`);
+    kwargs.push(`${N.binding(f.name)}=${hydrateField("row", f, ctx)}`);
   }
   for (const c of agg.contains) {
-    const v = snake(c.name);
+    const v = N.stem(c.name);
     kwargs.push(
       c.collection
-        ? `${pythonIdent(c.name)}=[${hydratePartCall(agg, c.partName, "__r")} for __r in ${v}_rows]`
-        : `${pythonIdent(c.name)}=(${hydratePartCall(agg, c.partName, `${v}_rows[0]`)} if ${v}_rows else None)`,
+        ? `${N.binding(c.name)}=[${hydratePartCall(agg, c.partName, "__r")} for __r in ${v}_rows]`
+        : `${N.binding(c.name)}=(${hydratePartCall(agg, c.partName, `${v}_rows[0]`)} if ${v}_rows else None)`,
     );
   }
   const provFields = provenancedFieldsOf(agg);
@@ -1081,7 +1137,7 @@ function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR):
   // Load contained collections…
   for (const c of agg.contains) {
     const partRow = schemaRow(rowClassName(c.partName));
-    const v = snake(c.name);
+    const v = N.stem(c.name);
     out.push(
       `        ${v}_rows = (`,
       "            await self._session.execute(",
@@ -1095,7 +1151,7 @@ function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR):
     const assoc = assocFor(agg, f.name);
     if (!assoc) continue;
     const joinRow = schemaRow(joinRowClassName(assoc));
-    const v = snake(f.name);
+    const v = N.stem(f.name);
     out.push(
       `        ${v}_rows = (`,
       "            await self._session.execute(",
@@ -1109,7 +1165,7 @@ function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR):
   // …and value-object-collection child rows (ordinal-ordered → VO list).
   for (const vc of valueCollectionsFor(agg)) {
     const vcRow = schemaRow(valueCollectionRowClassName(vc.childTable));
-    const v = snake(vc.fieldName);
+    const v = N.stem(vc.fieldName);
     out.push(
       `        ${v}_rows = (`,
       "            await self._session.execute(",
@@ -1140,7 +1196,7 @@ function hydrateManyMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContext
   // Bulk-load + group each contained collection by its parent id.
   for (const c of agg.contains) {
     const partRow = schemaRow(rowClassName(c.partName));
-    const v = snake(c.name);
+    const v = N.stem(c.name);
     out.push(
       `        ${v}_all = (`,
       "            await self._session.execute(",
@@ -1157,7 +1213,7 @@ function hydrateManyMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContext
     const assoc = assocFor(agg, f.name);
     if (!assoc) continue;
     const joinRow = schemaRow(joinRowClassName(assoc));
-    const v = snake(f.name);
+    const v = N.stem(f.name);
     out.push(
       `        ${v}_all = (`,
       "            await self._session.execute(",
@@ -1174,7 +1230,7 @@ function hydrateManyMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContext
   // …value-object-collection child rows (ordinal-ordered → VO list).
   for (const vc of valueCollectionsFor(agg)) {
     const vcRow = schemaRow(valueCollectionRowClassName(vc.childTable));
-    const v = snake(vc.fieldName);
+    const v = N.stem(vc.fieldName);
     out.push(
       `        ${v}_all = (`,
       "            await self._session.execute(",
@@ -1193,16 +1249,16 @@ function hydrateManyMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContext
   // Bind the same `<collection>_rows` locals `buildAggConstruction` expects,
   // this time sliced from the grouped maps instead of a fresh per-row SELECT.
   for (const c of agg.contains) {
-    const v = snake(c.name);
+    const v = N.stem(c.name);
     out.push(`            ${v}_rows = ${v}_by_parent.get(row.id, [])`);
   }
   for (const f of agg.fields.filter((f) => isRefCollectionType(f.type))) {
     if (!assocFor(agg, f.name)) continue;
-    const v = snake(f.name);
+    const v = N.stem(f.name);
     out.push(`            ${v}_rows = ${v}_by_parent.get(row.id, [])`);
   }
   for (const vc of valueCollectionsFor(agg)) {
-    const v = snake(vc.fieldName);
+    const v = N.stem(vc.fieldName);
     out.push(`            ${v}_rows = ${v}_by_parent.get(row.id, [])`);
   }
   out.push(...buildAggConstruction(agg, ctx, "            ", { kind: "append", into: "result" }));
@@ -1224,7 +1280,7 @@ function partHydrateIsAsync(agg: EnrichedAggregateIR, partName: string): boolean
  *  `async`, so awaiting is safe. */
 function hydratePartCall(agg: EnrichedAggregateIR, partName: string, argExpr: string): string {
   const prefix = partHydrateIsAsync(agg, partName) ? "await " : "";
-  return `${prefix}self._hydrate_${snake(partName)}(${argExpr})`;
+  return `${prefix}self._hydrate_${N.stem(partName)}(${argExpr})`;
 }
 
 function partHydrateMethod(
@@ -1238,12 +1294,12 @@ function partHydrateMethod(
   const parentName = directParentName(agg, p.name, agg.name);
   const isAsync = partHydrateIsAsync(agg, p.name);
   const out: string[] = [
-    `    ${isAsync ? "async def" : "def"} _hydrate_${snake(p.name)}(self, row: ${partRow}) -> ${partRef(agg, p.name)}:`,
+    `    ${isAsync ? "async def" : "def"} _hydrate_${N.stem(p.name)}(self, row: ${partRow}) -> ${partRef(agg, p.name)}:`,
   ];
   // Load each nested containment's child rows, keyed by THIS part's own id.
   for (const c of p.contains) {
     const nestedRow = schemaRow(rowClassName(c.partName));
-    const v = snake(c.name);
+    const v = N.stem(c.name);
     out.push(
       `        ${v}_rows = (`,
       "            await self._session.execute(",
@@ -1257,7 +1313,7 @@ function partHydrateMethod(
   for (const vc of partValues) {
     const vcRow = schemaRow(valueCollectionRowClassName(vc.childTable));
     out.push(
-      `        ${snake(vc.fieldName)}_rows = (`,
+      `        ${N.stem(vc.fieldName)}_rows = (`,
       "            await self._session.execute(",
       `                ${R.select}(${vcRow})`,
       `                .where(${vcRow}.${vc.parentFk} == row.id)`,
@@ -1273,16 +1329,16 @@ function partHydrateMethod(
       .filter((f) => !isRefCollectionType(f.type))
       .flatMap((f) => {
         if (!isValueCollectionField(f)) {
-          return [`${pythonIdent(f.name)}=${hydrateField("row", f, ctx)}`];
+          return [`${N.binding(f.name)}=${hydrateField("row", f, ctx)}`];
         }
         const vc = partValues.find((c) => c.fieldName === f.name);
-        return vc ? [`${pythonIdent(f.name)}=${hydrateValueCollection(vc, "__r", ctx)}`] : [];
+        return vc ? [`${N.binding(f.name)}=${hydrateValueCollection(vc, "__r", ctx)}`] : [];
       }),
     ...p.contains.map((c) => {
-      const v = snake(c.name);
+      const v = N.stem(c.name);
       return c.collection
-        ? `${pythonIdent(c.name)}=[${hydratePartCall(agg, c.partName, "__r")} for __r in ${v}_rows]`
-        : `${pythonIdent(c.name)}=(${hydratePartCall(agg, c.partName, `${v}_rows[0]`)} if ${v}_rows else None)`;
+        ? `${N.binding(c.name)}=[${hydratePartCall(agg, c.partName, "__r")} for __r in ${v}_rows]`
+        : `${N.binding(c.name)}=(${hydratePartCall(agg, c.partName, `${v}_rows[0]`)} if ${v}_rows else None)`;
     }),
   ];
   out.push(
@@ -1335,7 +1391,7 @@ function persistVoLeaves(
   if (!vo) return undefined;
   return vo.fields.flatMap((vf): Array<[string, string]> => {
     const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
-    const sub = `${access}.${pythonIdent(vf.name)}`;
+    const sub = `${access}.${N.prop(vf.name)}`;
     const path = `${prefix}_${vf.name}`;
     if (inner.kind === "valueobject") {
       const nestedGuards = vf.optional || vf.type.kind === "optional" ? [...guards, sub] : guards;
@@ -1357,7 +1413,7 @@ export function persistField(
   f: FieldIR,
   ctx: EnrichedBoundedContextIR,
 ): Array<[string, string]> {
-  return persistFieldValue(`${ownerExpr}.${pythonIdent(f.name)}`, f, ctx);
+  return persistFieldValue(`${ownerExpr}.${N.prop(f.name)}`, f, ctx);
 }
 
 /** {@link persistField} over an arbitrary value expression `access` (the
@@ -1584,8 +1640,8 @@ function syncContainment(
   const partRow = schemaRow(rowClassName(c.partName));
   const part = agg.parts.find((p) => p.name === c.partName);
   const path =
-    pathPrefix === null ? null : pathPrefix ? `${pathPrefix}_${snake(c.name)}` : snake(c.name);
-  const v = path ?? snake(c.name);
+    pathPrefix === null ? null : pathPrefix ? `${pathPrefix}_${N.stem(c.name)}` : N.stem(c.name);
+  const v = path ?? N.stem(c.name);
   // Depth 0 keeps the historical `child` / `child_row` / `__<v>_items` names so
   // single-level containment output is byte-identical; nested levels uniquify.
   const loopVar = path !== null ? `__${path}` : depth === 0 ? "child" : `__c${depth}`;
@@ -1607,7 +1663,7 @@ function syncContainment(
     if (isRefCollectionType(f.type) || isValueCollectionField(f)) continue;
     childPairs.push(...persistField(loopVar, f, ctx));
   }
-  const field = pythonIdent(c.name);
+  const field = N.prop(c.name);
   const items = c.collection ? `${ownerExpr}.${field}` : itemsVar;
   const out: string[] = [];
   if (!c.collection) {
@@ -1678,9 +1734,9 @@ function containmentDepthCollides(agg: EnrichedAggregateIR): boolean {
 
 function syncJoinTable(assoc: AssociationIR, f: FieldIR, aggVar: string): string[] {
   const joinRow = schemaRow(joinRowClassName(assoc));
-  const v = snake(f.name);
+  const v = N.stem(f.name);
   return [
-    `        ${v}_current = [str(__t) for __t in ${aggVar}.${pythonIdent(f.name)}]`,
+    `        ${v}_current = [str(__t) for __t in ${aggVar}.${N.prop(f.name)}]`,
     `        ${v}_existing = (`,
     "            await self._session.execute(",
     `                ${R.select}(${joinRow}.${assoc.targetFk}).where(${joinRow}.${assoc.ownerFk} == ${aggVar}.id)`,
@@ -1724,19 +1780,18 @@ function syncValueCollection(
   const vo = findValueObjectInScope(ctx, vc.voName);
   // Loop variables are named per collection: one save method holds several
   // loops, and `mypy --strict` rejects a name rebound to a different element type.
-  const field = isPart ? vc.childTable : snake(vc.fieldName);
+  const field = isPart ? vc.childTable : N.stem(vc.fieldName);
   const idx = `__i_${field}`;
   const elem = `__e_${field}`;
   // Flattened VO column kwargs: `amount=Decimal(str(__e_<field>.amount)), …`.
   const voKwargs = (vo?.fields ?? []).map(
-    (vf) =>
-      `${pythonIdent(vf.name)}=${persistScalar(`${elem}.${pythonIdent(vf.name)}`, vf.type, false)}`,
+    (vf) => `${N.prop(vf.name)}=${persistScalar(`${elem}.${N.prop(vf.name)}`, vf.type, false)}`,
   );
   return [
     `${ind}await self._session.execute(`,
     `${ind}    ${R.delete}(${vcRow}).where(${vcRow}.${vc.parentFk} == ${aggVar}.id)`,
     `${ind})`,
-    `${ind}for ${idx}, ${elem} in enumerate(${aggVar}.${pythonIdent(vc.fieldName)} or []):`,
+    `${ind}for ${idx}, ${elem} in enumerate(${aggVar}.${N.prop(vc.fieldName)} or []):`,
     `${ind}    await self._session.execute(`,
     `${ind}        ${R.insert}(${vcRow}).values(`,
     `${ind}            ${vc.parentFk}=${aggVar}.id,`,
@@ -1861,10 +1916,7 @@ export function wireValue(
     const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return expr;
     const fields = vo.fields
-      .map(
-        (vf) =>
-          `"${vf.name}": ${wireValue(`${expr}.${pythonIdent(vf.name)}`, vf.type, ctx, false)}`,
-      )
+      .map((vf) => `"${vf.name}": ${wireValue(`${expr}.${N.prop(vf.name)}`, vf.type, ctx, false)}`)
       .join(", ");
     const obj = `{${fields}}`;
     return optional ? `(None if ${expr} is None else ${obj})` : obj;
@@ -1925,8 +1977,8 @@ function wireProjection(
             ? wf.type.name
             : "";
       if (!partName) continue;
-      const helper = `self._wire_${snake(partName)}`;
-      const access = `${varExpr}.${pythonIdent(wf.name)}`;
+      const helper = `self._wire_${N.stem(partName)}`;
+      const access = `${varExpr}.${N.prop(wf.name)}`;
       pairs.push(
         wf.type.kind === "array"
           ? `"${wf.name}": [${helper}(__e) for __e in ${access}]`
@@ -1935,7 +1987,7 @@ function wireProjection(
       continue;
     }
     pairs.push(
-      `"${wf.name}": ${wireValue(`${varExpr}.${pythonIdent(wf.name)}`, wf.type, ctx, wf.optional)}`,
+      `"${wf.name}": ${wireValue(`${varExpr}.${N.prop(wf.name)}`, wf.type, ctx, wf.optional)}`,
     );
   }
   return pairs;
@@ -2045,7 +2097,7 @@ export function partWireMethod(
   ctx: EnrichedBoundedContextIR,
 ): string {
   return lines(
-    `    def _wire_${snake(p.name)}(self, e: ${partRef(agg, p.name)}) -> dict[str, object]:`,
+    `    def _wire_${N.stem(p.name)}(self, e: ${partRef(agg, p.name)}) -> dict[str, object]:`,
     "        return {",
     wireProjection(p, "e", ctx).map((pair) => `            ${pair},`),
     "        }",

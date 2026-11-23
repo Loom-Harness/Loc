@@ -5,6 +5,7 @@
 // -------------------------------------------------------------------------
 
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -18,10 +19,10 @@ import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { lowerFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
-import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
@@ -57,11 +58,14 @@ import { mikroRetrievalMethod, valueCollFieldsOf } from "./mikroorm-relational.j
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import {
   maskUserImport,
+  mikroClientSortEntry,
   mikroClientSortTieBreak,
   mikroFindOneOptions,
   tsParamType,
   usesRawFragment,
 } from "./mikroorm-shared.js";
+
+const N = DOMAIN_NAMES.ts;
 
 // ---------------------------------------------------------------------------
 // Embedded-shape (`shape: embedded`) MikroORM repository.  The queryable
@@ -99,7 +103,7 @@ function embeddedHydrateLocals(
     out.push(`${indent}const ${f.name} = ${deserializeField(f.type, `${rowVar}.${f.name}`, ctx)};`);
   }
   for (const c of agg.contains) {
-    const fromDoc = `${lowerFirst(c.partName)}FromDoc`;
+    const fromDoc = `${N.stem(c.partName)}FromDoc`;
     if (c.collection)
       out.push(
         `${indent}const ${c.name} = ((${rowVar}.${c.name} ?? []) as ${c.partName}Doc[]).map((x) => ${fromDoc}(x));`,
@@ -139,25 +143,18 @@ export function renderMikroEmbeddedRepository(
       rootEntries.push(`${e.fieldName}: ${e.expr}`);
   for (const f of agg.fields)
     if (isRefCollectionType(f.type))
-      rootEntries.push(
-        `${f.name}: aggregate.${escapeTargetFieldMember("ts", f.name)}.map((x) => x as string)`,
-      );
+      rootEntries.push(`${f.name}: aggregate.${N.prop(f.name)}.map((x) => x as string)`);
   for (const f of valueCollFieldsOf(agg))
-    rootEntries.push(
-      `${f.name}: ${serializeField(f.type, `aggregate.${escapeTargetFieldMember("ts", f.name)}`, ctx)}`,
-    );
+    rootEntries.push(`${f.name}: ${serializeField(f.type, `aggregate.${N.prop(f.name)}`, ctx)}`);
   for (const c of agg.contains) {
-    const toDoc = `${lowerFirst(c.partName)}ToDoc`;
+    const toDoc = `${N.stem(c.partName)}ToDoc`;
     if (c.collection)
-      rootEntries.push(
-        `${c.name}: aggregate.${escapeTargetFieldMember("ts", c.name)}.map((e) => ${toDoc}(e))`,
-      );
+      rootEntries.push(`${c.name}: aggregate.${N.prop(c.name)}.map((e) => ${toDoc}(e))`);
     else if (c.optional)
       rootEntries.push(
-        `${c.name}: aggregate.${escapeTargetFieldMember("ts", c.name)} == null ? null : ${toDoc}(aggregate.${escapeTargetFieldMember("ts", c.name)})`,
+        `${c.name}: aggregate.${N.prop(c.name)} == null ? null : ${toDoc}(aggregate.${N.prop(c.name)})`,
       );
-    else
-      rootEntries.push(`${c.name}: ${toDoc}(aggregate.${escapeTargetFieldMember("ts", c.name)}!)`);
+    else rootEntries.push(`${c.name}: ${toDoc}(aggregate.${N.prop(c.name)}!)`);
   }
   const rootRow = `{ ${rootEntries.join(", ")} }`;
 
@@ -210,7 +207,7 @@ export function renderMikroEmbeddedRepository(
     // see).  That mismatch — not any missing accessor — is what
     // `MIKROORM_SUBSET` was really describing when it refused the shape.
     const usesUser = findUsesCurrentUser(f);
-    const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
+    const baseParams = f.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
     // The aggregate's scope applies by itself (schema filters); this read's
     // `ignoring` clause switches off the named ones.
@@ -253,7 +250,7 @@ export function renderMikroEmbeddedRepository(
         `    const em = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : "id";`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = [{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" }, ${mikroClientSortTieBreak()}];`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = [${mikroClientSortEntry(L.sortField, sortableFields(agg), codePointSortFields(agg.fields))}, ${mikroClientSortTieBreak()}];`,
         `    const ${L.total} = await em.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,
@@ -431,7 +428,7 @@ export function renderMikroEmbeddedRepository(
       `import { ${row} } from "../entities";`,
       maskUserImport(agg, repo),
       audited && stampImportLine(agg, { update: versioned }),
-      `import { ${[agg.name, ...agg.parts.map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
+      `import { ${[agg.name, ...agg.parts.map((p) => p.name)].join(", ")} } from "../../domain/${N.stem(agg.name)}";`,
       voImportLine,
       `import * as Ids from "../../domain/ids";`,
       `import { AggregateNotFoundError${versioned ? ", ConcurrencyError" : ""} } from "../../domain/errors";`,

@@ -48,6 +48,7 @@ import {
   externFunctionShimPath,
   externFunctionSignaturePath,
 } from "../_frontend/extern-shim.js";
+import { formTextModuleTs } from "../_frontend/form-text-runtime.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 // The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
 // default, values?)` over `./locales/en.json` with `{name}` substitution — so
@@ -95,6 +96,7 @@ import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { emitShellFiles, emitShellGlobs } from "../_packs/shell-emits.js";
+import { TS_RUNTIME } from "../_symbols/plan.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import {
   collectUiMessages,
@@ -197,7 +199,7 @@ export function generateVueFromContract(
   // standalone frontend (one that `targets:` a backend) has a port of its
   // own; a bundle embedded in a backend keeps the template default.
   const devPort = target ? host.port : undefined;
-  const basePath = options.basePath ?? "";
+  const basePath = options.basePath ?? host.basePath ?? "";
   const viteBase = basePath ? `${basePath}/` : undefined;
   const routerBasename = basePath || undefined;
 
@@ -656,6 +658,7 @@ export function generateVueFromContract(
     renderShell(pack, "loom-form", {
       tBinding: errorCodeTBinding(i18nEnabled, "./locale"),
       helpers: ERROR_CODE_HELPERS_TS,
+      issueCodeKey: TS_RUNTIME.issueCode,
     }),
   );
 
@@ -840,6 +843,8 @@ export function generateVueFromContract(
   // scaffold's `ProvenanceInfo` "?" disclosure has a typed lineage to read
   // (mirrors the React generator).  The lib schema is framework-neutral zod.
   const usesProvenance = contractUsesProvenance(contract, contextNames);
+  // The form text-parse rule every form's request schema parses through.
+  out.set("src/lib/form-text.ts", formTextModuleTs("zod"));
   if (usesMoney || usesProvenance) {
     let schemas = usesMoney ? MONEY_SCHEMA_TS : "";
     if (usesProvenance) {

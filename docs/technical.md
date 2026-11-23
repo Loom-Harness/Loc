@@ -719,6 +719,21 @@ envelope and stays per target. A new multi-target feature lands its analysis
 and order facts in `src/ir/plan/` first, with a census rule, and each target
 then renders them.
 
+**The entry surface.** `entrySurface({ deployable, contexts, sys })`
+(`src/ir/plan/entry-surface.ts`) lists every way work enters a deployable's
+generated code: each HTTP route it mounts (the api's operations, the
+infrastructure routes — probes, metrics, the OpenAPI document, sign-in, files,
+the live-events stream, the bound ui) and each non-HTTP entry it starts
+(reactors and `on` bodies, event-triggered workflow starts, projection folds,
+timers, broker consumers, the outbox relay, the inbox purge). Each entry
+records how it is reached, its role (`api`, `infrastructure` or `internal`),
+the principal it runs as, its tenancy stance and its `requires` gates; the
+promise probes range over it. `test/system/entry-surface-census.test.ts`
+reads what each backend's generated tree actually mounts and starts, across
+the whole corpus on all five backends, and fails on an entry the plan does not
+list or a planned entry a backend does not mount. A new entry kind joins
+`ENTRY_KINDS` and the plan before any backend mounts it.
+
 ## Phase ⑦ — IR validation
 
 **File**: `src/ir/validate/validate.ts` — a thin

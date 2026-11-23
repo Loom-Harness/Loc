@@ -19,13 +19,12 @@
 // `renderProvenanceInfo` WalkerTarget seam.
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
-import { PROVENANCE_LINEAGE_FIELD } from "../../_payload/provenanced-wire.js";
 import { giveUp } from "../give-up.js";
 import { chromeMessage } from "../i18n-chrome.js";
 import { localizedChromeAria, localizedPageChromeText } from "../i18n-emit.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../shared/args.js";
 import type { WalkContext } from "../walker-core.js";
-import { emitExpr, testidAttr } from "../walker-core.js";
+import { provenanceLineageRead, testidAttr } from "../walker-core.js";
 
 export function emitProvenanceInfo(
   call: ExprIR & { kind: "call" },
@@ -50,7 +49,7 @@ export function emitProvenanceInfo(
   // `<record>.<field>.value`, which the scaffold renders in the cell beside
   // this disclosure.  `emitExpr` resolves the record receiver per target (React
   // `orderById.data`, Vue's query-data access), so the two stay symmetric.
-  const lineage = `${emitExpr(recordArg, ctx)}.${field}.${PROVENANCE_LINEAGE_FIELD}`;
+  const lineage = provenanceLineageRead(recordArg, field, ctx);
   const testid = testidAttr(call, ctx);
 
   switch (ctx.target.framework) {

@@ -117,7 +117,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
     expect(cs).toContain("def validate_body_value_objects(changeset) do");
     expect(cs).toContain("|> __validate_body_vo(:qty, &D.Orders.Qty.new/1)");
     expect(cs).toContain(
-      '@loom_body_vo_codes %{"Quantity must be positive" => "Orders.Qty.rule.quantityPositive"}',
+      '@body_vo_codes %{"Quantity must be positive" => "Orders.Qty.rule.quantityPositive"}',
     );
     const pd = find(fs, "problem_details.ex");
     expect(pd).toContain("case body_value_object_error(changeset) do");

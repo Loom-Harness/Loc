@@ -1,5 +1,6 @@
 import { type ReadOrderTerm, readSortFor } from "../../ir/enrich/read-scope.js";
 import { domainFindShape, singleReadOrder } from "../../ir/plan/index.js";
+import { codePointSortFields } from "../../ir/plan/sort-order.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -9,12 +10,14 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import type { AggPool } from "../../ir/util/inheritance.js";
-import { upperFirst } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { canEmitToExpressionFor } from "./criteria-emit.js";
 import { bypassedFilterNames, hasNonBypassableFilter } from "./emit/efcore.js";
 import { csLocalNamer, csReadOwnParams } from "./local-names.js";
-import { collectCsExprUsings, renderCsExpr } from "./render-expr.js";
+import { collectCsExprUsings, csSortComparer, renderCsExpr } from "./render-expr.js";
 import { csFindAbsentException } from "./wire-policy-cs.js";
+
+const N = DOMAIN_NAMES.csharp;
 
 /** The `.IgnoreQueryFilters(…)` clause for an `ignoring`-bearing read
  *  (named-filter-bypass.md §11), inserted on the `_db.<Set>` IQueryable BEFORE
@@ -113,7 +116,7 @@ export function buildRetrievalBodies(
   return retrievals.map((r) => ({
     name: r.name,
     whereClause: retrievalWhereClause(r, agg, ctx),
-    orderByClause: orderByClauseFor(r),
+    orderByClause: orderByClauseFor(r, codePointSortFields(agg.fields)),
   }));
 }
 
@@ -132,7 +135,7 @@ function retrievalWhereClause(
     const args = r.criterionRef.args
       .map((a) => renderCsExpr(a, { thisName: "x", agg, efQuery: true }))
       .join(", ");
-    return `.Where(new ${upperFirst(r.criterionRef.name)}Criterion(${args}).ToExpression())`;
+    return `.Where(new ${N.type(r.criterionRef.name)}Criterion(${args}).ToExpression())`;
   }
   // The lambda parameter yields to a same-named retrieval param, which the
   // predicate reads (`x => x.Name == x` would compare the row to itself).
@@ -144,24 +147,53 @@ function retrievalWhereClause(
  *  `id` tie-break, or `.OrderBy(x => x.Id)` when unsorted (`readSortFor`).
  *  Only the first path segment is used in v1 (a direct column), matching the
  *  Hono emitter + validateRetrievals gating. */
-function orderByClauseFor(r: RetrievalIR): string {
+function orderByClauseFor(r: RetrievalIR, codePoint: ReadonlySet<string>): string {
   // The lambda parameter yields to a same-named retrieval param, as the
   // `where` lambda does (a param `x` would otherwise be shadowed).
   const x = csLocalNamer(r.params.map((p) => p.name))("x");
-  return renderOrderBy(readSortFor(r.sort), x);
+  return renderOrderBy(readSortFor(r.sort), x, codePoint);
 }
 
 /** The declared sort terms alone (empty when unsorted) — for an in-memory
  *  read over rehydrated aggregates, whose typed id is not guaranteed
- *  comparable, so it takes no `id` tie-break.  `x` is the lambda parameter. */
-export function inMemoryOrderByClauseFor(r: RetrievalIR, x: string): string {
-  return renderOrderBy(r.sort, x);
+ *  comparable, so it takes no `id` tie-break.  `x` is the lambda parameter.
+ *  A root field compares by the one sort order (`src/ir/plan/sort-order.ts`)
+ *  through its comparer; LINQ's sort is stable. */
+export function inMemoryOrderByClauseFor(
+  r: RetrievalIR,
+  x: string,
+  agg: { fields: readonly { name: string; type: TypeIR }[] },
+): string {
+  return r.sort
+    .map((s, i) => {
+      const field = s.path[0]!.name;
+      const comparer =
+        s.path.length === 1
+          ? csSortComparer(agg.fields.find((f) => f.name === field)?.type)
+          : undefined;
+      const method =
+        i === 0
+          ? s.direction === "desc"
+            ? "OrderByDescending"
+            : "OrderBy"
+          : s.direction === "desc"
+            ? "ThenByDescending"
+            : "ThenBy";
+      return `.${method}(${x} => ${x}.${N.prop(field)}${comparer ? `, ${comparer}` : ""})`;
+    })
+    .join("");
 }
 
-function renderOrderBy(terms: RetrievalIR["sort"], x: string): string {
+function renderOrderBy(
+  terms: RetrievalIR["sort"],
+  x: string,
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
   return renderCsOrderTerms(
     terms.map((s) => ({ field: s.path[0]!.name, direction: s.direction })),
     x,
+    false,
+    codePoint,
   );
 }
 
@@ -172,10 +204,14 @@ export function renderCsOrderTerms(
   terms: readonly ReadOrderTerm[],
   x: string,
   continued = false,
+  /** Text / enum columns, sorted by code point (`COLLATE "C"`, the one sort
+   *  order — `src/ir/plan/sort-order.ts`).  Server-side reads only: an
+   *  in-memory read passes none. */
+  codePoint: ReadonlySet<string> = new Set(),
 ): string {
   return terms
     .map((s, i) => {
-      const col = upperFirst(s.field);
+      const col = csOrderKey(x, s.field, codePoint);
       const method =
         i === 0 && !continued
           ? s.direction === "desc"
@@ -184,9 +220,17 @@ export function renderCsOrderTerms(
           : s.direction === "desc"
             ? "ThenByDescending"
             : "ThenBy";
-      return `.${method}(${x} => ${x}.${col})`;
+      return `.${method}(${x} => ${col})`;
     })
     .join("");
+}
+
+/** The ORDER BY key for a column, collated by code point when it is text. */
+export function csOrderKey(x: string, field: string, codePoint: ReadonlySet<string>): string {
+  const col = `${x}.${N.prop(field)}`;
+  return codePoint.has(field)
+    ? `global::Microsoft.EntityFrameworkCore.RelationalDbFunctionsExtensions.Collate(global::Microsoft.EntityFrameworkCore.EF.Functions, ${col}, "C")`
+    : col;
 }
 
 /** Namespaces a retrieval's `where` predicates reach into — same role as
@@ -211,7 +255,7 @@ function filterClauseFor(find: FindIR, agg: EnrichedAggregateIR, ctx?: BoundedCo
     const args = find.criterionRef.args
       .map((a) => renderCsExpr(a, { thisName: "x", agg, efQuery: true }))
       .join(", ");
-    return `.Where(new ${upperFirst(find.criterionRef.name)}Criterion(${args}).ToExpression())`;
+    return `.Where(new ${N.type(find.criterionRef.name)}Criterion(${args}).ToExpression())`;
   }
   if (find.filter) {
     // `agg` is threaded so the renderer can resolve a

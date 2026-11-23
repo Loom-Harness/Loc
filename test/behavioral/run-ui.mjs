@@ -52,6 +52,7 @@ import {
   judgeDetailCollections,
   judgeBlankReference,
   judgeBlankRule,
+  judgeOneTypeface,
   judgeEventSourcedCreate,
   judgeFormSpec,
   judgeRiderAdded,
@@ -59,6 +60,7 @@ import {
   judgeNoEarlyErrors,
   judgePartTable,
   judgeStaysOnRecord,
+  judgeTypedText,
   judgeUntouchedCreate,
   judgeWorkflowOpensResult,
   readPolicy,
@@ -66,6 +68,7 @@ import {
   seedFormSpec,
 } from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
+import { judgeSortOrder, SORT_ORDER_ROUTE } from "./sort-order-ui.mjs";
 import { NUMERIC_FIELDS, numericSeedBody } from "./numeric-ui-contract.mjs";
 import { startLoginIssuer } from "./oidc-mock.mjs";
 import {
@@ -225,17 +228,35 @@ async function numericListProbe(origin, cfg) {
 }
 
 /**
- * The MONEY-COMPARISON probe (#3263), for a case that declares
- * `"textProbe": "money-compare"` in corpus.json.  `money-compare-ui.ddd` renders
- * one `<name>=yes|no` token per comparison on `/money-compare`; this opens that
- * route on the BUILT app and requires every right answer and no wrong one
- * (`money-compare-ui.mjs`).  The page computes from its own `state`, so no seed
- * and no backend read is involved — what is on trial is how the frontend's
- * emitted expression compares money (a decimal.js `Decimal` by reference / by
- * `valueOf()` string, an F# `decimal option` against a `decimal`).
+ * The STATIC-PAGE text probes, for a case that declares `"textProbe"` in
+ * corpus.json.  Each page computes from its own `state`, so no seed and no
+ * backend read is involved — what is on trial is the frontend's emitted
+ * expression.  The probe opens the page's route on the BUILT app, waits for its
+ * last token, and hands the text to its judge:
+ *
+ *   - `money-compare` (`money-compare-ui.mjs`): one `<name>=yes|no` token per
+ *     money comparison (a decimal.js `Decimal` by reference / by `valueOf()`
+ *     string, an F# `decimal option` against a `decimal`);
+ *   - `sort-order` (`sort-order-ui.mjs`): one `<name>=<order>` token per page
+ *     `sortBy` — the one sort order, not the host comparer's.
  */
-async function moneyCompareProbe(origin) {
-  const name = `money comparison probe: ${MONEY_COMPARE_ROUTE} compares money by value and an absent money? as false`;
+const STATIC_TEXT_PROBES = {
+  "money-compare": {
+    name: `money comparison probe: ${MONEY_COMPARE_ROUTE} compares money by value and an absent money? as false`,
+    route: MONEY_COMPARE_ROUTE,
+    done: /money-both-absent=(yes|no)/,
+    judge: judgeMoneyCompare,
+  },
+  "sort-order": {
+    name: `sort order probe: ${SORT_ORDER_ROUTE} sorts text by code point and an enum by name`,
+    route: SORT_ORDER_ROUTE,
+    done: /statuses-up=\S/,
+    judge: judgeSortOrder,
+  },
+};
+
+async function staticTextProbe(origin, probe) {
+  const { name } = probe;
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
     cwd: HERE,
     stdio: "pipe",
@@ -247,15 +268,15 @@ async function moneyCompareProbe(origin) {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
-    await page.goto(`${origin}${MONEY_COMPARE_ROUTE}`);
-    // Every token carries `=`; wait until the last comparison has rendered.
+    await page.goto(`${origin}${probe.route}`);
+    // Wait until the page's last token has rendered.
     let text = "";
     for (let i = 0; i < 60; i++) {
       text = await page.locator("body").innerText().catch(() => "");
-      if (/money-both-absent=(yes|no)/.test(text)) break;
+      if (probe.done.test(text)) break;
       await page.waitForTimeout(500);
     }
-    why.push(...judgeMoneyCompare(text));
+    why.push(...probe.judge(text));
     if (why.length) why.push(`page text: ${JSON.stringify(text.slice(0, 600))}`);
     if (errors.length) why.push(errors.slice(0, 3).join(" | "));
   } finally {
@@ -274,7 +295,7 @@ async function moneyCompareProbe(origin) {
  */
 async function formSpecProbe(origin) {
   const name =
-    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference and a rule on a blank";
+    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference, a rule on a blank, and typed text sent as typed or refused";
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
     cwd: HERE,
     stdio: "pipe",
@@ -332,6 +353,8 @@ async function formSpecProbe(origin) {
     if (why.length === 0) why.push(...(await judgeUntouchedCreate(page, origin)));
     if (why.length === 0) why.push(...(await judgeBlankReference(page, origin)));
     if (why.length === 0) why.push(...(await judgeBlankRule(page, origin)));
+    if (why.length === 0) why.push(...(await judgeTypedText(page, origin)));
+    if (why.length === 0) why.push(...(await judgeOneTypeface(page, origin)));
     if (why.length) {
       const text = await page.locator("body").innerText().catch(() => "");
       why.push(`page text: ${JSON.stringify(text.slice(0, 600))}`);
@@ -438,11 +461,12 @@ async function runCase(c) {
           })),
         );
       }
-      if (c.textProbe === "money-compare") {
+      const staticProbe = STATIC_TEXT_PROBES[c.textProbe];
+      if (staticProbe) {
         results.push(
-          await moneyCompareProbe(`http://127.0.0.1:${server.port}`).catch((err) => ({
+          await staticTextProbe(`http://127.0.0.1:${server.port}`, staticProbe).catch((err) => ({
             tier: "ui-probe",
-            name: "money comparison probe",
+            name: staticProbe.name,
             status: "fail",
             error: String(err?.message ?? err),
           })),

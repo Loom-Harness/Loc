@@ -51,9 +51,9 @@ describe("RS-33 — a refusal inside a workflow command payload points through i
 
   it("elixir: the payload's money is checked against node's grammar before the body, refused at the param's path", async () => {
     const ex = all(await generateSystemFiles(source("elixir")), ".ex");
-    expect(ex).toContain("case __loom_payload_money([{:c, :amount, c.amount}]) do");
+    expect(ex).toContain("case __payload_money([{:c, :amount, c.amount}]) do");
     expect(ex).toContain(
-      'Ecto.Changeset.add_error(param, "Invalid decimal: " <> Jason.encode!(value), loom_path: [field], loom_code: "field.money-grammar", loom_params: %{value: value})',
+      'Ecto.Changeset.add_error(param, "Invalid decimal: " <> Jason.encode!(value), field_path: [field], msg_code: "field.money-grammar", rule_params: %{value: value})',
     );
   });
 });

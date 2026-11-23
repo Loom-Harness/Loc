@@ -15,11 +15,14 @@
 // JS leaf table (React/Vue/Svelte/Angular) stays inline in walker-core until
 // the seam extraction converts it.
 
+import type { SortKey } from "../../ir/plan/sort-order.js";
 import type { BinOp, ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { isCollectionType, isDescendingSort } from "../../ir/util/collection-op-site.js";
+import { formatTokens, ISO_SLICE, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
+import { sortByKey } from "../_expr/js-collection-ops.js";
 import { isIntDivWidenedToDecimal } from "../_expr/target.js";
 import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import { sourceText } from "../_i18n/source-text.js";
@@ -179,7 +182,7 @@ export const FS_LEAVES = {
  *  reachable from a gated body.) */
 export const FS_COLLECTION_RENDERERS: Record<
   string,
-  (recv: string, args: readonly string[], desc: boolean) => string | undefined
+  (recv: string, args: readonly string[], desc: boolean, key: SortKey) => string | undefined
 > = {
   count: (recv) => `(List.length ${recv})`,
   where: (recv, args) => (args[0] ? `(${recv} |> List.filter ${args[0]})` : recv),
@@ -189,10 +192,25 @@ export const FS_COLLECTION_RENDERERS: Record<
     args[0] ? `(${recv} |> List.exists ${args[0]})` : `(not (List.isEmpty ${recv}))`,
   all: (recv, args) => (args[0] ? `(${recv} |> List.forall ${args[0]})` : "true"),
   map: (recv, args) => (args[0] ? `(${recv} |> List.map ${args[0]})` : recv),
-  sortBy: (recv, args, desc) =>
-    args[0]
-      ? `(${recv} |> List.${desc ? "sortByDescending" : "sortBy"} ${args[0]})`
-      : `(List.sort ${recv})`,
+  // The one sort order (`src/ir/plan/sort-order.ts`): `List.sortWith` is
+  // stable; descending negates the comparison so ties keep order; an absent
+  // key (`None`) sorts last ascending; text and enum keys compare by code
+  // point — Fable iterates a string by UTF-16 unit, so each unit is remapped
+  // into code-point order (a surrogate above U+E000–U+FFFF) and the int lists
+  // compare lexicographically.
+  sortBy: (recv, args, desc, key) => {
+    if (!args[0]) return `(List.sort ${recv})`;
+    const units = (s: string) =>
+      `[ for __c in ${s} -> (let __n = int __c in if __n >= 0xD800 && __n <= 0xDFFF then __n + 0x2000 elif __n >= 0xE000 then __n - 0x800 else __n) ]`;
+    const cmp = (x: string, y: string) =>
+      key.cls === "text" || key.cls === "enum"
+        ? `compare ${units(x)} ${units(y)}`
+        : `compare ${x} ${y}`;
+    const ordered = key.optional
+      ? `(match ka, kb with | None, None -> 0 | None, _ -> 1 | _, None -> -1 | Some __x, Some __y -> ${cmp("__x", "__y")})`
+      : `(${cmp("ka", "kb")})`;
+    return `(${recv} |> List.sortWith (fun __a __b -> let ka = ${args[0]} __a in let kb = ${args[0]} __b in ${desc ? `-${ordered}` : ordered}))`;
+  },
   // `List.truncate` and NOT `List.take`: `List.take` RAISES when the list is
   // shorter than `n`, while Loom's `take` (and JS `.slice(0, n)`, and Dart
   // `.take`) clamps.  A short list is the ordinary case for a page reading a
@@ -220,7 +238,12 @@ export function renderFsCollectionOp(spec: {
 }): string | undefined {
   const render = FS_COLLECTION_RENDERERS[spec.op];
   if (!render) return undefined;
-  return render(spec.recv, spec.args, spec.call ? isDescendingSort(spec.call) : false);
+  return render(
+    spec.recv,
+    spec.args,
+    spec.call ? isDescendingSort(spec.call) : false,
+    sortByKey(spec.call),
+  );
 }
 
 /** The datetime-involving `+`/`-` arms, or `null` to fall through to the plain
@@ -391,6 +414,11 @@ export function fsNumericBinary(
 // ---------------------------------------------------------------------------
 
 export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+  "string.uncheckedInt": (recv) => `(System.Int32.Parse(${recv}))`,
+  "string.uncheckedLong": (recv) => `(System.Int64.Parse(${recv}))`,
+  "string.uncheckedDecimal": (recv) =>
+    `(System.Decimal.Parse(${recv}, System.Globalization.CultureInfo.InvariantCulture))`,
+  "string.uncheckedDate": (recv) => `(${recv})`,
   "string.trim": (recv) => `(${recv}.Trim())`,
   "string.toUpper": (recv) => `(${recv}.ToUpper())`,
   "string.toLower": (recv) => `(${recv}.ToLower())`,
@@ -485,7 +513,38 @@ export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
     `((${recv}).Substring(0, 8) + (string (System.DateTime.DaysInMonth(${fsPart(recv, 0, 4)}, ${fsPart(recv, 5, 2)}))).PadLeft(2, '0'))`,
   "date.monthsUntil": (recv, args) =>
     `(let ay, am, ad = ${fsPart(recv, 0, 4)}, ${fsPart(recv, 5, 2)}, ${fsPart(recv, 8, 2)} in let by, bm, bd = ${fsPart(args[0]!, 0, 4)}, ${fsPart(args[0]!, 5, 2)}, ${fsPart(args[0]!, 8, 2)} in let m = (by - ay) * 12 + bm - am in let c = min ad (System.DateTime.DaysInMonth(by, bm)) in if m > 0 && c > bd then m - 1 elif m < 0 && c < bd then m + 1 else m)`,
+  // ---- duration — a `System.TimeSpan`; `int64` of a float truncates toward
+  // zero (the catalogue contract).
+  "duration.toDays": (recv) => `(int64 ((${recv}).TotalDays))`,
+  "duration.toHours": (recv) => `(int64 ((${recv}).TotalHours))`,
+  "duration.toMinutes": (recv) => `(int64 ((${recv}).TotalMinutes))`,
+  // ---- formatting — invariant text (the catalogue contract).  Lengths are
+  // this frontend's `.Length` (UTF-16 units).
+  "string.padStart": (recv, args) =>
+    `(let s = ${recv} in let k = max 0 ((${args[0]}) - s.Length) in let p = String.replicate k (${args[1]}) in (if p.Length > k then p.Substring(0, k) else p) + s)`,
+  "string.padEnd": (recv, args) =>
+    `(let s = ${recv} in let k = max 0 ((${args[0]}) - s.Length) in let p = String.replicate k (${args[1]}) in s + (if p.Length > k then p.Substring(0, k) else p))`,
+  "date.format": (recv, args) => fsIsoFormat(`(${recv})`, args[0]!),
+  "datetime.format": (recv, args) =>
+    fsIsoFormat(`((${recv}).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss"))`, args[0]!),
+  "decimal.format": (recv, args) => fsFixed(recv, args[0]!),
+  "money.format": (recv, args) => fsFixed(recv, args[0]!),
 };
+
+/** A pattern printed as `Substring`s of canonical ISO text. */
+function fsIsoFormat(iso: string, pattern: string): string {
+  const parts = formatTokens(patternFromRenderedLiteral(pattern)).map((t) =>
+    t.kind === "literal"
+      ? fsString(t.text)
+      : `${iso}.Substring(${ISO_SLICE[t.field][0]}, ${ISO_SLICE[t.field][1] - ISO_SLICE[t.field][0]})`,
+  );
+  return parts.length === 0 ? `""` : `(${parts.join(" + ")})`;
+}
+
+/** Fixed-point text: half-even, invariant, no negative zero. */
+function fsFixed(x: string, places: string): string {
+  return `(let p = max 0 (${places}) in let r = System.Math.Round((${x}), p, System.MidpointRounding.ToEven) in (if r = 0M then 0M else r).ToString("F" + string p, System.Globalization.CultureInfo.InvariantCulture))`;
+}
 
 /** An integer field of an ISO `YYYY-MM-DD` date text. */
 function fsPart(d: string, start: number, len: number): string {

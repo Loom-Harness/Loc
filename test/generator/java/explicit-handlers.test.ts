@@ -111,11 +111,14 @@ describe("java — scaffolded handlers consume command/query record params", () 
       "SalesApiRoutesController.java",
     );
     // Body records carry the flattened fields, byte-identical to the flat form.
-    expect(ctrl).toContain("record CreateOrderBody(String code, String status, Money total) {}");
-    expect(ctrl).toContain("@RequestBody CreateOrderBody body");
-    // Command call args read the flattened fields off the body record.
     expect(ctrl).toContain(
-      "var result = createOrderHandler.handle(body.code(), body.status(), body.total());",
+      "record CreateOrderBody(@NotNull String code, @NotNull String status, @NotNull Money total) {}",
+    );
+    expect(ctrl).toContain("@RequestBody CreateOrderBody body");
+    // The request record builds from the body's fields, and the route
+    // dispatches it through the context's dispatch bean.
+    expect(ctrl).toContain(
+      "var result = orderingDispatch.createOrderCommand(new CreateOrderCommand(body.code(), body.status(), body.total()));",
     );
     expect(ctrl).toContain("setNoteOrderHandler.handle(new OrderId(id), body.note());");
     // getById projects the entity to its wire DTO at the boundary.

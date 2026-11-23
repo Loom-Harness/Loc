@@ -64,6 +64,10 @@ export interface AngularFieldMessage {
    *  carries and what a string-less app shows. */
   text: string;
   params: Readonly<Record<string, number>>;
+  /** The holes filled when the form renders, from the failed validator's
+   *  error value (`errors[errorKey].params[name]`) — a refused text's own
+   *  `value`. */
+  errorParams?: readonly string[];
 }
 
 /** Each constrained field's messages, one per validator in the order they

@@ -128,6 +128,65 @@
       "textProbe": "money-compare"
     },
     {
+      "name": "sort-order-ui-react",
+      "ddd": "test/behavioral/sort-order-ui.ddd",
+      "frontend": "react",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "textProbe": "sort-order"
+    },
+    {
+      "name": "sort-order-ui-vue",
+      "ddd": "test/behavioral/sort-order-ui.ddd",
+      "frontend": "vue",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "sort-order"
+    },
+    {
+      "name": "sort-order-ui-svelte",
+      "ddd": "test/behavioral/sort-order-ui.ddd",
+      "frontend": "svelte",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "sort-order"
+    },
+    {
+      "name": "sort-order-ui-angular",
+      "ddd": "test/behavioral/sort-order-ui.ddd",
+      "frontend": "angular",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "sort-order"
+    },
+    {
+      "name": "sort-order-ui-feliz",
+      "ddd": "test/behavioral/sort-order-ui.ddd",
+      "frontend": "feliz",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "sort-order"
+    },
+    {
+      "name": "sort-order-ui-flutter",
+      "ddd": "test/behavioral/sort-order-ui.ddd",
+      "frontend": "flutter",
+      "api": false,
+      "unit": false,
+      "ui": false,
+      "uiFlutter": true,
+      "textProbe": "sort-order"
+    },
+    {
       "name": "form-spec-ui-react",
       "ddd": "test/behavioral/form-spec-ui.ddd",
       "frontend": "react",

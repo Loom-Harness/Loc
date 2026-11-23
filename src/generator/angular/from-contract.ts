@@ -51,6 +51,7 @@ import {
   externFunctionShimPath,
   externFunctionSignaturePath,
 } from "../_frontend/extern-shim.js";
+import { formTextModuleTs } from "../_frontend/form-text-runtime.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 import {
   renderI18nModule,
@@ -203,7 +204,7 @@ export function generateAngularFromContract(
   // tag via `PlatformLocation` (APP_BASE_HREF), so `provideRouter` needs no
   // change.  Root-served hosts (java/dotnet/python, `basePath` unset) keep the
   // default `/` and omit the angular.json option → byte-identical output.
-  const basePath = options.basePath ?? "";
+  const basePath = options.basePath ?? host.basePath ?? "";
   const baseHref = basePath ? `${basePath}/` : "/";
 
   const aggregates = clientAggregates(contract, contextNames);
@@ -322,6 +323,8 @@ export function generateAngularFromContract(
   // emitted unconditionally, like React's `apply-server-errors.ts`, and
   // localizing each refusal by its code through the app's `t` when i18n is on.
   out.set("src/lib/server-errors.ts", angularServerErrorsTs(i18nEnabled));
+  // The form text-parse rule every form's parsed controls validate and submit by.
+  out.set("src/lib/form-text.ts", formTextModuleTs("angular"));
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
@@ -885,7 +888,9 @@ export function generateAngularFromContract(
   // proxy) so the bundle's RELATIVE `/api` reaches the backend — proxied here
   // because under compose / k8s the backend is a peer SERVICE, not this
   // origin.  See the Dockerfile (runs `node server.mjs`).
-  out.set("server.mjs", renderAngularServerMjs(apiProxyTarget, devPort ?? 3000));
+  // A bundle embedded in a backend is served by that backend, so only a
+  // gateway's base path reaches the standalone server.
+  out.set("server.mjs", renderAngularServerMjs(apiProxyTarget, devPort ?? 3000, host.basePath));
   out.set("Dockerfile", pack.render("dockerfile", {}));
   out.set(".dockerignore", pack.render("dockerignore", {}));
   out.set("certs/.gitkeep", "");
@@ -1020,7 +1025,26 @@ function sessionLoadedGate(requiresJs: string | undefined): string | undefined {
  * service) overrides it at runtime.  Kept template-literal-free internally so
  * it embeds cleanly here.
  */
-function renderAngularServerMjs(devTarget: string, devPort: number): string {
+function renderAngularServerMjs(devTarget: string, devPort: number, basePath = ""): string {
+  // Under a base path (`/ops`) the bundle's own URLs all start with it: the
+  // server answers beneath it, strips it before the file lookup, and sends the
+  // bare base to its slash form so relative asset URLs resolve.
+  const baseConst = basePath ? `const BASE = ${JSON.stringify(basePath)};\n` : "";
+  const baseStrip = basePath
+    ? `  if (url === BASE) {
+    res.writeHead(301, { location: BASE + "/" });
+    res.end();
+    return;
+  }
+  if (!url.startsWith(BASE + "/")) {
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("Not Found");
+    return;
+  }
+  const local = url.slice(BASE.length);
+`
+    : "";
+  const localUrl = basePath ? "local" : "url";
   return `// Auto-generated.
 // Static host for the built Angular bundle (SPA fallback) + a same-origin
 // "/api" reverse proxy.  The bundle fetches /api RELATIVE; under compose / k8s
@@ -1037,7 +1061,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("./browser/", import.meta.url));
 const PORT = Number(process.env.PORT ?? "${devPort}");
 const API_TARGET = process.env.VITE_API_PROXY_TARGET ?? ${JSON.stringify(devTarget)};
-
+${baseConst}
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
@@ -1093,8 +1117,8 @@ const server = createServer((req, res) => {
     req.pipe(upstream);
     return;
   }
-  // Static file, then SPA fallback to index.html.
-  const rel = normalize(decodeURIComponent(url.split("?")[0])).replace(/^(\\.\\.[/\\\\])+/, "");
+${baseStrip}  // Static file, then SPA fallback to index.html.
+  const rel = normalize(decodeURIComponent(${localUrl}.split("?")[0])).replace(/^(\\.\\.[/\\\\])+/, "");
   const filePath = join(ROOT, rel);
   Promise.resolve(filePath.startsWith(ROOT) ? serveFile(res, filePath) : false).then((served) => {
     if (served) return;

@@ -76,7 +76,6 @@ const USE_SITE_EMITTERS: Readonly<Record<string, readonly CasingWaiver[]>> = {
   "src/platform/hono/shared/workflow-eventsourced-builder.ts": [],
   "src/platform/hono/shared/explicit-handlers-builder.ts": [
     { call: "snake(name)", count: 1, standing: "file stem of the extern handler module" },
-    { call: "lowerFirst(h.name)", count: 2, standing: "OpenAPI operationId, a wire identifier" },
   ],
   "src/generator/python/workflows-builder.ts": [
     { call: "snake(wf.name)", count: 2, standing: "route segment of the workflow's endpoints" },
@@ -144,6 +143,238 @@ const USE_SITE_EMITTERS: Readonly<Record<string, readonly CasingWaiver[]>> = {
   "src/generator/elixir/vanilla/entry-result-emit.ts": [],
   "src/generator/elixir/dispatch-emit.ts": [],
   "src/generator/elixir/reactor-target.ts": [],
+  // node: repository / query / projection emitters
+  "src/platform/hono/shared/projection-builder.ts": [
+    { call: "snake(p.name)", count: 1, standing: "route segment of the projection's endpoints" },
+  ],
+  "src/platform/hono/shared/projection-query-routes-builder.ts": [
+    { call: "snake(p.name)", count: 1, standing: "route segment of the projection's endpoint" },
+    {
+      call: "snake(k.field)",
+      count: 3,
+      standing: "SQL alias of a grouped key column, read back off the raw result row",
+    },
+    {
+      call: "snake(sel.field)",
+      count: 6,
+      standing: "SQL alias of an aggregate column, read back off the raw result row",
+    },
+    { call: "snake(key.column)", count: 1, standing: "SQL column of a group-by key" },
+  ],
+  "src/generator/typescript/base-reader-builder.ts": [],
+  "src/generator/typescript/in-memory-run.ts": [],
+  "src/generator/typescript/projection-finds.ts": [],
+  "src/generator/typescript/repository-builder.ts": [],
+  "src/generator/typescript/repository-document-builder.ts": [],
+  "src/generator/typescript/repository-embedded-builder.ts": [],
+  "src/generator/typescript/repository-eventsourced-builder.ts": [],
+  "src/generator/typescript/repository-find-builder.ts": [],
+  "src/generator/typescript/repository-find-predicate.ts": [],
+  "src/generator/typescript/repository-port-builder.ts": [],
+  "src/generator/typescript/repository-save-builder.ts": [],
+  "src/generator/typescript/repository-wire-builder.ts": [],
+  "src/generator/typescript/emit/mikroorm-document.ts": [],
+  "src/generator/typescript/emit/mikroorm-embedded.ts": [
+    {
+      call: "lowerFirst(f.name)",
+      count: 1,
+      standing:
+        "repository find method name; the drizzle builders define it as the raw find name and " +
+        "the plan's `op` escapes `then` / `constructor` — one spelling is decided in #6318",
+    },
+  ],
+  "src/generator/typescript/emit/mikroorm-event-sourced.ts": [],
+  "src/generator/typescript/emit/mikroorm-filter.ts": [
+    { call: "snake(col)", count: 1, standing: "SQL column of a filtered field" },
+    {
+      call: "snake(e.binding)",
+      count: 1,
+      standing: "SQL alias of an `exists` binding's subquery row",
+    },
+    { call: "snake(outerCol)", count: 1, standing: "SQL column of the outer query" },
+    { call: "snake(x.member)", count: 1, standing: "SQL column of a joined row" },
+    {
+      call: "snake(`${x.receiver.member}_${x.member}`)",
+      count: 1,
+      standing: "SQL column of a flattened value-object leaf",
+    },
+  ],
+  "src/generator/typescript/emit/mikroorm-relational.ts": [
+    {
+      call: "lowerFirst(f.name)",
+      count: 1,
+      standing:
+        "repository find method name; the drizzle builders define it as the raw find name and " +
+        "the plan's `op` escapes `then` / `constructor` — one spelling is decided in #6318",
+    },
+  ],
+  // python: repository / query / projection emitters
+  "src/generator/python/repository-builder.ts": [
+    {
+      call: "snake(path)",
+      count: 1,
+      standing: "insert-values key of a flattened value-object column, a column name",
+    },
+    { call: "snake(f.name)", count: 1, standing: "insert-values key of a column, a column name" },
+    {
+      call: "snake(directParentName(agg, c.partName, tableOwnerName(agg, ctx.aggregates)))",
+      count: 1,
+      standing: "parent foreign-key column of a part table",
+    },
+  ],
+  "src/generator/python/repository-document-builder.ts": [
+    { call: "snake(f.name)", count: 2, standing: "key of the stored jsonb document" },
+    { call: "snake(c.name)", count: 4, standing: "key of the stored jsonb document" },
+    { call: "snake(vf.name)", count: 2, standing: "key of the stored jsonb document" },
+  ],
+  "src/generator/python/repository-embedded-builder.ts": [
+    { call: "snake(f.name)", count: 1, standing: "insert-values key of a column, a column name" },
+    { call: "snake(c.name)", count: 1, standing: "insert-values key of a jsonb column" },
+  ],
+  "src/generator/python/query-projections-builder.ts": [
+    { call: "snake(proj.name)", count: 4, standing: "route segment of the projection endpoint" },
+  ],
+  "src/generator/python/projections-builder.ts": [
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection endpoints" },
+    {
+      call: "snake(t.claim)",
+      count: 1,
+      standing: "attribute of the generated User claims class, which the auth emitter spells",
+    },
+  ],
+  "src/generator/python/repository-eventsourced-builder.ts": [],
+  "src/generator/python/find-predicate.ts": [
+    {
+      call: "snake(selfScope.claim)",
+      count: 1,
+      standing: "claim attribute name User.guid_claim looks up, which the auth emitter spells",
+    },
+    {
+      call: "snake(field)",
+      count: 1,
+      standing: "attribute of the generated User claims class, which the auth emitter spells",
+    },
+    {
+      call: "snake(e.member)",
+      count: 1,
+      standing: "attribute of the generated User claims class, which the auth emitter spells",
+    },
+  ],
+  // dotnet: repository / query / projection emitters
+  "src/generator/dotnet/query-projection-emit.ts": [
+    { call: "snake(key.column)", count: 1, standing: "grouping column of the projection's SQL" },
+    {
+      call: "upperFirst(key.transform)",
+      count: 2,
+      standing: "grouping-key transform keyword (a stdlib intrinsic, not a .ddd name)",
+    },
+    {
+      call: "snake(s.field)",
+      count: 5,
+      standing: "SQL alias of an aggregate select, which the Dapper row member mirrors",
+    },
+    {
+      call: "snake(agg.field)",
+      count: 1,
+      standing: "SQL alias of an aggregate select, which the Dapper row member mirrors",
+    },
+    {
+      call: "snake(sqlGroupKeyAlias(k.expr, proj.name))",
+      count: 1,
+      standing: "SQL alias of a grouping key",
+    },
+    {
+      call: "upperFirst(agg.op)",
+      count: 1,
+      standing: "LINQ aggregate method from the IR op keyword",
+    },
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection's endpoint" },
+  ],
+  "src/generator/dotnet/projection-emit.ts": [
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection's endpoints" },
+    {
+      call: "snake(proj.correlationField as string)",
+      count: 1,
+      standing: "key column of the projection table",
+    },
+  ],
+  "src/generator/dotnet/projection-state-emit.ts": [
+    { call: "snake(f.name)", count: 1, standing: "column of the projection table" },
+  ],
+  "src/generator/dotnet/emit/repository.ts": [],
+  "src/generator/dotnet/find-emit.ts": [],
+  "src/generator/dotnet/find-method-name.ts": [],
+  "src/generator/dotnet/spec-emit.ts": [],
+  "src/generator/dotnet/ef-read-source.ts": [],
+  "src/generator/dotnet/emit/base-reader.ts": [],
+  "src/generator/dotnet/emit/dapper-base-reader.ts": [],
+  "src/generator/dotnet/emit/dapper.ts": [
+    { call: "snake(name)", count: 1, standing: "column of a value-object leaf" },
+    { call: "snake(f.name)", count: 3, standing: "column, child table or provenance column" },
+    { call: "snake(owner)", count: 2, standing: "child table and its parent foreign-key column" },
+    {
+      call: "upperFirst(childTable.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase()))",
+      count: 1,
+      standing: "element row class named after the child table, a SQL name",
+    },
+    { call: "snake(cont.name)", count: 1, standing: "jsonb column of an embedded containment" },
+    { call: "snake(fkOwner)", count: 1, standing: "parent foreign-key column of a part table" },
+    { call: "snake(e.binding)", count: 1, standing: "SQL alias of an `exists` subquery" },
+    { call: "snake(e.member)", count: 2, standing: "column a SQL predicate reads" },
+    { call: "snake(e.name)", count: 1, standing: "column a SQL predicate reads" },
+    {
+      call: "snake(a.field)",
+      count: 4,
+      standing: "column a stamp writes, which also suffixes the stamp's local",
+    },
+    { call: "snake(wf)", count: 1, standing: "column of a sortable field in the ORDER BY" },
+    { call: "snake(t.field)", count: 1, standing: "column of a sort term in the ORDER BY" },
+  ],
+  // java: repository / query / projection emitters
+  "src/generator/java/emit/repository.ts": [
+    {
+      call: "snake(ROW_VERSION_FIELD)",
+      count: 1,
+      standing: "row-version column of the aggregate table",
+    },
+  ],
+  "src/generator/java/emit/projection-state.ts": [
+    { call: "snake(corr)", count: 2, standing: "key column of the projection table" },
+  ],
+  "src/generator/java/emit/projection-reads.ts": [
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection endpoints" },
+  ],
+  "src/generator/java/emit/query-projection-reads.ts": [
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection endpoint" },
+  ],
+  // elixir: repository / query / projection emitters
+  "src/generator/elixir/vanilla/repository-emit.ts": [
+    {
+      call: "snake(stamp.claim)",
+      count: 2,
+      standing: "principal claim key of the current-user map, a token claim name",
+    },
+  ],
+  "src/generator/elixir/vanilla/retrieval-emit.ts": [
+    { call: "upperFirst(r.name)", count: 3, standing: "moduledoc text" },
+    { call: "upperFirst(aggName)", count: 1, standing: "moduledoc text" },
+    { call: "upperFirst(target.name)", count: 2, standing: "moduledoc text" },
+  ],
+  "src/generator/elixir/vanilla/query-projections-emit.ts": [
+    { call: "upperFirst(proj.name)", count: 3, standing: "moduledoc text" },
+    { call: "upperFirst(source)", count: 3, standing: "moduledoc text" },
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection's endpoint" },
+  ],
+  "src/generator/elixir/vanilla/projections-emit.ts": [
+    { call: "upperFirst(proj.name)", count: 3, standing: "moduledoc and not-found message text" },
+    {
+      call: "snake(t.claim)",
+      count: 1,
+      standing: "principal claim key of the current-user map, a token claim name",
+    },
+  ],
+  "src/generator/elixir/vanilla/read-preload.ts": [],
+  "src/generator/elixir/find-facade-name.ts": [],
 };
 
 /** The raw escaping funnels the plan wraps. */
@@ -215,7 +446,7 @@ describe("symbol-plan census: the use-site emitters spell names through the plan
     const present = Object.keys(USE_SITE_EMITTERS).filter((rel) =>
       fs.existsSync(path.join(ROOT, rel)),
     );
-    expectReach("use-site emitter files", present.length, 31);
+    expectReach("use-site emitter files", present.length, 78);
   });
 
   it("the detector reads a casing call with its argument and ignores a plan read", () => {
@@ -250,5 +481,243 @@ describe("symbol-plan census: the domain emitters spell names through the plan",
       "1: pythonIdent(",
     ]);
     expect(rawFunnelCalls("DOMAIN_NAMES.java.field(n)")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenAPI operationIds come from the plan.
+//
+// An operationId is decided once, as a token array (`opCreate`, `opFind`, …),
+// and each backend renders it with `camelId` / `snakeId`; the emitters reach
+// those deciders through `src/generator/_symbols/plan.ts`.  A hand-spelled
+// operationId (`create${agg.name}`, `"list${T}"`) is a second copy of the
+// decision, and the backends' specs drift apart the moment one copy changes.
+//
+// THE DETECTOR is textual, over every generator and platform source: on a
+// line that assigns an operationId (`operationId:` / `operation_id=` / `opId =`),
+// every `${…}` interpolation must call `camelId(` / `snakeId(`, or forward a
+// value already named `operationId` / `opId`.  And no emitter imports the
+// token module except through the plan.
+// ---------------------------------------------------------------------------
+
+/** A line that spells an operationId from something other than the deciders
+ *  and is not one — the API-client operations a `resource` declares by name. */
+const OPERATION_ID_WAIVERS: Readonly<Record<string, { line: string; standing: string }>> = {
+  "src/generator/elixir/api-client.ts": {
+    line: "operation_id: ${JSON.stringify(op.id)},",
+    standing: "an outbound API client's operation, named in the `.ddd` resource declaration",
+  },
+};
+
+const OPERATION_ID_SITE = /\b(?:operation_?[iI]d\s*[:=]|opId\s*=)\s*/g;
+/** An interpolation that renders a decided id, or forwards one already made. */
+const DECIDED = /^(?:camelId|snakeId)\(|^[\w.!(]*\b(?:operationId|opId)\b/;
+/** A bare value spelled by a naming helper. */
+const HELPER_CALL = /^(?:snake|pascal|camel|lowerFirst|upperFirst|elixir\w*|escape\w*|python\w*)\(/;
+
+/** The top-level `${…}` bodies of the string literal opening `text`, or
+ *  `undefined` when `text` does not open one. */
+function literalInterpolations(text: string): string[] | undefined {
+  const q = text[0];
+  if (q !== '"' && q !== "'" && q !== "`") return undefined;
+  const out: string[] = [];
+  for (let i = 1; i < text.length && text[i] !== q; i++) {
+    if (text[i] === "\\") i++;
+    else if (text.startsWith("${", i)) {
+      let depth = 1;
+      let j = i + 2;
+      for (; j < text.length && depth > 0; j++) {
+        if (text[j] === "{") depth++;
+        else if (text[j] === "}") depth--;
+      }
+      out.push(text.slice(i + 2, j - 1));
+      i = j - 1;
+    }
+  }
+  return out;
+}
+
+/** True when the operationId value opening `value` is spelled by hand. */
+function handSpelled(value: string): boolean {
+  const v = value.replace(/^JSON\.stringify\(/, "");
+  const decided = (x: string): boolean => DECIDED.test(x.trim().replace(/^JSON\.stringify\(/, ""));
+  if (v.startsWith("${")) return !decided(v.slice(2));
+  const interps = literalInterpolations(v);
+  if (interps) return !interps.every(decided);
+  return HELPER_CALL.test(v);
+}
+
+/** Hand-spelled operationIds in `src`, as `<line>: <text>`. */
+function handSpelledOperationIds(src: string): string[] {
+  const out: string[] = [];
+  stripComments(src)
+    .split("\n")
+    .forEach((line, i) => {
+      for (const m of line.matchAll(OPERATION_ID_SITE)) {
+        if (handSpelled(line.slice(m.index + m[0].length))) {
+          out.push(`${i + 1}: ${line.trim()}`);
+          break;
+        }
+      }
+    });
+  return out;
+}
+
+function sourceFiles(dir: string): string[] {
+  return fs
+    .readdirSync(path.join(ROOT, dir), { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".ts"))
+    .map((e) => path.relative(ROOT, path.join(e.parentPath, e.name)));
+}
+
+describe("symbol-plan census: OpenAPI operationIds come from the plan", () => {
+  const files = [...sourceFiles("src/generator"), ...sourceFiles("src/platform")];
+
+  it("no emitter spells an operationId by hand", () => {
+    const found: string[] = [];
+    for (const rel of files) {
+      const waiver = OPERATION_ID_WAIVERS[rel];
+      for (const hit of handSpelledOperationIds(fs.readFileSync(path.join(ROOT, rel), "utf8"))) {
+        if (waiver && hit.includes(waiver.line)) continue;
+        found.push(`${rel}:${hit}`);
+      }
+    }
+    expect(found, "spell it as camelId(op…(…)) / snakeId(op…(…)) from the symbol plan").toEqual([]);
+  });
+
+  it("every operationId waiver still names a live line", () => {
+    for (const [rel, w] of Object.entries(OPERATION_ID_WAIVERS)) {
+      const hits = handSpelledOperationIds(fs.readFileSync(path.join(ROOT, rel), "utf8"));
+      expect(
+        hits.some((h) => h.includes(w.line)),
+        `${rel}: stale waiver`,
+      ).toBe(true);
+    }
+  });
+
+  it("no emitter imports the operationId tokens except through the plan", () => {
+    const direct = files.filter(
+      (rel) =>
+        rel !== "src/generator/_symbols/plan.ts" &&
+        /from "[./]*(?:ir\/)?util\/openapi-ids\.js"/.test(
+          fs.readFileSync(path.join(ROOT, rel), "utf8"),
+        ),
+    );
+    expect(direct).toEqual([]);
+  });
+
+  it("scans the generator and platform sources", () => {
+    expectReach("generator + platform source files", files.length, 750);
+  });
+
+  it("the detector refuses a hand-spelled id and accepts a decider or a forwarded value", () => {
+    expect(handSpelledOperationIds("operationId: `create${upperFirst(a)}`,\n")).toHaveLength(1);
+    expect(handSpelledOperationIds('x(`operation_id="list${T}"`)\n')).toHaveLength(1);
+    expect(handSpelledOperationIds("const opId = `${lowerFirst(h)}`;\n")).toHaveLength(1);
+    expect(handSpelledOperationIds('x(`operationId: "${camelId(opList(B))}",`)\n')).toEqual([]);
+    expect(handSpelledOperationIds("`operation_id: ${elixirString(op.operationId)}`\n")).toEqual(
+      [],
+    );
+    expect(
+      handSpelledOperationIds("`operation_id=${JSON.stringify(camelId(opCreate(a)))}`\n"),
+    ).toEqual([]);
+    expect(handSpelledOperationIds('`@router.get("/", operation_id="${opId}")`\n')).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenAPI schema component names come from the plan.
+//
+// `<X>ListResponse`, `<X>Paged`, `<Wf>InstanceResponse` and
+// `<Wf>InstanceListResponse` are each a class every backend emits, the
+// component its published spec names, and the type the frontend clients
+// import; they agree only when every emitter reads `SCHEMA_NAMES`.
+//
+// THE DETECTOR is textual, over every generator and platform source but the
+// plan: a `${…}` interpolation, or a `+ "…"` concatenation, immediately
+// followed by one of the four suffixes is a finding.  A name whose prefix is
+// not a domain name is waived by its exact text; a stale waiver fails.
+// ---------------------------------------------------------------------------
+
+const SCHEMA_SUFFIX = /^(?:InstanceListResponse|InstanceResponse|ListResponse|Paged)\b/;
+const SCHEMA_CONCAT =
+  /\+\s*["'`](?:InstanceListResponse|InstanceResponse|ListResponse|Paged)["'`]/g;
+
+const SCHEMA_NAME_WAIVERS: readonly { file: string; text: string; standing: string }[] = [
+  {
+    file: "src/generator/_frontend/zod-schemas.ts",
+    text: "${AUDIT_ENTRY_TYPE}ListResponse",
+    standing: "the audit-history entry is a fixed runtime type, not a domain name",
+  },
+  {
+    file: "src/generator/dotnet/emit/program.ts",
+    text: '+ "Paged"',
+    standing: "emitted C#: the Swashbuckle schema-id hook names the generic Paged<T> at runtime",
+  },
+];
+
+/** Schema names in `src` spelled from an interpolation or a concatenation. */
+function handSpelledSchemaNames(src: string): string[] {
+  const code = stripComments(src);
+  const out: string[] = [];
+  for (let i = code.indexOf("${"); i >= 0; i = code.indexOf("${", i + 2)) {
+    let depth = 1;
+    let j = i + 2;
+    for (; j < code.length && depth > 0; j++) {
+      if (code[j] === "{") depth++;
+      else if (code[j] === "}") depth--;
+    }
+    const suffix = SCHEMA_SUFFIX.exec(code.slice(j));
+    if (suffix) out.push(code.slice(i, j) + suffix[0]);
+  }
+  for (const m of code.matchAll(SCHEMA_CONCAT)) {
+    out.push(m[0].replace(/\s+/, " ").replace(/[`']/g, '"'));
+  }
+  return out;
+}
+
+describe("symbol-plan census: OpenAPI schema component names come from the plan", () => {
+  const files = [...sourceFiles("src/generator"), ...sourceFiles("src/platform")].filter(
+    (rel) => rel !== "src/generator/_symbols/plan.ts",
+  );
+  const hits = files.flatMap((rel) =>
+    handSpelledSchemaNames(fs.readFileSync(path.join(ROOT, rel), "utf8")).map((text) => ({
+      file: rel,
+      text,
+    })),
+  );
+  const waived = (h: { file: string; text: string }): boolean =>
+    SCHEMA_NAME_WAIVERS.some((w) => w.file === h.file && w.text === h.text);
+
+  it("no emitter derives a schema component name from a domain name by hand", () => {
+    const found = hits.filter((h) => !waived(h)).map((h) => `${h.file}: ${h.text}`);
+    expect(found, "spell it as SCHEMA_NAMES.<name>(…) from the symbol plan").toEqual([]);
+  });
+
+  it("every schema-name waiver still names a live site", () => {
+    const stale = SCHEMA_NAME_WAIVERS.filter(
+      (w) => !hits.some((h) => h.file === w.file && h.text === w.text),
+    ).map((w) => `${w.file}: ${w.text}`);
+    expect(stale, "stale waiver").toEqual([]);
+  });
+
+  it("scans the generator and platform sources", () => {
+    expectReach("generator + platform source files", files.length, 750);
+  });
+
+  it("the detector refuses a hand-spelled name and accepts the plan", () => {
+    expect(handSpelledSchemaNames("x(`${agg.name}ListResponse`)\n")).toEqual([
+      "${agg.name}ListResponse",
+    ]);
+    expect(handSpelledSchemaNames("`schema: ${upperFirst(wf.name)}InstanceResponse,`\n")).toEqual([
+      "${upperFirst(wf.name)}InstanceResponse",
+    ]);
+    expect(handSpelledSchemaNames("`${f({ a })}InstanceListResponse`\n")).toEqual([
+      "${f({ a })}InstanceListResponse",
+    ]);
+    expect(handSpelledSchemaNames('const n = stem + "Paged";\n')).toEqual(['+ "Paged"']);
+    expect(handSpelledSchemaNames("`${SCHEMA_NAMES.paged(agg.name)}`\n")).toEqual([]);
+    expect(handSpelledSchemaNames("`${T}Response ${T}PagedRow`\n")).toEqual([]);
+    expect(handSpelledSchemaNames("// `${agg.name}ListResponse`\n")).toEqual([]);
   });
 });

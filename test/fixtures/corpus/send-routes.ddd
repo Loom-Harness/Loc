@@ -1,0 +1,60 @@
+// A route `send`s the request record; the record's one handler catches it.
+// Path placeholders, the query string (GET) and the JSON body bind to the
+// record's fields by name, so `ShipOrder` takes `id` from the path and
+// `carrier` from the body, and `GetOrderCarrier` takes `id` from the path and
+// `prefix` from the query string.
+system SendRoutes {
+  subdomain Sales {
+    context Ordering {
+      aggregate Order with crudish {
+        code: string
+        carrier: string = ""
+        operation ship(c: string) { carrier := c }
+      }
+      repository Orders for Order { }
+
+      command ShipOrder { id: Order id  carrier: string }
+      commandHandler ShipOrderHandler(cmd: ShipOrder) {
+        let o = Orders.get(cmd.id)
+        o.ship(cmd.carrier)
+      }
+
+      query GetOrderCarrier { id: Order id  prefix: string }
+      queryHandler GetOrderCarrierHandler(q: GetOrderCarrier): string {
+        let o = Orders.get(q.id)
+        return q.prefix + o.carrier
+      }
+    }
+  }
+
+  api SalesApi from Sales {
+    route POST "/orders/{id}/dispatch" send Ordering.ShipOrder
+    route GET "/orders/{id}/carrier" send Ordering.GetOrderCarrier
+  }
+  storage pg { type: postgres }
+  resource st { for: Ordering, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ordering]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+
+  test e2e "a sent record binds its path, body and query-string fields" against d {
+    let o = api.orders.create({ code: "A-1" })
+    api.ordering.shipOrderHandler({ id: o.id, carrier: "DHL" })
+    expect(api.orders.getById(o).carrier).toBe("DHL")
+    expect(api.ordering.getOrderCarrierHandler({ id: o.id, prefix: "via " })).toBe("via DHL")
+    api.ordering.shipOrderHandler({ id: o.id, carrier: "UPS" })
+    expect(api.ordering.getOrderCarrierHandler({ id: o.id, prefix: "by " })).toBe("by UPS")
+    // The derived routes the aggregate also serves agree with the sent ones.
+    api.orders.ship(o, { c: "FedEx" })
+    expect(api.ordering.getOrderCarrierHandler({ id: o.id, prefix: "now " })).toBe("now FedEx")
+    api.orders.update(o, { code: "A-2", carrier: "FedEx" })
+    expect(api.orders.all().total).toBe(1)
+    api.orders.destroy(o)
+    expect(api.orders.all().total).toBe(0)
+  }
+}

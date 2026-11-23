@@ -181,7 +181,6 @@ const WAIVERS: Record<string, Waiver> = {
   // closure — its own declarations are exactly the ones not to re-emit.
   "src/generator/elixir/vanilla/openapi-emit.ts#emitOpenApiSpec$2": ALL_CONTEXTS,
   "src/platform/hono/shared/explicit-handlers-builder.ts#buildExplicitRoutesFile": ALL_CONTEXTS,
-  "src/platform/hono/shared/explicit-handlers-builder.ts#buildExplicitRoutesFile$2": ALL_CONTEXTS,
   "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
 };
 
@@ -190,10 +189,10 @@ describe("enum-pool census — no name resolution of an enum through a context's
 
   it("finds a substantial surface, not an empty one", () => {
     // A broken detector reports zero sites, which reads as "all clean".
-    // The floor sits just under the STANDING surface (13 sites) — what is
+    // The floor sits just under the STANDING surface (12 sites) — what is
     // left once the fleet's P1–P4 drains have all landed — so it holds on
     // every combination of those branches.
-    expectReach("`ctx.enums` sites", sites.length, 11);
+    expectReach("`ctx.enums` sites", sites.length, 10);
   });
 
   it("every `ctx.enums` site is waived (standing = own declarations / all contexts; deferred = drain to enumPool)", () => {

@@ -40,16 +40,19 @@ import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { guidFromStringSelfScope } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../util/intrinsics.js";
-import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { ref } from "../_imports/symbol.js";
 import { tsNamed } from "../_imports/ts.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { TS_INTRINSIC_RENDERERS } from "./render-expr.js";
 import { associationsOf } from "./repository-associations-builder.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
+
+const N = DOMAIN_NAMES.ts;
 
 // SQL-side scalar-intrinsic snippets (src/util/intrinsics.ts) — how a
 // `queryable` intrinsic applied to a COLUMN renders inside a Drizzle
@@ -69,6 +72,7 @@ export const DRIZZLE_INTRINSIC_SQL: Record<string, (recv: string, args: string[]
   // no ESCAPE discipline to guarantee that.  `strpos(col, '')` is 1 on
   // Postgres, matching every host language's `startsWith("")`.
   "string.startsWith": (recv, args) => `sql\`strpos(\${${recv}}, \${${args[0]}}) = 1\``,
+  "string.contains": (recv, args) => `sql\`strpos(\${${recv}}, \${${args[0]}}) > 0\``,
   // Numerics (A3) — int/long map to integer/bigint columns, decimal/money
   // both to `numeric`, so the same Postgres function applies per op.
   // `round(numeric, n)` is half-away-from-zero on Postgres, matching the
@@ -402,7 +406,7 @@ export function lowerToDrizzle(
       e.args.length === 1
     ) {
       const fieldName = refCollectionFieldName(e.receiver);
-      const owner = ctx.aggregates.find((a) => lowerFirst(plural(a.name)) === tableName);
+      const owner = ctx.aggregates.find((a) => N.stem(plural(a.name)) === tableName);
       const assoc = owner
         ? associationsOf(owner).find((x) => x.fieldName === fieldName)
         : undefined;
@@ -657,7 +661,7 @@ export function lowerToDrizzle(
       // so the cast is gone.
       if (e.refKind === "param" || e.refKind === "let" || e.refKind === "lambda") {
         // Escaped like the binding it names (`class` → `class_`).
-        return escapeTsIdent(e.name);
+        return N.binding(e.name);
       }
       // Enum value: render as the literal string.  EF / Drizzle store
       // enums as text columns matching `OrderStatus.Draft` → "Draft".
@@ -787,7 +791,7 @@ const READ_SCOPES_MODULE = "../read-scopes";
 
 /** The generated scope helper's name: `<agg>Scope`. */
 export function drizzleScopeFnName(agg: { name: string }): string {
-  return `${lowerFirst(agg.name)}Scope`;
+  return `${N.stem(agg.name)}Scope`;
 }
 
 /** How a site uses the scope helper. */
@@ -900,12 +904,12 @@ export function drizzleScopeConjuncts(
 
 /** The generated stream-scope helper's name: `<agg>StreamScope`. */
 export function drizzleStreamScopeFnName(agg: { name: string }): string {
-  return `${lowerFirst(agg.name)}StreamScope`;
+  return `${N.stem(agg.name)}StreamScope`;
 }
 
 /** The drizzle table constant of `ctx`'s event log. */
 function drizzleEventLogTable(ctx: { name: string }): string {
-  return `${lowerFirst(ctx.name)}Events`;
+  return `${N.stem(ctx.name)}Events`;
 }
 
 /** True when `agg` has a stream-scope helper: a tenant-scoped stream with at
@@ -968,8 +972,12 @@ export function readScopeUsesPrincipal(agg: EnrichedAggregateIR, ctx: BoundedCon
 /** The ORDER BY arguments a drizzle read takes (`asc(schema.t.id)`), from the
  *  read-scope order: the declared terms with an `id` tie-break, or `id` alone
  *  when the read declares none. */
-export function drizzleOrderBy(tableName: string, declared?: readonly SortTermIR[]): string {
-  return drizzleOrderTerms(tableName, readOrderFor(declared));
+export function drizzleOrderBy(
+  tableName: string,
+  declared?: readonly SortTermIR[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
+  return drizzleOrderTerms(tableName, readOrderFor(declared), codePoint);
 }
 
 /** The ORDER BY arguments a page sorted by the caller's `?sort=` key takes
@@ -978,8 +986,39 @@ export function drizzleClientSortTieBreak(tableName: string): string {
   return drizzleOrderTerms(tableName, clientSortTieBreak());
 }
 
-function drizzleOrderTerms(tableName: string, terms: readonly ReadOrderTerm[]): string {
-  return terms.map((t) => `${t.direction}(schema.${tableName}.${t.field})`).join(", ");
+/** The `?sort=` whitelist of a paged read — each accepted key to its ORDER BY
+ *  operand, a text or enum column (`codePoint`) collated by code point like
+ *  every other sort (`src/ir/plan/sort-order.ts`) — and the record type that
+ *  holds it. */
+export function drizzleClientSortColumns(
+  tableName: string,
+  fields: readonly string[],
+  codePoint: ReadonlySet<string>,
+): { entries: string; type: string } {
+  const collated = fields.filter((f) => codePoint.has(f));
+  const entries = fields
+    .map((f) => {
+      const col = `schema.${tableName}.${f}`;
+      return `${JSON.stringify(f)}: ${codePoint.has(f) ? `sql\`\${${col}} collate "C"\`` : col}`;
+    })
+    .join(", ");
+  const type = `Record<string, ${collated.length > 0 ? "AnyPgColumn | ReturnType<typeof sql>" : "AnyPgColumn"}>`;
+  return { entries, type };
+}
+
+/** ORDER BY arguments; a text or enum column (`codePoint`) sorts by code point
+ *  (`COLLATE "C"`, the one sort order — `src/ir/plan/sort-order.ts`). */
+export function drizzleOrderTerms(
+  tableName: string,
+  terms: readonly ReadOrderTerm[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
+  return terms
+    .map((t) => {
+      const col = `schema.${tableName}.${t.field}`;
+      return `${t.direction}(${codePoint.has(t.field) ? `sql\`\${${col}} collate "C"\`` : col})`;
+    })
+    .join(", ");
 }
 
 // ---------------------------------------------------------------------------
@@ -993,7 +1032,7 @@ function drizzleOrderTerms(tableName: string, terms: readonly ReadOrderTerm[]): 
 
 /** Module-level fn name for a reified criterion (`inRegionCriterion`). */
 export function criterionFnName(name: string): string {
-  return `${lowerFirst(name)}Criterion`;
+  return `${N.stem(name)}Criterion`;
 }
 
 /** The criterion a use-site `criterionRef` reifies to — present in the context
@@ -1015,7 +1054,7 @@ export function renderCriterionArg(e: ExprIR): string {
   if (e.kind === "ref") {
     // A param / let binding is declared under its escaped spelling.
     return e.refKind === "param" || e.refKind === "let" || e.refKind === "lambda"
-      ? escapeTsIdent(e.name)
+      ? N.binding(e.name)
       : e.name;
   }
   if (e.kind === "literal") return e.lit === "string" ? JSON.stringify(e.value) : e.value;
@@ -1031,7 +1070,7 @@ export function renderCriterionArg(e: ExprIR): string {
  *  `schema.cars.tenantId` against `select().from(schema.vehicles)` — a table
  *  object that does not exist under TPH (`F2-CB-C3`, 7 × TS2339). */
 export function repoTableName(agg: EnrichedAggregateIR, ctx: BoundedContextIR): string {
-  return lowerFirst(plural(tableOwnerName(agg, ctx.aggregates)));
+  return N.stem(plural(tableOwnerName(agg, ctx.aggregates)));
 }
 
 /** The read scope of `agg` as a call of its generated scope helper (the `kind`
