@@ -1,3 +1,4 @@
+import { type ListEqualityPlan, listEqualityPlan } from "../../ir/plan/list-equality.js";
 import {
   type NumericOperand,
   type NumericOpPlan,
@@ -593,6 +594,8 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // Which numeric operation this is was decided once (`numericOpPlan`); this
   // backend only spells it.  `money` is a decimal.js `Decimal` here and
   // `decimal` a plain JS `number`.
+  const list = listEqualityPlan(e);
+  if (list) return renderListEquality(left, right, e.op, list);
   const plan = numericOpPlan(e);
   switch (plan.kind) {
     case "null-test":
@@ -754,6 +757,33 @@ const RELATIONAL_MONEY_METHOD: Record<string, string | undefined> = {
   ">": "gt",
   ">=": "gte",
 };
+
+/** `==` / `!=` between two lists, element by element (ruling 456): an array
+ *  `===` compares references.  Each operand is evaluated once (an immediately
+ *  invoked arrow, whose parameters take the arguments' types); elements compare
+ *  by their own value equality — the same per-type rule a value object's
+ *  `equals` applies to its fields. */
+function renderListEquality(
+  left: string,
+  right: string,
+  op: BinOp,
+  plan: ListEqualityPlan,
+): string {
+  const y = "__r[__i]!";
+  const elementEq =
+    plan.element === "value-object" || (plan.element === "decimal" && plan.money)
+      ? `__x.equals(${y})`
+      : plan.element === "instant"
+        ? `__x.getTime() === ${y}.getTime()`
+        : `__x === ${y}`;
+  const body = `__l.length === __r.length && __l.every((__x, __i) => ${elementEq})`;
+  const guarded =
+    plan.leftOptional || plan.rightOptional
+      ? `__l === null || __r === null ? __l === __r : ${body}`
+      : body;
+  const call = `((__l, __r) => ${guarded})(${left}, ${right})`;
+  return op === "!=" ? `!${call}` : call;
+}
 
 /** `""` for a `datetime`, `"?"` (optional chaining) for a `datetime?`, null
  *  for anything else. */

@@ -1,0 +1,186 @@
+{
+  "case": "list-equality",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/bags",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/bags/{id}/compare",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/bags/{id}",
+      "status": 200,
+      "body": {
+        "amounts": [
+          {
+            "count": 1,
+            "label": "x"
+          }
+        ],
+        "amountsMatch": true,
+        "id": "<volatile:key>",
+        "prices": [
+          "10.0000",
+          "2.5000"
+        ],
+        "pricesMatch": true,
+        "rowVersion": 2,
+        "tags": [
+          "a",
+          "b"
+        ],
+        "tagsDiffer": false,
+        "tagsMatch": true
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/bags/{id}/compare",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/bags/{id}",
+      "status": 200,
+      "body": {
+        "amounts": [
+          {
+            "count": 1,
+            "label": "x"
+          }
+        ],
+        "amountsMatch": false,
+        "id": "<volatile:key>",
+        "prices": [
+          "10.0000",
+          "2.5000"
+        ],
+        "pricesMatch": false,
+        "rowVersion": 3,
+        "tags": [
+          "a",
+          "b"
+        ],
+        "tagsDiffer": true,
+        "tagsMatch": false
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/bags",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "amounts": [
+              {
+                "count": 1,
+                "label": "x"
+              }
+            ],
+            "amountsMatch": false,
+            "id": "<volatile:key>",
+            "prices": [
+              "10.0000",
+              "2.5000"
+            ],
+            "pricesMatch": false,
+            "rowVersion": 3,
+            "tags": [
+              "a",
+              "b"
+            ],
+            "tagsDiffer": true,
+            "tagsMatch": false
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/bags/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/bags",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "DELETE",
+      "path": "/api/bags/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "PATCH",
+      "path": "/api/bags",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/bags",
+        "instance": "/api/bags",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/bags",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/bags",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

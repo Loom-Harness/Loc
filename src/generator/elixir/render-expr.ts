@@ -1,4 +1,5 @@
 import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
+import { listEqualityPlan } from "../../ir/plan/list-equality.js";
 import { negatedFamily, numericOpPlan } from "../../ir/plan/numeric-op.js";
 import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { valueObjectEqualityPlan } from "../../ir/plan/value-object-equality.js";
@@ -1749,6 +1750,18 @@ function renderBinary(
   // is boxed.  Inside an Ecto query filter money/decimal lower to the data
   // layer through the native operators instead, so only the in-memory path
   // dispatches here.
+  // `==` / `!=` between two lists, element by element (ruling 456).  Native
+  // `==` is struct equality, so a `%Decimal{}` element compares by scale
+  // (`10` ≠ `10.00`) and a value object by its runtime shape; a list of those
+  // compares through the value-equality helper.  A list of scalars keeps the
+  // native operator, which already compares element by element.
+  if (!inFilter) {
+    const list = listEqualityPlan(e);
+    if (list !== undefined && list.element !== "host") {
+      const eq = renderValueObjectEquality(e.op === "!=" ? "!=" : "==", l, r);
+      return e.op === "==" ? eq : `(${eq})`;
+    }
+  }
   if (!inFilter) {
     const plan = numericOpPlan(e);
     switch (plan.kind) {

@@ -38,7 +38,7 @@ const LEAVES: Record<string, Record<string, "calls-plan" | "receives-plan">> = {
 
 /** A `"money"` / `"decimal"` literal that reads a plan answer. */
 const PLAN_READ =
-  /family\s*[!=]==\s*"(money|decimal)"|case "(money|decimal)":|\bkind\s*[!=]==\s*"money"/;
+  /(family|element)\s*[!=]==\s*"(money|decimal)"|case "(money|decimal)":|\bkind\s*[!=]==\s*"money"/;
 
 function functions(file: string): Map<string, string> {
   const text = fs.readFileSync(path.join(ROOT, file), "utf8");
@@ -69,6 +69,17 @@ describe("numeric-op plan census", () => {
   it("every leaf consults the plan", () => {
     const missing = rows
       .filter((r) => r.mode === "calls-plan" && r.body !== undefined && !CONSULTS_PLAN.test(r.body))
+      .map((r) => `${r.file}#${r.fn}`);
+    expect(missing).toEqual([]);
+  });
+
+  it("every backend binary leaf decides list equality through the plan (ruling 456)", () => {
+    const binaryLeaves = rows.filter(
+      (r) => ["renderBinary", "renderCsBinary"].includes(r.fn) && r.file.endsWith("render-expr.ts"),
+    );
+    expect(binaryLeaves.length).toBe(5);
+    const missing = binaryLeaves
+      .filter((r) => !(r.body ?? "").includes("listEqualityPlan("))
       .map((r) => `${r.file}#${r.fn}`);
     expect(missing).toEqual([]);
   });

@@ -1,0 +1,6 @@
+{
+  "title": "`==` / `!=` between two lists — element by element, in order, with each element's own value equality",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "the witness for ruling 456.  node and .NET compared the lists' references (always unequal), Java compared `BigDecimal` elements with the scale-sensitive `equals`, and Elixir compared `%Decimal{}` structs by scale; python's element `__eq__` was already right.  The requests spell money at a different scale from the stored values, so a scale-sensitive or reference comparison answers false where the language answers true; a reordered and a shorter list answer false"
+}

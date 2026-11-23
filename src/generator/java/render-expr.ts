@@ -1,3 +1,4 @@
+import { listEqualityPlan } from "../../ir/plan/list-equality.js";
 import { type NumericOperand, negatedFamily, numericOpPlan } from "../../ir/plan/numeric-op.js";
 import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -934,6 +935,22 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
   // 1.00), so arithmetic and comparisons dispatch through its methods, and
   // equality goes through `compareTo`.  `int` / `long` are primitives with no
   // `BigDecimal` overload, so an integral operand is boxed.
+  // `==` / `!=` between two lists of money / decimal, element by element
+  // (ruling 456): `List.equals` would compare the `BigDecimal` elements with
+  // `equals`, which is scale-sensitive (`10` ≠ `10.0000`), so they compare
+  // through `compareTo`.  Every other element type's `equals` is already by
+  // value, so those lists keep `Objects.equals` below.
+  const list = listEqualityPlan(e);
+  if (list?.element === "decimal") {
+    const body =
+      "loomL.size() == loomR.size() && java.util.stream.IntStream.range(0, loomL.size()).allMatch(loomV -> loomL.get(loomV).compareTo(loomR.get(loomV)) == 0)";
+    const guarded =
+      list.leftOptional || list.rightOptional
+        ? `loomL == null || loomR == null ? loomL == loomR : ${body}`
+        : body;
+    const test = `((java.util.function.BiPredicate<java.util.List<java.math.BigDecimal>, java.util.List<java.math.BigDecimal>>) (loomL, loomR) -> ${guarded}).test(${l}, ${r})`;
+    return e.op === "!=" ? `!${test}` : test;
+  }
   const plan = numericOpPlan(e);
   switch (plan.kind) {
     case "null-test":
