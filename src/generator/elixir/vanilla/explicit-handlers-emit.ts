@@ -28,8 +28,9 @@
 
 import { dispatchedRecord } from "../../../ir/plan/command-bus.js";
 import {
+  bodyIsolation,
   handlerNeedsCurrentUser,
-  handlerRunsInTransaction,
+  handlerScope,
   refsRead,
 } from "../../../ir/plan/index.js";
 import { resolveRoute as resolveRouteHandler } from "../../../ir/plan/route-handler.js";
@@ -424,7 +425,7 @@ function renderHandlerModule(
   // unreachable, which `mix compile --warnings-as-errors` refuses.
   const canAnswerError =
     lines.some((l) => l.kind === "with-clause") || absentIs404 || outcome !== undefined;
-  // A command handler runs in one transaction (`handlerRunsInTransaction`),
+  // A command handler runs in one transaction (`bodyIsolation`),
   // so a failure part-way through — a row outside the write scope, a later
   // row's precondition, an `error` answer — rolls back the rows it already
   // changed.
@@ -453,7 +454,8 @@ function renderHandlerModule(
         ...transaction.map((l) => (l === "" ? l : `  ${l}`)),
         `    end)`,
       ].join("\n")
-    : handlerRunsInTransaction(kindLabel === "Command handler" ? "command" : "query")
+    : bodyIsolation(handlerScope(h, kindLabel === "Command handler" ? "command" : "query"))
+          .holdsTransaction
       ? transaction.join("\n")
       : assembled;
   // Emit the `Context` alias iff the body actually references the context

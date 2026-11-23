@@ -1,5 +1,6 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import {
+  bodyIsolation,
   isWorkflowSelfType,
   namesBound,
   nestedSaves,
@@ -7,7 +8,6 @@ import {
   type SaveEntry,
   serviceOpReadPorts,
   servicesCalled,
-  workflowIsolation,
   workflowPostBody,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
@@ -1294,7 +1294,7 @@ export function renderJavaWorkflows(
     // its state dataSource's `isolationLevel:`) carries it on its method's
     // `@Transactional` — parity with the .NET
     // BeginTransactionAsync(IsolationLevel.X) path.
-    const isolation = workflowIsolation(wf, ctx, sys);
+    const isolation = bodyIsolation({ kind: "workflow", wf }, ctx, sys).level;
     // `create(…): T { … return <expr> }` — the method returns the WIRE value
     // (an id's raw `value()`), read inside the workflow's transaction boundary
     // and handed back after it commits.  No result keeps `void`.

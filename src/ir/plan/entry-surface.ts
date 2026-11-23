@@ -18,7 +18,12 @@
 // The list states what every backend mounts and starts; a change to an entry
 // (who it runs as, whether it is mounted) lands here and every reader follows.
 
-import { API_BASE_PATH, AUTH_BASE_PATH } from "../../util/api-base.js";
+import {
+  API_BASE_PATH,
+  AUTH_BASE_PATH,
+  GATEWAY_APPS_PATH,
+  GATEWAY_HEALTH_PATH,
+} from "../../util/api-base.js";
 import { snake } from "../../util/naming.js";
 import { RUNTIME_ROUTES } from "../../util/runtime-wire-names.js";
 import type {
@@ -58,7 +63,8 @@ export type EntryRole = "api" | "infrastructure" | "internal";
 
 /** Every entry kind a deployable can have, with its role and how it is
  *  reached.  `EntryKind` is this table's key set, so a kind exists only with
- *  its row, and the census checks every row is reached on every backend. */
+ *  its row, and the census checks every row is reached: a gateway's kinds on
+ *  a gateway, every other kind on every backend. */
 export const ENTRY_KINDS = {
   // HTTP — the api surface.
   create: { role: "api", via: "http" },
@@ -90,6 +96,9 @@ export const ENTRY_KINDS = {
   fileDownload: { role: "infrastructure", via: "http" },
   realtimeEvents: { role: "infrastructure", via: "http" },
   uiHost: { role: "infrastructure", via: "http" },
+  // HTTP — a gateway's own, under its reserved prefix.
+  gatewayHealth: { role: "infrastructure", via: "http" },
+  gatewayApps: { role: "infrastructure", via: "http" },
   // Non-HTTP.
   reactor: { role: "internal", via: "event" },
   workflowEventStart: { role: "internal", via: "event" },
@@ -192,6 +201,7 @@ function requiresSignIn(d: DeployableIR, sys: Pick<SystemIR, "user">): boolean {
 /** Every entry `args.deployable` mounts or starts. */
 export function entrySurface(args: EntrySurfaceArgs): EntrySurface {
   const { deployable: d, contexts, sys } = args;
+  if (d.gathers !== undefined) return gatewaySurface(d);
   const signIn = requiresSignIn(d, sys);
   const caller: EntryPrincipal = signIn ? "caller" : "anonymous";
   const tenancyOn = !!sys.tenancy;
@@ -392,6 +402,26 @@ export function entrySurface(args: EntrySurfaceArgs): EntrySurface {
   if (plan.hasOutbox) internal("outboxRelay", { via: "boot" }, {}, "none");
   if (deployableNeedsInbox(contexts, plan)) internal("inboxPurge", { via: "boot" }, {}, "none");
 
+  return { deployable: d.name, entries };
+}
+
+/** A gateway's own entries: the deployable that `gathers` parts answers only
+ *  under its reserved `/_gateway/` prefix, before any sign-in and outside any
+ *  tenant frame.  Its probe is always there; its apps list only when it
+ *  declares one.  Every other path it serves belongs to a part it gathers (or
+ *  their backend) and is that deployable's entry, not the gateway's. */
+function gatewaySurface(d: DeployableIR): EntrySurface {
+  const entry = (kind: "gatewayHealth" | "gatewayApps", path: string): Entry => ({
+    kind,
+    role: ENTRY_KINDS[kind].role,
+    trigger: { via: "http", method: "get", path },
+    principal: "anonymous",
+    tenancy: "none",
+    gates: [],
+    owner: {},
+  });
+  const entries = [entry("gatewayHealth", GATEWAY_HEALTH_PATH)];
+  if (d.apps !== undefined) entries.push(entry("gatewayApps", GATEWAY_APPS_PATH));
   return { deployable: d.name, entries };
 }
 

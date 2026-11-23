@@ -35,7 +35,11 @@ import {
   opOperation,
   SCHEMA_NAMES,
 } from "../../../generator/_symbols/plan.js";
-import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
+import {
+  FILE_REF_ZOD,
+  tsInstantWire,
+  tsIntegerRange,
+} from "../../../generator/typescript/codec-spelling.js";
 import {
   historyMapperName,
   historyNeedsPrincipal,
@@ -2459,24 +2463,30 @@ function emitReturningOperationRoute(
   // A scalar money RETURN carries the FIXED money wire scale (RS-12), same as a
   // money field: decimal.js `.toJSON()` would normalize trailing zeros, so
   // format to 4 dp for parity with the java/.NET/python scalar-return path.
-  const scalarMoneyReturn =
-    !u &&
-    op.returnType?.kind === "primitive" &&
-    (op.returnType as { name?: string }).name === "money";
+  // A scalar datetime RETURN carries the canonical instant (RS-4/RS-38): a
+  // JS `Date` serializes through `toISOString()`, which pads a whole second
+  // to `.000`, the one spelling no other backend ships.
+  const scalarReturnName =
+    !u && op.returnType?.kind === "primitive" ? op.returnType.name : undefined;
+  const scalarMoneyReturn = scalarReturnName === "money";
+  const scalarInstantReturn = scalarReturnName === "datetime";
   if (!(audit || prov)) out.push(checkedSaveLine(operationVersionCheck(agg, op), "repo", "    "));
   // An operation answering its own aggregate (`return this`) answers the
   // aggregate's wire projection; the audited path projected it inside the
   // transaction already.
   const successResult = scalarMoneyReturn
     ? `result === null ? null : ${numericEncode(TS_NUMERIC, "money", "dto-map", "result")}`
-    : audit || prov
-      ? "result"
-      : hostReturnProjection(agg, op, "result", "repo", "aggregate");
+    : scalarInstantReturn
+      ? `result === null ? null : ${tsInstantWire("result")}`
+      : audit || prov
+        ? "result"
+        : hostReturnProjection(agg, op, "result", "repo", "aggregate");
   // A `money` field of a payload success variant rides as the fixed-scale
-  // string (RS-12) — the tagged dict holds the decimal.js value.
+  // string (RS-12) — the tagged dict holds the decimal.js value — and a
+  // `datetime` field as the canonical instant (RS-4/RS-38) — the dict holds a
+  // JS `Date`, whose `toJSON` pads a whole second to `.000`.
   for (const arm of u ? unionMoneyArms(u.variants, ctx) : []) {
-    // A JS `Date` already serializes to the wire instant; only money is re-encoded.
-    const keys = arm.keys.filter(tsHasMoney);
+    const keys = arm.keys.filter(tsNeedsEncode);
     if (keys.length === 0) continue;
     const enc = keys.map((k) => tsMoneyEntry(k, "result"));
     out.push(`    if (result.type === ${JSON.stringify(arm.tag)}) {`);
@@ -3337,21 +3347,24 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
   }
 }
 
-/** One `key: <encoded>` entry of a union variant's money re-encode: a money
- *  leaf through the money codec, a value object rebuilt as its own fields with
- *  its money positions encoded in turn. */
+/** One `key: <encoded>` entry of a union variant's wire re-encode: a money
+ *  leaf through the money codec, an instant leaf through the canonical instant
+ *  spelling, a value object rebuilt as its own fields with those positions
+ *  encoded in turn. */
 function tsMoneyEntry(k: UnionMoneyKey, recv: string): string {
   const access = `${recv}.${k.key}`;
   const wire =
     k.kind === "vo"
-      ? `{ ...${access}, ${k.fields.flatMap((f) => (f.money && tsHasMoney(f.money) ? [tsMoneyEntry(f.money, access)] : [])).join(", ")} }`
-      : numericEncode(TS_NUMERIC, "money", "dto-map", access);
+      ? `{ ...${access}, ${k.fields.flatMap((f) => (f.money && tsNeedsEncode(f.money) ? [tsMoneyEntry(f.money, access)] : [])).join(", ")} }`
+      : k.kind === "instant"
+        ? tsInstantWire(access)
+        : numericEncode(TS_NUMERIC, "money", "dto-map", access);
   return `${k.key}: ${k.optional ? `${access} == null ? null : ${wire}` : wire}`;
 }
 
-/** True when `k` is, or holds, a money position. */
-function tsHasMoney(k: UnionMoneyKey): boolean {
-  if (k.kind === "money") return true;
-  if (k.kind === "instant") return false;
-  return k.fields.some((f) => f.money !== undefined && tsHasMoney(f.money));
+/** True when `k` is, or holds, a money or instant position — a value whose
+ *  JS serialization is not its wire spelling. */
+function tsNeedsEncode(k: UnionMoneyKey): boolean {
+  if (k.kind === "money" || k.kind === "instant") return true;
+  return k.fields.some((f) => f.money !== undefined && tsNeedsEncode(f.money));
 }

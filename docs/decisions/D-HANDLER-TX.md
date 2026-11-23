@@ -10,7 +10,7 @@ refuses a later one).  Do the rows it saved before the failure stay?
 whatever its body holds: a failure anywhere in it leaves none of its writes,
 an expected-failure `error` answer rolls it back, and the events its saves
 raised are dispatched only once it has committed.  A query handler writes
-nothing and runs in none.  The plan's `handlerRunsInTransaction`
+nothing and runs in none.  The plan's `bodyIsolation`
 (`src/ir/plan/workflow-transaction.ts`) states it; every backend's
 command-handler emitter reads it (the `handler-tx` rule of
 `test/system/workflow-plan-census.test.ts`).

@@ -2,6 +2,7 @@ import { foldTenancyFor } from "../../ir/enrich/fold-tenancy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
 import {
   auditedOpCallAggregates,
+  bodyIsolation,
   dereferencedLoads,
   esStarterSharesEvent,
   eventLogTable,
@@ -14,7 +15,6 @@ import {
   servicesCalled,
   subscriptionHandler,
   workflowConsumerKey,
-  workflowIsolation,
   workflowPostBody,
   workflowRouteErrorStatuses,
   workflowRunsInTransaction,
@@ -1401,7 +1401,7 @@ function renderHandler(
   // Effective isolation: workflow's `transactional(<level>)` wins; else
   // the state-kind dataSource for this context's `isolationLevel:`; else
   // undefined (connection default applies at runtime).
-  const effectiveIsolation = workflowIsolation(wf, ctx, sys);
+  const effectiveIsolation = bodyIsolation({ kind: "workflow", wf }, ctx, sys).level;
   // Workflow handler emits domain-logic statements via renderCsExpr and
   // (when transactional with an explicit isolation level) an
   // IsolationLevel.X enum literal.  Both surfaces may reach namespaces
