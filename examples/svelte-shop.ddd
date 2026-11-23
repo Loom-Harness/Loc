@@ -14,7 +14,7 @@ system SvelteShop {
 
             aggregate Customer with crudish {
                 name: string
-                email: string
+                email: string check emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
                 // The MONEY-PRIMITIVE form witness (M-T1.23 / audit F18).
                 // `crudish` puts every writable field — optionals included —
                 // on the generated `update` op, so the scaffolded Customer
@@ -25,9 +25,9 @@ system SvelteShop {
                 // `svelte-check`.  Optional on purpose: `CreateForm` filters
                 // optionals out, so the `ui.customers.create({ name, email })`
                 // e2e literal below stays valid.
-                creditLimit: money?
+                creditLimit: money? check creditLimitCannotBeNegative: creditLimit == null || creditLimit >= 0
                 tags: ContactTag[]
-                invariant name.length > 0
+                invariant nameIsRequired: name.trim().length > 0
                 derived display: string = name
             }
 
@@ -41,7 +41,7 @@ system SvelteShop {
                 // emitted client module.
                 total: money?
                 operation confirm() {
-                    precondition status == OrderStatus.Draft
+                    precondition onlyDraftOrdersCanBeConfirmed: status == OrderStatus.Draft
                     status := OrderStatus.Confirmed
                 }
                 derived display: string = "Order"

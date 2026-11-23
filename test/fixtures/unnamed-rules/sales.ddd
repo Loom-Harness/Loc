@@ -1,0 +1,153 @@
+// Frozen copy of examples/sales.ddd with every rule UNNAMED.  The string-tier tests
+// that pin how an unnamed rule reaches the wire (absorbed into a native field
+// chain with a `field.*` code, or left off the wire when it reads aggregate
+// state) read it; the shipped example names its rules.
+
+// Sales bounded context — exercises every grammar construct.
+context Sales {
+
+  enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
+
+  valueobject Money {
+    amount: decimal
+    currency: string
+    invariant amount >= 0
+    invariant currency.length == 3
+  }
+
+  event OrderConfirmed {
+    order: Order id,
+    at: datetime
+  }
+
+  event LineAdded {
+    order: Order id,
+    productId: Product id,
+    quantity: int
+  }
+
+  aggregate Customer with crudish {
+    name: string
+    email: string
+    verified: bool
+    invariant email.length > 0
+    operation verify() { verified := true }
+  }
+
+  aggregate Product with crudish {
+    sku: string
+    price: Money
+  }
+
+  aggregate Order with crudish {
+    customerId: Customer id
+    status: OrderStatus
+    placedAt: datetime
+    contains lines: OrderLine[]
+
+    derived total: Money =
+      Money { amount: lines.sum(l => l.subtotal.amount), currency: "USD" }
+
+    invariant lines.count > 0 when status == Confirmed
+
+    function isMutable(): bool = status == Draft
+
+    private operation requireMutable() {
+      precondition isMutable()
+    }
+
+    operation addLine(productId: Product id, qty: int, price: Money) {
+      precondition isMutable()
+      precondition qty > 0
+      lines += OrderLine {
+        productId: productId, quantity: qty, unitPrice: price
+      }
+      emit LineAdded { order: id, productId: productId, quantity: qty }
+    }
+
+    operation confirm() {
+      precondition isMutable()
+      precondition lines.count > 0
+      status := Confirmed
+      emit OrderConfirmed { order: id, at: now() }
+    }
+
+    entity OrderLine {
+      productId: Product id
+      quantity: int
+      unitPrice: Money
+
+      function subtotalAmount(): decimal = unitPrice.amount * quantity
+
+      derived subtotal: Money =
+        Money { amount: subtotalAmount(), currency: unitPrice.currency }
+
+      invariant quantity > 0
+    }
+
+    test "money literal builds" {
+      let m = Money { amount: 10.5, currency: "USD" }
+      expect(m.amount).toBe(10.5)
+      expect(m.currency).toBe("USD")
+    }
+
+    test "negative money rejected" {
+      expect(Money { amount: -1.0, currency: "USD" }).toThrow()
+    }
+  }
+
+  repository Customers for Customer { }
+
+  // Reusable predicate (Specification pattern) over Customer.
+  criterion NamedLike(needle: string) of Customer = this.name == needle
+
+  // Named query bundle (retrieval.md): a composed `where` + `sort`,
+  // executed via `Customers.all(ByName("x"), page?)`.  Emits a
+  // `runByName` repository method; `page` is a call-site argument.
+  retrieval ByName(needle: string) of Customer {
+    where: NamedLike(needle)
+    sort:  [name asc]
+  }
+
+  // Retrieval-driven loop: page a named query and mutate each element.
+  // Exercises Repo.run + the workflow `for` loop end-to-end on Hono and
+  // .NET (the build gates compile the emitted runByName + foreach/save).
+  workflow verifyByName {
+    create(needle: string) {
+      let matched = Customers.all(ByName(needle), page: { offset: 0, limit: 100 })
+      for c in matched {
+        c.verify()
+      }
+    }
+  }
+
+  repository Orders for Order { }
+  // Convention: when no `where` is given, parameters are matched to
+  // aggregate properties of the same name (here `customerId`).
+  criterion OrdersByCustomer(customerId: Customer id) of Order = this.customerId == customerId
+  // Explicit predicate over the aggregate root — `this` refers to the
+  // root, parameters are bare identifiers.
+  criterion OrdersActiveForCustomer(forCustomer: Customer id) of Order = this.customerId == forCustomer && this.status == Draft
+
+  // Context-level orchestration: validate the customer exists, build a
+  // fresh draft order from the request, persist it.  Non-transactional
+  // — the customer load is read-only, the order save is independent.
+  // See docs/workflow.md for the full surface.
+  workflow placeOrder {
+    create(customerId: Customer id, placedAt: datetime) {
+      let customer = Customers.get(customerId)
+      let order = Order.create(
+        customerId: customerId,
+        status: Draft,
+        placedAt: placedAt
+      )
+    }
+  }
+}
+
+// The deployment: one node backend hosting the context, persisted to postgres.
+system Sales {
+  storage db { type: postgres }
+  resource salesState { for: Sales, kind: state, use: db, index: [Customer.name, Order.status] }
+  deployable sales { platform: node, contexts: [Sales], dataSources: [salesState] }
+}

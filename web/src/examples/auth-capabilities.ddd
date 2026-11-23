@@ -63,25 +63,25 @@ system Helpdesk {
       // softDelete()/restore() operations.
       aggregate Ticket with auditable, softDeletable, softDelete, tenantScoped {
         tenantId: string
-        subject: string
+        subject: string check subjectIsTooLong: subject.length <= 200
         status: TicketStatus
         assignee: string
 
-        invariant subject.length > 0
+        invariant subjectIsRequired: subject.trim().length > 0
 
         // `requires` (403) gates the caller; `precondition` (400) gates
         // the state.  currentUser + permissions.<name> resolve here.
         operation close() {
           requires currentUser.role == "agent"
                 || currentUser.permissions.contains(permissions.ticketsClose)
-          precondition status != Closed
+          precondition ticketMustNotBeClosed: status != Closed
           status := Closed
         }
 
         operation reassign(to: string) {
           requires currentUser.role == "agent"
                 || currentUser.permissions.contains(permissions.ticketsReassign)
-          precondition status != Closed
+          precondition closedTicketCannotBeReassigned: status != Closed
           assignee := to
         }
       }

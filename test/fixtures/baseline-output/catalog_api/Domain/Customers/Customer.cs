@@ -51,11 +51,11 @@ public sealed class Customer
 
     private void AssertInvariants()
     {
-        if (!(this.Username != this.Email)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
-        if (!(Regex.IsMatch(this.Username, "^[a-z][a-z0-9_]*$"))) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
-        if (!(this.Username.EnumerateRunes().Count() >= 3 && this.Username.EnumerateRunes().Count() <= 32)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
-        if (!(Regex.IsMatch(this.Email, "^[^@]+@[^@]+\\.[^@]+$") && this.Email.EnumerateRunes().Count() <= 120)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
-        if (!(this.Age >= 18 && this.Age <= 150)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
+        if (!(this.Username != this.Email)) throw new DomainException("Username must differ from email", DomainErrorKind.Invariant, "Customers.Customer.rule.usernameMustDifferFromEmail", "", new System.Collections.Generic.Dictionary<string, object?> { ["email"] = this.Email, ["username"] = this.Username });
+        if (!(Regex.IsMatch(this.Username, "^[a-z][a-z0-9_]*$"))) throw new DomainException("Username must be lowercase starting with letter", DomainErrorKind.Invariant, "Customers.Customer.rule.usernameMustBeLowercaseStartingWithLetter", "/username", new System.Collections.Generic.Dictionary<string, object?> { ["username"] = this.Username });
+        if (!(this.Username.EnumerateRunes().Count() >= 3 && this.Username.EnumerateRunes().Count() <= 32)) throw new DomainException("Username must be three to thirty two characters", DomainErrorKind.Invariant, "Customers.Customer.rule.usernameMustBeThreeToThirtyTwoCharacters", "/username", new System.Collections.Generic.Dictionary<string, object?> { ["username"] = this.Username });
+        if (!(Regex.IsMatch(this.Email, "^[^@]+@[^@]+\\.[^@]+$") && this.Email.EnumerateRunes().Count() <= 120)) throw new DomainException("Email must be valid", DomainErrorKind.Invariant, "Customers.Customer.rule.emailMustBeValid", "", new System.Collections.Generic.Dictionary<string, object?> { ["email"] = this.Email });
+        if (!(this.Age >= 18 && this.Age <= 150)) throw new DomainException("Customer must be an adult of realistic age", DomainErrorKind.Invariant, "Customers.Customer.rule.customerMustBeAnAdultOfRealisticAge", "/age", new System.Collections.Generic.Dictionary<string, object?> { ["age"] = this.Age });
     }
 
     public sealed class __State

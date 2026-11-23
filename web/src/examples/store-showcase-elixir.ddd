@@ -16,7 +16,7 @@ system StoreShowcaseElixir {
   subdomain Sales {
     context Sales {
       aggregate Order with crudish {
-        customerId: string
+        customerId: string check customerIdIsRequired: customerId.trim().length > 0
       }
       repository Orders for Order { }
     }

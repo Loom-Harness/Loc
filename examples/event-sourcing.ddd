@@ -15,17 +15,18 @@ system Ledger {
         balance: int
 
         create open(owner: string) {
+          precondition ownerIsRequired: owner.trim().length > 0
           emit Opened { account: id, owner: owner }
         }
 
         operation deposit(amount: int) {
-          precondition amount > 0
+          precondition depositMustBePositive: amount > 0
           emit Deposited { account: id, amount: amount }
         }
 
         operation withdraw(amount: int) {
-          precondition amount > 0
-          precondition balance >= amount
+          precondition withdrawalMustBePositive: amount > 0
+          precondition balanceMustCoverTheWithdrawal: balance >= amount
           emit Withdrawn { account: id, amount: amount }
         }
 

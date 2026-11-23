@@ -19,9 +19,9 @@ subdomain Finance {
     // `json` primitive — an opaque blob Loom never looks inside.
     aggregate Invoice with crudish {
       number: string
-      customerRef: string
+      customerRef: string check customerIsRequired: customerRef.trim().length > 0
       subtotal: money
-      taxRate: decimal = 0
+      taxRate: decimal = 0 check taxRateMustBeBetweenZeroAndOne: taxRate >= 0 && taxRate <= 1
       status: InvoiceStatus = Draft
       metadata: json
 
@@ -29,28 +29,28 @@ subdomain Finance {
       derived total: money = subtotal + tax
       derived display: string = number
 
-      invariant number.length > 0
-      invariant subtotal >= 0
+      invariant invoiceNumberIsRequired: number.length > 0
+      invariant subtotalCannotBeNegative: subtotal >= 0
 
       operation issue() {
-        precondition status == Draft
+        precondition onlyDraftInvoicesCanBeIssued: status == Draft
         status := Issued
       }
       operation pay() {
-        precondition status == Issued
+        precondition onlyIssuedInvoicesCanBePaid: status == Issued
         status := Paid
       }
       operation applyCredit(amount: money) {
-        precondition status == Draft
-        precondition amount > 0
-        precondition amount <= subtotal
+        precondition creditCanOnlyBeAppliedToDraftInvoices: status == Draft
+        precondition creditMustBePositive: amount > 0
+        precondition creditCannotExceedSubtotal: amount <= subtotal
         subtotal := subtotal - amount
       }
     }
 
     aggregate Payment with crudish {
-      invoiceRef: string
-      amount: money
+      invoiceRef: string check invoiceIsRequired: invoiceRef.trim().length > 0
+      amount: money check paymentAmountMustBePositive: amount > 0
       method: PaymentMethod
       receivedAt: datetime managed
       derived display: string = invoiceRef
@@ -60,31 +60,31 @@ subdomain Finance {
     // serialises to one JSONB blob.  Document/embedded aggregates use an
     // explicit canonical `create` (no crudish hard-delete on a blob).
     aggregate Receipt shape: document {
-      store: string
+      store: string check storeIsRequired: store.trim().length > 0
       contains lines: ReceiptLine[]
 
       create(store: string) { store := store }
 
       derived total: money = lines.sum(l => l.amount)
       derived display: string = store
-      invariant lines.count >= 0
+      invariant lineCountCannotBeNegative: lines.count >= 0
 
       operation addLine(label: string, amount: money) {
-        precondition amount > 0
+        precondition amountMustBePositive: amount > 0
         lines += ReceiptLine { label: label, amount: amount }
       }
 
       entity ReceiptLine {
-        label: string
+        label: string check lineLabelIsRequired: label.trim().length > 0
         amount: money
-        invariant amount > 0
+        invariant lineAmountMustBePositive: amount > 0
       }
     }
 
     // shape: embedded — the root (owner, label) stays queryable columns;
     // the contained TagItem parts fold into a JSONB column.
     aggregate TagList shape: embedded {
-      owner: string
+      owner: string check ownerIsRequired: owner.trim().length > 0
       label: string
       contains tags: TagItem[]
 
@@ -93,7 +93,7 @@ subdomain Finance {
         label := label
       }
 
-      invariant label.length > 0
+      invariant labelIsRequired: label.length > 0
       derived display: string = label
 
       operation addTag(name: string) {
@@ -102,7 +102,7 @@ subdomain Finance {
 
       entity TagItem {
         name: string
-        invariant name.length > 0
+        invariant tagNameIsRequired: name.length > 0
       }
     }
 
@@ -128,16 +128,16 @@ subdomain Finance {
     abstract aggregate Account inheritanceUsing: ownTable {
       name: string
       kind: AccountKind
-      invariant name.length > 0
+      invariant accountNameIsRequired: name.length > 0
       derived display: string = name
     }
 
     aggregate CashAccount extends Account inheritanceUsing: ownTable with crudish {
-      location: string
+      location: string check locationIsRequired: location.trim().length > 0
     }
     aggregate BankAccount extends Account inheritanceUsing: ownTable with crudish {
-      iban: string
-      bankName: string
+      iban: string check ibanMustBeValid: iban.matches("^[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}$")
+      bankName: string check bankNameIsRequired: bankName.trim().length > 0
     }
 
     // ── Event sourcing (persistedAs: eventLog) ───────────────────────
@@ -147,14 +147,14 @@ subdomain Finance {
       code: string
       balance: money
 
-      invariant code.length > 0
+      invariant accountCodeIsRequired: code.length > 0
 
       operation debit(amount: money) {
-        precondition amount > 0
+        precondition debitAmountMustBePositive: amount > 0
         emit LedgerDebited { account: id, amount: amount, at: now() }
       }
       operation credit(amount: money) {
-        precondition amount > 0
+        precondition creditAmountMustBePositive: amount > 0
         emit LedgerCredited { account: id, amount: amount, at: now() }
       }
 

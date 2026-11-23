@@ -22,9 +22,25 @@ public sealed class DomainException : Exception
     /// <summary>The rung that refused; null outside the precondition /
     /// invariant floor.</summary>
     public DomainErrorKind? Kind { get; }
-    public DomainException(string message, DomainErrorKind? kind = null) : base(message)
+    /// <summary>A named rule's <c>&lt;Ctx&gt;.&lt;Owner&gt;.rule.&lt;name&gt;</c> code (the same one the
+    /// wire rung carries) and the RFC 6901 pointer its domain-floor
+    /// <c>errors[]</c> entry names (M-T1.11 (c)).  Null for an unnamed
+    /// rule.</summary>
+    public string? RuleCode { get; }
+    /// Named RulePointer, not Pointer: CA1720 ("identifier contains type
+    /// name") is an ERROR under the csproj's latest-recommended analysis level
+    /// with /warnaserror — the same trap WireFormatException.FieldPointer
+    /// sidesteps below.
+    public string? RulePointer { get; }
+    /// <summary>The values the rule read — the wire <c>params</c> a client
+    /// fills the rule's message placeholders from.  Null when it read none.</summary>
+    public IReadOnlyDictionary<string, object?>? RuleParams { get; }
+    public DomainException(string message, DomainErrorKind? kind = null, string? ruleCode = null, string? rulePointer = null, IReadOnlyDictionary<string, object?>? ruleParams = null) : base(message)
     {
         Kind = kind;
+        RuleCode = ruleCode;
+        RulePointer = rulePointer;
+        RuleParams = ruleParams;
     }
 }
 

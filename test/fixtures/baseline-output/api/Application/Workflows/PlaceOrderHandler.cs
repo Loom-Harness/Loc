@@ -24,7 +24,7 @@ public sealed class PlaceOrderHandler : ICommandHandler<PlaceOrderCommand, Unit>
     public async ValueTask<Unit> Handle(PlaceOrderCommand command, CancellationToken cancellationToken)
     {
         _log.LogInformation("{Event} workflow={Workflow}", "workflow_started", "placeOrder");
-        if (!(command.Quantity > 0)) throw new DomainException("Business rule violated", DomainErrorKind.Precondition);
+        if (!(command.Quantity > 0)) throw new DomainException("Quantity must be positive", DomainErrorKind.Precondition, "Orders.placeOrder.rule.quantityMustBePositive", "/quantity", new System.Collections.Generic.Dictionary<string, object?> { ["quantity"] = command.Quantity });
         var order = Order.Create(customerId: command.CustomerId, status: OrderStatus.Draft, placedAt: DateTime.UtcNow);
         order.AddLine(command.ProductId, command.Quantity);
         await _orders.SaveAsync(order, cancellationToken);
