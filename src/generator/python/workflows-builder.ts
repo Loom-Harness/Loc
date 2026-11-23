@@ -1,5 +1,6 @@
 import { foldTenancyFor } from "../../ir/enrich/fold-tenancy.js";
 import {
+  bodyIsolation,
   isReadAfter,
   isWorkflowSelfType,
   liveLetNames,
@@ -10,7 +11,6 @@ import {
   serviceOpReadPorts,
   serviceReadPorts,
   withReadPortRepos,
-  workflowIsolation,
   workflowNeedsCurrentUser,
   workflowPostBody,
   workflowRouteErrorStatuses,
@@ -455,7 +455,7 @@ function workflowRoute(
   // `isolationLevel:`) pins the request transaction's isolation before any
   // query runs — parity with the .NET BeginTransactionAsync(IsolationLevel.X)
   // and Java @Transactional(isolation = …) paths.
-  const isolation = workflowIsolation(wf, ctx, sys);
+  const isolation = bodyIsolation({ kind: "workflow", wf }, ctx, sys).level;
   if (isolation) {
     out.push(
       `        await session.connection(execution_options={"isolation_level": "${pyIsolationLevel(isolation)}"})`,

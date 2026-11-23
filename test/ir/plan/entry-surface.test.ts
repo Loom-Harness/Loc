@@ -88,4 +88,39 @@ describe("entrySurface", () => {
     expect(s.entries.some((e) => e.kind.startsWith("auth"))).toBe(false);
     expect(at(s, "get", "/health").principal).toBe("anonymous");
   });
+
+  it("gives a gateway only its own entries: its probe, and its apps list when it has one", async () => {
+    const gateway = (apps: string) => `
+system Gw {
+  subdomain Catalog { context Catalog {
+    aggregate Product with crudish { sku: string }
+  } }
+  ui Back with scaffold(subdomains: [Catalog]) { }
+  storage primary { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+  deployable admin { platform: node contexts: [Catalog] dataSources: [catalogState] port: 3000 }
+  deployable back { platform: web targets: admin ui: Back port: 3001 }
+  deployable site {
+    platform: gateway
+    port: 8088
+    gathers: [ back at "/" ]
+    ${apps}
+  }
+}
+`;
+    const surfaceOfSite = async (source: string): Promise<EntrySurface> => {
+      const sys = (await buildLoomModel(source)).systems[0]!;
+      const site = sys.deployables.find((d) => d.name === "site")!;
+      return entrySurface({ deployable: site, contexts: [], sys });
+    };
+    const anonymousInfra = { role: "infrastructure", principal: "anonymous", tenancy: "none" };
+
+    const bare = await surfaceOfSite(gateway(""));
+    expect(bare.entries.map((e) => e.kind)).toEqual(["gatewayHealth"]);
+    expect(at(bare, "get", "/_gateway/health")).toMatchObject(anonymousInfra);
+
+    const listed = await surfaceOfSite(gateway(`apps { app back label "Back office" }`));
+    expect(listed.entries.map((e) => e.kind)).toEqual(["gatewayHealth", "gatewayApps"]);
+    expect(at(listed, "get", "/_gateway/apps")).toMatchObject(anonymousInfra);
+  });
 });

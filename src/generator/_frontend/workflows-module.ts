@@ -17,7 +17,7 @@ import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { SCHEMA_NAMES } from "../_symbols/plan.js";
 import { contractHomes } from "../_walker/walker-model.js";
 import { contractAggregate, type SchemaValueObject } from "./aggregate-model.js";
-import { typeParsesFormText, zodForResponse } from "./api-module.js";
+import { dualTypeAliases, typeParsesFormText, zodForResponse } from "./api-module.js";
 import { clientAggregates, clientFinds } from "./contract.js";
 import { typeBlankBlocks, typeFormText } from "./form-spec.js";
 import { withFormTextImports } from "./form-text-runtime.js";
@@ -67,6 +67,20 @@ export interface ContextWorkflowsModuleScope extends WorkflowsModuleScope {
 }
 
 /** The scope of a deployable serving `contexts`. */
+/** The `<Wf>FormState` / `<Wf>Payload` aliases of a command workflow's
+ *  request, or none.  Same gate as the aggregate create/operation schemas
+ *  (`dualTypeAliases`): only a request with a field that parses form text has
+ *  `z.input ≠ z.output`, and a `WorkflowForm` over one imports the `FormState`
+ *  name (`formStateTypeFor`).  Every frontend's workflows module emits them
+ *  through this one gate, so the alias exists exactly where a form imports it. */
+export function workflowFormStateAliases(
+  wf: { name: string; context: string; params?: readonly { type: TypeIR }[] },
+  scope: WorkflowsModuleScope,
+): string[] {
+  if (!wf.params?.some((p) => typeParsesFormText(p.type, scope.typeScope(wf.context)))) return [];
+  return dualTypeAliases(scope.names.workflow(wf.name));
+}
+
 export function workflowsModuleScope(
   contexts: readonly BoundedContextIR[],
 ): ContextWorkflowsModuleScope {
@@ -168,7 +182,6 @@ export function buildWorkflowsApiModule(
       if (wf.instance) lines.push(...emitInstanceHooks(wf));
       continue;
     }
-    const ctx = scope.typeScope(wf.context);
     const base = names.workflow(wf.name);
     lines.push(`export const ${base}Request = z.object({`);
     for (const p of wf.params) {
@@ -176,17 +189,7 @@ export function buildWorkflowsApiModule(
     }
     lines.push(`});`);
     lines.push(`export type ${base}Request = z.infer<typeof ${base}Request>;`);
-    // Dual FormState/Payload aliases — same gate and same reason as the
-    // aggregate create/operation schemas in `api-module.ts`: money is the one
-    // wire type whose schema TRANSFORMS on parse, so only a money-bearing
-    // request has `z.input ≠ z.output`.  A `WorkflowForm` over one needs the
-    // `FormState` name for RHF's three-generic `useForm`.
-    if (wf.params.some((p) => typeParsesFormText(p.type, ctx))) {
-      lines.push(`/** Pre-parse form shape (z.input) — money fields are decimal strings. */`);
-      lines.push(`export type ${base}FormState = z.input<typeof ${base}Request>;`);
-      lines.push(`/** Post-parse payload shape (z.output) — money fields are Decimal. */`);
-      lines.push(`export type ${base}Payload = z.output<typeof ${base}Request>;`);
-    }
+    lines.push(...workflowFormStateAliases(wf, scope));
     lines.push("");
     lines.push(`export function use${base}Workflow() {`);
     lines.push(`  return useMutation({`);

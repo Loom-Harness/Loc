@@ -31,7 +31,7 @@ import {
 } from "../repository-document-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
-import { T, TT } from "../ts-symbols.js";
+import { refsTsSymbol, T, TT } from "../ts-symbols.js";
 import { eventRowClassOf } from "./mikroorm-entities.js";
 import { mikroBlobGetByIdLines } from "./mikroorm-filter.js";
 import { tsParamType, usesRawFragment } from "./mikroorm-shared.js";
@@ -291,7 +291,7 @@ export function renderMikroEventSourcedRepository(
       ? `import { ${referenced.map((n) => (isValueUsed(n) ? n : `type ${n}`)).join(", ")} } from "../../domain/value-objects";`
       : `import type { ${referenced.join(", ")} } from "../../domain/value-objects";`;
   }
-  const usesDecimal = /new\s+Decimal\(/.test(bodyScan);
+  const usesDecimal = refsTsSymbol(bodyScan, "Decimal");
   const usesPrincipal = /\brequireCurrentUser\(/.test(bodyScan);
   const usesRaw = usesRawFragment(bodyScan);
 

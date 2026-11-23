@@ -20,115 +20,128 @@
 // `money` is decimal.js `Decimal` on BOTH surfaces (the frontend's
 // `moneySchema` parses a decimal string into a `Decimal`, and `jsExprLeaves`
 // already emits `new Decimal(...)` for a money `convert`), so the money arms
-// are shared verbatim too.  The arms that name the `Decimal` binding need it
-// imported wherever they land; each page shell decides that by scanning its
-// rendered source — see `usesDecimalBinding`.
+// are shared too.  The arms that name the class spell it through the caller's
+// hook (`js-decimal.ts`): the node backend's import symbol, which its module
+// finalizer imports, or the frontends' bare name, which each page shell
+// imports by scanning its rendered source — see `usesDecimalBinding`.
 
 import { type TypeIR, typeUsesMoney } from "../../ir/types/loom-ir.js";
 import { formatTokens, ISO_SLICE, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { tsCodePointLength, tsCodePointSubstring } from "./code-point.js";
-export const JS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
-  // The parse service's host conversions run only on text its checks accepted.
-  "string.uncheckedInt": (recv) => `Number(${recv})`,
-  "string.uncheckedLong": (recv) => `Number(${recv})`,
-  "string.uncheckedDecimal": (recv) => `Number(${recv})`,
-  "string.uncheckedDate": (recv) => `(${recv})`,
-  "string.trim": (recv) => `${recv}.trim()`,
-  "string.toUpper": (recv) => `${recv}.toUpperCase()`,
-  "string.toLower": (recv) => `${recv}.toLowerCase()`,
-  // 0-based, clamping, counted in CODE POINTS like `.length` (the catalogue
-  // contract; `_expr/code-point.ts`).
-  "string.substring": (recv, args) => tsCodePointSubstring(recv, args[0]!, args[1]),
-  "string.startsWith": (recv, args) => `${recv}.startsWith(${args[0]})`,
-  "string.endsWith": (recv, args) => `${recv}.endsWith(${args[0]})`,
-  "string.contains": (recv, args) => `${recv}.includes(${args[0]})`,
-  "string.replace": (recv, args) => `${recv}.replaceAll(${args[0]}, ${args[1]})`,
-  "string.split": (recv, args) => `${recv}.split(${args[0]})`,
-  // ---- numerics (A3) -------------------------------------------------------
-  // `money` is decimal.js `Decimal` on this backend; int/long/decimal are
-  // plain numbers (see the catalogue's representation note).  Loom
-  // expressions are pure, so a snippet may mention `recv` more than once.
-  "int.abs": (recv) => `Math.abs(${recv})`,
-  "long.abs": (recv) => `Math.abs(${recv})`,
-  "decimal.abs": (recv) => `Math.abs(${recv})`,
-  "money.abs": (recv) => `${recv}.abs()`,
-  // Truncating integer division (toward zero) — `Math.trunc` on the float quotient.
-  "int.divTrunc": (recv, args) => `Math.trunc(${recv} / ${args[0]})`,
-  "long.divTrunc": (recv, args) => `Math.trunc(${recv} / ${args[0]})`,
-  "int.min": (recv, args) => `Math.min(${recv}, ${args[0]})`,
-  "long.min": (recv, args) => `Math.min(${recv}, ${args[0]})`,
-  "decimal.min": (recv, args) => `Math.min(${recv}, ${args[0]})`,
-  "money.min": (recv, args) => `Decimal.min(${recv}, ${args[0]})`,
-  "int.max": (recv, args) => `Math.max(${recv}, ${args[0]})`,
-  "long.max": (recv, args) => `Math.max(${recv}, ${args[0]})`,
-  "decimal.max": (recv, args) => `Math.max(${recv}, ${args[0]})`,
-  "money.max": (recv, args) => `Decimal.max(${recv}, ${args[0]})`,
-  // HALF-AWAY-FROM-ZERO (catalogue contract) — `Math.round` alone rounds
-  // -2.5 UP to -2, so route through sign/abs on the float path.  Self-
-  // parenthesized: the snippet lands in arbitrary expression slots.
-  "decimal.round": (recv, args) =>
-    args.length > 0
-      ? `(Math.sign(${recv}) * (Math.round(Math.abs(${recv}) * 10 ** (${args[0]})) / 10 ** (${args[0]})))`
-      : `(Math.sign(${recv}) * Math.round(Math.abs(${recv})))`,
-  "money.round": (recv, args) =>
-    `${recv}.toDecimalPlaces(${args[0] ?? "0"}, Decimal.ROUND_HALF_UP)`,
-  "decimal.floor": (recv) => `Math.floor(${recv})`,
-  "decimal.ceil": (recv) => `Math.ceil(${recv})`,
-  "money.floor": (recv) => `${recv}.floor()`,
-  "money.ceil": (recv) => `${recv}.ceil()`,
-  // ---- datetime ------------------------------------------------------------
-  // Midnight UTC of the receiver's day (catalogue contract) — built from the
-  // UTC field readers so the bucket boundary never follows the host's local
-  // zone (`setHours(0,…)` would).  Loom expressions are pure, so mentioning
-  // `recv` three times is safe.
-  "datetime.startOfDay": (recv) =>
-    `new Date(Date.UTC((${recv}).getUTCFullYear(), (${recv}).getUTCMonth(), (${recv}).getUTCDate()))`,
-  // The UTC calendar date of an instant.  `new Date(…)` accepts both a `Date`
-  // (the backend) and the ISO text a datetime is after crossing the wire (the
-  // frontends), so one arm serves both surfaces.
-  "datetime.toDate": (recv) => `new Date(${recv}).toISOString().slice(0, 10)`,
-  // ---- date ----------------------------------------------------------------
-  // A `date` is its ISO `YYYY-MM-DD` text on every JS surface, so the
-  // components are fixed-position slices and `Date.parse` of that form is UTC
-  // midnight by spec — the day distance never follows the host's zone.
-  "date.year": (recv) => `Number((${recv}).slice(0, 4))`,
-  "date.month": (recv) => `Number((${recv}).slice(5, 7))`,
-  "date.day": (recv) => `Number((${recv}).slice(8, 10))`,
-  "date.daysUntil": (recv, args) =>
-    `Math.round((Date.parse(${args[0]}) - Date.parse(${recv})) / 86400000)`,
-  // Calendar arithmetic (the catalogue's end-of-month clamp).  `Date.UTC`
-  // normalises an out-of-range month (13 → next January, -1 → last December)
-  // and day 0 of a month is the last day of the one before, so the clamp is
-  // `min(day, last day of the target month)` with no host rule in play.
-  "date.addDays": (recv, args) =>
-    `new Date(Date.parse(${recv}) + (${args[0]}) * 86400000).toISOString().slice(0, 10)`,
-  "date.addMonths": (recv, args) => jsShiftMonths(recv, `(${args[0]})`),
-  "date.addYears": (recv, args) => jsShiftMonths(recv, `(${args[0]}) * 12`),
-  "date.startOfMonth": (recv) => `(${recv}).slice(0, 8) + "01"`,
-  "date.endOfMonth": (recv) =>
-    `new Date(Date.UTC(${jsY(recv)}, ${jsM(recv)}, 0)).toISOString().slice(0, 10)`,
-  "date.monthsUntil": (recv, args) => {
-    const b = args[0]!;
-    const m = `((${jsY(b)} - ${jsY(recv)}) * 12 + ${jsM(b)} - ${jsM(recv)})`;
-    const c = `Math.min(${jsD(recv)}, new Date(Date.UTC(${jsY(b)}, ${jsM(b)}, 0)).getUTCDate())`;
-    return `(${m} - (${m} > 0 && ${c} > ${jsD(b)} ? 1 : 0) + (${m} < 0 && ${c} < ${jsD(b)} ? 1 : 0))`;
-  },
-  // ---- duration — plain milliseconds on every JS surface; a whole count cut
-  // toward zero (the catalogue contract).
-  "duration.toDays": (recv) => `Math.trunc((${recv}) / 86400000)`,
-  "duration.toHours": (recv) => `Math.trunc((${recv}) / 3600000)`,
-  "duration.toMinutes": (recv) => `Math.trunc((${recv}) / 60000)`,
-  // ---- formatting — invariant text (the catalogue contract).
-  "string.padStart": (recv, args) => `(${jsPadFill(recv, args[0]!, args[1]!)} + (${recv}))`,
-  "string.padEnd": (recv, args) => `((${recv}) + ${jsPadFill(recv, args[0]!, args[1]!)})`,
-  // A date IS its ISO text; a datetime's `toISOString()` is the same layout in
-  // UTC — so every field is a fixed, already zero-padded slice.
-  "date.format": (recv, args) => jsIsoFormat(`(${recv})`, args[0]!),
-  "datetime.format": (recv, args) => jsIsoFormat(`new Date(${recv}).toISOString()`, args[0]!),
-  "decimal.format": (recv, args) => jsFixed(`new Decimal(String(${recv}))`, args[0]!),
-  "money.format": (recv, args) => jsFixed(`new Decimal(${recv})`, args[0]!),
-};
+import { FRONTEND_DECIMAL } from "./js-decimal.js";
+
+/** One renderer per catalogue intrinsic, keyed `<receiver>.<name>`. */
+export type JsIntrinsicRenderers = Record<string, (recv: string, args: string[]) => string>;
+
+/** The intrinsic table with decimal.js's `Decimal` class spelled `decimal`
+ *  (the caller's hook, `js-decimal.ts`). */
+export function jsIntrinsicRenderers(decimal: string): JsIntrinsicRenderers {
+  return {
+    // The parse service's host conversions run only on text its checks accepted.
+    "string.uncheckedInt": (recv) => `Number(${recv})`,
+    "string.uncheckedLong": (recv) => `Number(${recv})`,
+    "string.uncheckedDecimal": (recv) => `Number(${recv})`,
+    "string.uncheckedDate": (recv) => `(${recv})`,
+    "string.trim": (recv) => `${recv}.trim()`,
+    "string.toUpper": (recv) => `${recv}.toUpperCase()`,
+    "string.toLower": (recv) => `${recv}.toLowerCase()`,
+    // 0-based, clamping, counted in CODE POINTS like `.length` (the catalogue
+    // contract; `_expr/code-point.ts`).
+    "string.substring": (recv, args) => tsCodePointSubstring(recv, args[0]!, args[1]),
+    "string.startsWith": (recv, args) => `${recv}.startsWith(${args[0]})`,
+    "string.endsWith": (recv, args) => `${recv}.endsWith(${args[0]})`,
+    "string.contains": (recv, args) => `${recv}.includes(${args[0]})`,
+    "string.replace": (recv, args) => `${recv}.replaceAll(${args[0]}, ${args[1]})`,
+    "string.split": (recv, args) => `${recv}.split(${args[0]})`,
+    // ---- numerics (A3) -------------------------------------------------------
+    // `money` is decimal.js `Decimal` on this backend; int/long/decimal are
+    // plain numbers (see the catalogue's representation note).  Loom
+    // expressions are pure, so a snippet may mention `recv` more than once.
+    "int.abs": (recv) => `Math.abs(${recv})`,
+    "long.abs": (recv) => `Math.abs(${recv})`,
+    "decimal.abs": (recv) => `Math.abs(${recv})`,
+    "money.abs": (recv) => `${recv}.abs()`,
+    // Truncating integer division (toward zero) — `Math.trunc` on the float quotient.
+    "int.divTrunc": (recv, args) => `Math.trunc(${recv} / ${args[0]})`,
+    "long.divTrunc": (recv, args) => `Math.trunc(${recv} / ${args[0]})`,
+    "int.min": (recv, args) => `Math.min(${recv}, ${args[0]})`,
+    "long.min": (recv, args) => `Math.min(${recv}, ${args[0]})`,
+    "decimal.min": (recv, args) => `Math.min(${recv}, ${args[0]})`,
+    "money.min": (recv, args) => `${decimal}.min(${recv}, ${args[0]})`,
+    "int.max": (recv, args) => `Math.max(${recv}, ${args[0]})`,
+    "long.max": (recv, args) => `Math.max(${recv}, ${args[0]})`,
+    "decimal.max": (recv, args) => `Math.max(${recv}, ${args[0]})`,
+    "money.max": (recv, args) => `${decimal}.max(${recv}, ${args[0]})`,
+    // HALF-AWAY-FROM-ZERO (catalogue contract) — `Math.round` alone rounds
+    // -2.5 UP to -2, so route through sign/abs on the float path.  Self-
+    // parenthesized: the snippet lands in arbitrary expression slots.
+    "decimal.round": (recv, args) =>
+      args.length > 0
+        ? `(Math.sign(${recv}) * (Math.round(Math.abs(${recv}) * 10 ** (${args[0]})) / 10 ** (${args[0]})))`
+        : `(Math.sign(${recv}) * Math.round(Math.abs(${recv})))`,
+    "money.round": (recv, args) =>
+      `${recv}.toDecimalPlaces(${args[0] ?? "0"}, ${decimal}.ROUND_HALF_UP)`,
+    "decimal.floor": (recv) => `Math.floor(${recv})`,
+    "decimal.ceil": (recv) => `Math.ceil(${recv})`,
+    "money.floor": (recv) => `${recv}.floor()`,
+    "money.ceil": (recv) => `${recv}.ceil()`,
+    // ---- datetime ------------------------------------------------------------
+    // Midnight UTC of the receiver's day (catalogue contract) — built from the
+    // UTC field readers so the bucket boundary never follows the host's local
+    // zone (`setHours(0,…)` would).  Loom expressions are pure, so mentioning
+    // `recv` three times is safe.
+    "datetime.startOfDay": (recv) =>
+      `new Date(Date.UTC((${recv}).getUTCFullYear(), (${recv}).getUTCMonth(), (${recv}).getUTCDate()))`,
+    // The UTC calendar date of an instant.  `new Date(…)` accepts both a `Date`
+    // (the backend) and the ISO text a datetime is after crossing the wire (the
+    // frontends), so one arm serves both surfaces.
+    "datetime.toDate": (recv) => `new Date(${recv}).toISOString().slice(0, 10)`,
+    // ---- date ----------------------------------------------------------------
+    // A `date` is its ISO `YYYY-MM-DD` text on every JS surface, so the
+    // components are fixed-position slices and `Date.parse` of that form is UTC
+    // midnight by spec — the day distance never follows the host's zone.
+    "date.year": (recv) => `Number((${recv}).slice(0, 4))`,
+    "date.month": (recv) => `Number((${recv}).slice(5, 7))`,
+    "date.day": (recv) => `Number((${recv}).slice(8, 10))`,
+    "date.daysUntil": (recv, args) =>
+      `Math.round((Date.parse(${args[0]}) - Date.parse(${recv})) / 86400000)`,
+    // Calendar arithmetic (the catalogue's end-of-month clamp).  `Date.UTC`
+    // normalises an out-of-range month (13 → next January, -1 → last December)
+    // and day 0 of a month is the last day of the one before, so the clamp is
+    // `min(day, last day of the target month)` with no host rule in play.
+    "date.addDays": (recv, args) =>
+      `new Date(Date.parse(${recv}) + (${args[0]}) * 86400000).toISOString().slice(0, 10)`,
+    "date.addMonths": (recv, args) => jsShiftMonths(recv, `(${args[0]})`),
+    "date.addYears": (recv, args) => jsShiftMonths(recv, `(${args[0]}) * 12`),
+    "date.startOfMonth": (recv) => `(${recv}).slice(0, 8) + "01"`,
+    "date.endOfMonth": (recv) =>
+      `new Date(Date.UTC(${jsY(recv)}, ${jsM(recv)}, 0)).toISOString().slice(0, 10)`,
+    "date.monthsUntil": (recv, args) => {
+      const b = args[0]!;
+      const m = `((${jsY(b)} - ${jsY(recv)}) * 12 + ${jsM(b)} - ${jsM(recv)})`;
+      const c = `Math.min(${jsD(recv)}, new Date(Date.UTC(${jsY(b)}, ${jsM(b)}, 0)).getUTCDate())`;
+      return `(${m} - (${m} > 0 && ${c} > ${jsD(b)} ? 1 : 0) + (${m} < 0 && ${c} < ${jsD(b)} ? 1 : 0))`;
+    },
+    // ---- duration — plain milliseconds on every JS surface; a whole count cut
+    // toward zero (the catalogue contract).
+    "duration.toDays": (recv) => `Math.trunc((${recv}) / 86400000)`,
+    "duration.toHours": (recv) => `Math.trunc((${recv}) / 3600000)`,
+    "duration.toMinutes": (recv) => `Math.trunc((${recv}) / 60000)`,
+    // ---- formatting — invariant text (the catalogue contract).
+    "string.padStart": (recv, args) => `(${jsPadFill(recv, args[0]!, args[1]!)} + (${recv}))`,
+    "string.padEnd": (recv, args) => `((${recv}) + ${jsPadFill(recv, args[0]!, args[1]!)})`,
+    // A date IS its ISO text; a datetime's `toISOString()` is the same layout in
+    // UTC — so every field is a fixed, already zero-padded slice.
+    "date.format": (recv, args) => jsIsoFormat(`(${recv})`, args[0]!),
+    "datetime.format": (recv, args) => jsIsoFormat(`new Date(${recv}).toISOString()`, args[0]!),
+    "decimal.format": (recv, args) => jsFixed(decimal, `new ${decimal}(String(${recv}))`, args[0]!),
+    "money.format": (recv, args) => jsFixed(decimal, `new ${decimal}(${recv})`, args[0]!),
+  };
+}
+
+/** The frontends' table — the class spelled bare. */
+export const JS_INTRINSIC_RENDERERS: JsIntrinsicRenderers = jsIntrinsicRenderers(FRONTEND_DECIMAL);
 
 /** The fill a pad needs: `fill` repeated and cut to the missing number of
  *  code points (none when the receiver is already long enough). */
@@ -148,9 +161,9 @@ function jsIsoFormat(iso: string, pattern: string): string {
 }
 
 /** A decimal.js value as fixed-point text: half-even, no negative zero. */
-function jsFixed(dec: string, places: string): string {
+function jsFixed(decimal: string, dec: string, places: string): string {
   const p = `Math.max(0, ${places})`;
-  const r = `${dec}.toDecimalPlaces(${p}, Decimal.ROUND_HALF_EVEN)`;
+  const r = `${dec}.toDecimalPlaces(${p}, ${decimal}.ROUND_HALF_EVEN)`;
   return `(${r}.isZero() ? ${r}.abs() : ${r}).toFixed(${p})`;
 }
 
@@ -247,5 +260,5 @@ export function coerceMoneyStateInit(type: TypeIR, rendered: string): string {
   const exact = /^-?\d+(\.\d+)?$/.test(rendered.trim())
     ? JSON.stringify(rendered.trim())
     : rendered;
-  return `new Decimal(${exact})`;
+  return `new ${FRONTEND_DECIMAL}(${exact})`;
 }

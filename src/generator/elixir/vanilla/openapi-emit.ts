@@ -6,6 +6,7 @@ import {
   routedPolymorphicRead,
   workflowRouteErrorStatuses,
 } from "../../../ir/plan/index.js";
+import { routeContext, routeHandler } from "../../../ir/plan/route-handler.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -1140,7 +1141,7 @@ function servedRoutes(args: OpenApiEmitArgs): { route: RouteIR; ctx: EnrichedBou
   const byName = new Map(args.contexts.map((c) => [c.name, c]));
   return (args.deployable.serves ?? []).flatMap((apiName) =>
     (args.sys.apis.find((a) => a.name === apiName)?.routes ?? []).flatMap((route) => {
-      const ctx = byName.get(route.target.context);
+      const ctx = byName.get(routeContext(route));
       return ctx ? [{ route, ctx }] : [];
     }),
   );
@@ -1157,9 +1158,7 @@ function routedOperation(
   ctx: EnrichedBoundedContextIR,
   schemasModule: string,
 ): ElixirApiOperation | undefined {
-  const h =
-    (ctx.commandHandlers ?? []).find((x) => x.name === route.target.handler) ??
-    (ctx.queryHandlers ?? []).find((x) => x.name === route.target.handler);
+  const h = routeHandler(route, ctx)?.handler;
   if (!h) return undefined;
   const paged = !!h.returnType && !!pagedReturn(h.returnType);
   const params = paged || h.extern ? h.params : flatRoutedParams(h.params, ctx);

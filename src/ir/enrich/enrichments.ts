@@ -209,7 +209,7 @@ function enrichSystem(
   const explicitRouteSlotsBySubdomain = new Map<string, string[]>();
   for (const a of sys.apis) {
     for (const r of a.routes) {
-      const sub = subdomainOfContext.get(r.target.context);
+      const sub = subdomainOfContext.get(r.binding.context);
       if (sub === undefined) continue;
       const slots = explicitRouteSlotsBySubdomain.get(sub) ?? [];
       const s = explicitRouteSlot(r);

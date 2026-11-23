@@ -38,10 +38,12 @@
 
 import { dispatchedRecord } from "../../ir/plan/command-bus.js";
 import {
+  bodyIsolation,
   handlerNeedsCurrentUser,
-  handlerRunsInTransaction,
+  handlerScope,
   reposNeeded,
 } from "../../ir/plan/index.js";
+import { resolveRoute } from "../../ir/plan/route-handler.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -317,11 +319,13 @@ function renderHandlerClass(
   // An expected-failure result (`T or E`): one transaction, rolled back on an
   // error answer.
   const er = entryResult(h);
-  // A command handler runs in one transaction (`handlerRunsInTransaction`),
+  // A command handler runs in one transaction (`bodyIsolation`),
   // so a failure part-way through — a row outside the write scope, a later
   // row's precondition — rolls back the rows it already changed.
   const writeScope = writeScopeContext(h.statements, ctx);
-  const inTx = handlerRunsInTransaction(kind === "Command" ? "command" : "query");
+  const inTx = bodyIsolation(
+    handlerScope(h, kind === "Command" ? "command" : "query"),
+  ).holdsTransaction;
   const needsUow = er !== undefined || inTx;
   const iface =
     kind === "Command"
@@ -1151,12 +1155,13 @@ export function emitExplicitRouteController(
   const actions: string[] = [];
   const bodyRecords: string[] = [];
   for (const r of routes) {
-    const ctx = byName.get(r.target.context);
-    if (!ctx) continue;
-    const cmd = (ctx.commandHandlers ?? []).find((h) => h.name === r.target.handler);
-    const qry = (ctx.queryHandlers ?? []).find((h) => h.name === r.target.handler);
-    const h = cmd ?? qry;
-    if (!h) continue;
+    const resolved = resolveRoute(r, byName);
+    if (!resolved) continue;
+    const ctx = resolved.context;
+    const { routed } = resolved;
+    const cmd = routed.kind === "command" ? routed.handler : undefined;
+    const qry = routed.kind === "query" ? routed.handler : undefined;
+    const h = routed.handler;
     // paged-run queryHandler: a GET whose criterion params ride the query string
     // alongside page/pageSize/sort/dir; dispatches the dedicated paged Query and
     // returns the `Paged<Agg>Response` envelope.

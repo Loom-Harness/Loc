@@ -35,7 +35,11 @@ import {
   opOperation,
   SCHEMA_NAMES,
 } from "../../../generator/_symbols/plan.js";
-import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
+import {
+  FILE_REF_ZOD,
+  tsInstantWire,
+  tsIntegerRange,
+} from "../../../generator/typescript/codec-spelling.js";
 import {
   historyMapperName,
   historyNeedsPrincipal,
@@ -52,7 +56,7 @@ import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/do
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
-import { T, TT } from "../../../generator/typescript/ts-symbols.js";
+import { refsTsSymbol, T, TT } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   tsErrorVariantExt,
@@ -1751,10 +1755,9 @@ export function buildRoutesFile(
   if (/\bversionETag\(/.test(assembledSoFar)) problemNamed.push("versionETag");
   if (/\bdomainFloorProblem\(/.test(assembledSoFar)) problemNamed.push("domainFloorProblem");
   // Patch the deferred `decimal.js` import.  Read off the assembled text with
-  // string literals blanked, so a message or an `.openapi("…")` label naming
-  // the word cannot mint a dead import; `new Decimal(` is the only way this
-  // file spells the class today, and the wider `Decimal` test covers a type
-  // annotation or a static call if a future render site adds one.
+  // string literals blanked, and keyed on the class's import symbol (any
+  // position) rather than the spelled word, so neither a message naming the
+  // word nor a model type `Decimal` mints the library import.
   const assembledScan = assembledSoFar
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
@@ -1762,7 +1765,7 @@ export function buildRoutesFile(
     .replace(DECIMAL_IMPORT_PLACEHOLDER, "");
   // Replaced WITH its trailing newline so the unused case removes the line
   // outright rather than leaving a blank one in the header.
-  const decimalImport = /(?<![.\w$])Decimal\b/.test(assembledScan)
+  const decimalImport = refsTsSymbol(assembledScan, "Decimal")
     ? `import Decimal from "decimal.js";\n`
     : "";
   const assembled = lines
@@ -2460,24 +2463,30 @@ function emitReturningOperationRoute(
   // A scalar money RETURN carries the FIXED money wire scale (RS-12), same as a
   // money field: decimal.js `.toJSON()` would normalize trailing zeros, so
   // format to 4 dp for parity with the java/.NET/python scalar-return path.
-  const scalarMoneyReturn =
-    !u &&
-    op.returnType?.kind === "primitive" &&
-    (op.returnType as { name?: string }).name === "money";
+  // A scalar datetime RETURN carries the canonical instant (RS-4/RS-38): a
+  // JS `Date` serializes through `toISOString()`, which pads a whole second
+  // to `.000`, the one spelling no other backend ships.
+  const scalarReturnName =
+    !u && op.returnType?.kind === "primitive" ? op.returnType.name : undefined;
+  const scalarMoneyReturn = scalarReturnName === "money";
+  const scalarInstantReturn = scalarReturnName === "datetime";
   if (!(audit || prov)) out.push(checkedSaveLine(operationVersionCheck(agg, op), "repo", "    "));
   // An operation answering its own aggregate (`return this`) answers the
   // aggregate's wire projection; the audited path projected it inside the
   // transaction already.
   const successResult = scalarMoneyReturn
     ? `result === null ? null : ${numericEncode(TS_NUMERIC, "money", "dto-map", "result")}`
-    : audit || prov
-      ? "result"
-      : hostReturnProjection(agg, op, "result", "repo", "aggregate");
+    : scalarInstantReturn
+      ? `result === null ? null : ${tsInstantWire("result")}`
+      : audit || prov
+        ? "result"
+        : hostReturnProjection(agg, op, "result", "repo", "aggregate");
   // A `money` field of a payload success variant rides as the fixed-scale
-  // string (RS-12) — the tagged dict holds the decimal.js value.
+  // string (RS-12) — the tagged dict holds the decimal.js value — and a
+  // `datetime` field as the canonical instant (RS-4/RS-38) — the dict holds a
+  // JS `Date`, whose `toJSON` pads a whole second to `.000`.
   for (const arm of u ? unionMoneyArms(u.variants, ctx) : []) {
-    // A JS `Date` already serializes to the wire instant; only money is re-encoded.
-    const keys = arm.keys.filter(tsHasMoney);
+    const keys = arm.keys.filter(tsNeedsEncode);
     if (keys.length === 0) continue;
     const enc = keys.map((k) => tsMoneyEntry(k, "result"));
     out.push(`    if (result.type === ${JSON.stringify(arm.tag)}) {`);
@@ -3202,7 +3211,13 @@ export function emitWireSchema(
   }
   const refines = remaining
     .map((inv) =>
-      refineClauseFor(inv, ctx, decimal, mergePatch ? ruleMembers(inv, available) : undefined),
+      refineClauseFor(
+        inv,
+        ctx,
+        decimal,
+        mergePatch ? ruleMembers(inv, available) : undefined,
+        T.Decimal,
+      ),
     )
     .filter((s): s is string => s !== null);
 
@@ -3332,21 +3347,24 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
   }
 }
 
-/** One `key: <encoded>` entry of a union variant's money re-encode: a money
- *  leaf through the money codec, a value object rebuilt as its own fields with
- *  its money positions encoded in turn. */
+/** One `key: <encoded>` entry of a union variant's wire re-encode: a money
+ *  leaf through the money codec, an instant leaf through the canonical instant
+ *  spelling, a value object rebuilt as its own fields with those positions
+ *  encoded in turn. */
 function tsMoneyEntry(k: UnionMoneyKey, recv: string): string {
   const access = `${recv}.${k.key}`;
   const wire =
     k.kind === "vo"
-      ? `{ ...${access}, ${k.fields.flatMap((f) => (f.money && tsHasMoney(f.money) ? [tsMoneyEntry(f.money, access)] : [])).join(", ")} }`
-      : numericEncode(TS_NUMERIC, "money", "dto-map", access);
+      ? `{ ...${access}, ${k.fields.flatMap((f) => (f.money && tsNeedsEncode(f.money) ? [tsMoneyEntry(f.money, access)] : [])).join(", ")} }`
+      : k.kind === "instant"
+        ? tsInstantWire(access)
+        : numericEncode(TS_NUMERIC, "money", "dto-map", access);
   return `${k.key}: ${k.optional ? `${access} == null ? null : ${wire}` : wire}`;
 }
 
-/** True when `k` is, or holds, a money position. */
-function tsHasMoney(k: UnionMoneyKey): boolean {
-  if (k.kind === "money") return true;
-  if (k.kind === "instant") return false;
-  return k.fields.some((f) => f.money !== undefined && tsHasMoney(f.money));
+/** True when `k` is, or holds, a money or instant position — a value whose
+ *  JS serialization is not its wire spelling. */
+function tsNeedsEncode(k: UnionMoneyKey): boolean {
+  if (k.kind === "money" || k.kind === "instant") return true;
+  return k.fields.some((f) => f.money !== undefined && tsNeedsEncode(f.money));
 }

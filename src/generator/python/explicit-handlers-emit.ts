@@ -41,12 +41,14 @@
 
 import { dispatchedRecord } from "../../ir/plan/command-bus.js";
 import {
+  bodyIsolation,
   handlerNeedsCurrentUser,
-  handlerRunsInTransaction,
+  handlerScope,
   liveLetNames,
   reposNeeded,
   serviceReadPorts,
 } from "../../ir/plan/index.js";
+import { resolveRoute } from "../../ir/plan/route-handler.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -169,13 +171,13 @@ function recordParamNames(h: Handler, ctx: EnrichedBoundedContextIR): Set<string
 }
 
 /** The request record a handler is dispatched through (`dispatchedRecord`,
- *  the bus entry it catches), on a handler with a body, a plain result (not
- *  `T or E`) and no `paged` carrier.  The handler module then
+ *  the bus entry it catches), on a handler with a body and no `paged` carrier.
+ *  A `T or E` handler's dispatch answers the same tagged result the handler does.  The handler module then
  *  also exports the record class and `dispatch_<record>(session, record,
  *  current_user=None)`, and the route calls that, the same entry node's
  *  `dispatch<Record>` is. */
 function dispatchRecord(h: Handler, ctx: EnrichedBoundedContextIR): PayloadIR | undefined {
-  if (h.extern || entryResult(h)) return undefined;
+  if (h.extern) return undefined;
   if (h.returnType && pagedReturn(h.returnType)) return undefined;
   const entry = dispatchedRecord(ctx, h.name);
   return entry ? ctx.payloads.find((p) => p.name === entry.record) : undefined;
@@ -537,13 +539,13 @@ function renderHandlerModule(
       usedLets.add(n.name);
     }
   });
-  // A command handler is one transaction (`handlerRunsInTransaction`): the
+  // A command handler is one transaction (`bodyIsolation`): the
   // request's session commits once the route answers below 400, so a save
   // commits with the rest and never on its own.  A query handler runs in none.
   const saveEach = pySaveRenderer(h.statements, ctx.aggregates);
-  const renderSave: PySaveLines = handlerRunsInTransaction(
-    (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR) ? "query" : "command",
-  )
+  const renderSave: PySaveLines = bodyIsolation(
+    handlerScope(h, (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR) ? "query" : "command"),
+  ).holdsTransaction
     ? saveEach
     : (save, indent) => [
         ...saveEach(save, indent),
@@ -628,7 +630,7 @@ function renderHandlerModule(
   ];
   const body = bodyLines.length > 0 ? bodyLines.join("\n") : "    pass";
 
-  const rec = er ? undefined : dispatchRecord(h, ctx);
+  const rec = dispatchRecord(h, ctx);
   if (rec) busSink?.push({ handler: h, record: rec.name, ret, usesUser });
   const def = `async def ${fnName}(${params}) -> ${ret}:\n${body}\n${
     rec ? `\n\n${renderPyDispatch(h, rec, ret, usesUser)}\n` : ""
@@ -859,12 +861,13 @@ export function emitPyExplicitRouteRouter(
   const routeBlocks: string[] = [];
 
   for (const r of routes) {
-    const ctx = byName.get(r.target.context);
-    if (!ctx) continue;
-    const cmd = (ctx.commandHandlers ?? []).find((h) => h.name === r.target.handler);
-    const qry = (ctx.queryHandlers ?? []).find((h) => h.name === r.target.handler);
-    const h: Handler | undefined = cmd ?? qry;
-    if (!h) continue;
+    const resolved = resolveRoute(r, byName);
+    if (!resolved) continue;
+    const ctx = resolved.context;
+    const { routed } = resolved;
+    const cmd = routed.kind === "command" ? routed.handler : undefined;
+    const qry = routed.kind === "query" ? routed.handler : undefined;
+    const h = routed.handler;
 
     // paged-run queryHandler: a GET whose criterion params ride the query
     // string alongside page/pageSize/sort/dir; it calls the paged handler
@@ -930,7 +933,7 @@ export function emitPyExplicitRouteRouter(
 
     // A record-dispatched handler is called through its `dispatch_<record>`,
     // the record built from the same bound fields.
-    const rec = er ? undefined : dispatchRecord(h, ctx);
+    const rec = dispatchRecord(h, ctx);
     const callee = rec ? dispatchFnRef(h, rec.name) : handlerFnRef(h.name);
     const calleeArgs = rec
       ? [
@@ -963,7 +966,7 @@ export function emitPyExplicitRouteRouter(
           `@router.${method}("${path}", operation_id="${opId}"${responses})`,
           `async def ${routeName}(${sig}) -> ${ANY}:`,
           usesUser ? PY_USER_BIND : null,
-          `    result = await ${handlerFnRef(h.name)}(${callArgs})`,
+          `    result = await ${callee}(${calleeArgs})`,
           ...entryErrorPyLines(er, ctx, "result", H.JSONResponse, "    "),
           `    return result`,
         ),

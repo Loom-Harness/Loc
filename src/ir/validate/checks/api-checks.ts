@@ -10,6 +10,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
 import { handlersOf } from "../../plan/command-bus.js";
+import { routeContext, routeHandler, routeHandlerName } from "../../plan/route-handler.js";
 import type {
   BoundedContextIR,
   CommandHandlerIR,
@@ -160,8 +161,8 @@ const READ_ROUTE_METHODS = new Set(["GET"]);
 
 /** Whole-model: every `route` target must resolve to a `commandHandler`
  *  or `queryHandler` member in the named context
- *  (`loom.route-handler-unresolved`).  The route's `target.context` is a real
- *  Langium cross-ref (already resolved), but the `handler` segment is a plain
+ *  (`loom.route-handler-unresolved`).  The route's context is a real Langium
+ *  cross-ref (already resolved), but a `->` route's handler segment is a plain
  *  name the linker doesn't chase, so it's checked here.
  *
  *  Also gates `loom.read-context-repo-write` (read-path-architecture.md): a
@@ -177,7 +178,8 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
     for (const api of sys.apis) {
       for (const route of api.routes ?? []) {
         const label = `${route.method} ${route.path}`;
-        const ctx = ctxByName.get(route.target.context);
+        const context = routeContext(route);
+        const ctx = ctxByName.get(context);
         if (!ctx) {
           diags.push({
             severity: "error",
@@ -185,29 +187,26 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
             message: diagMessage("loom.route-handler-unresolved#api-route-targets-context", {
               name: api.name,
               label,
-              context: route.target.context,
+              context,
             }),
             source: `${sys.name}/${api.name}`,
           });
           continue;
         }
-        if (route.sends) {
+        if (route.binding.kind === "send") {
           const ok = validateSendRoute(ctx, route, label, `${sys.name}/${api.name}`, diags);
           if (!ok) continue;
         }
-        const handlerNames = new Set<string>([
-          ...(ctx.commandHandlers ?? []).map((h) => h.name),
-          ...(ctx.queryHandlers ?? []).map((h) => h.name),
-        ]);
-        if (!handlerNames.has(route.target.handler)) {
+        const routed = routeHandler(route, ctx);
+        if (!routed) {
           diags.push({
             severity: "error",
             code: "loom.route-handler-unresolved",
             message: diagMessage("loom.route-handler-unresolved#api-route-targets-but-context", {
               name: api.name,
               label,
-              context: route.target.context,
-              handler: route.target.handler,
+              context,
+              handler: routeHandlerName(route, ctx) ?? "",
             }),
             source: `${sys.name}/${api.name}`,
           });
@@ -219,7 +218,7 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
         // read save — exactly what the `reading`-tier gate forbids in a service
         // body, generalised here to the transport edge.
         if (READ_ROUTE_METHODS.has((route.method ?? "").toUpperCase())) {
-          const cmd = (ctx.commandHandlers ?? []).find((h) => h.name === route.target.handler);
+          const cmd = routed.kind === "command" ? routed.handler : undefined;
           if (cmd && !cmd.extern && handlerWrites(ctx, cmd)) {
             diags.push({
               severity: "error",
@@ -228,8 +227,8 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
                 name: api.name,
                 label,
                 method: route.method,
-                context: route.target.context,
-                handler: route.target.handler,
+                context,
+                handler: cmd.name,
               }),
               source: `${sys.name}/${api.name}`,
             });
@@ -255,7 +254,9 @@ function validateSendRoute(
   source: string,
   diags: LoomDiagnostic[],
 ): boolean {
-  const record = route.sends!.record;
+  if (route.binding.kind !== "send") return true;
+  const send = route.binding;
+  const record = send.record;
   const decl = (ctx.payloads ?? []).find(
     (p) => p.name === record && (p.kind === "command" || p.kind === "query"),
   );
@@ -279,7 +280,7 @@ function validateSendRoute(
       });
   }
   let rawBodies = 0;
-  for (const b of route.sends!.binds) {
+  for (const b of send.binds) {
     if (!fields.has(b.field)) {
       diags.push({
         severity: "error",
@@ -301,7 +302,7 @@ function validateSendRoute(
       message: diagMessage("loom.route-send-binding#raw-body-twice", { label, record }),
       source,
     });
-  if (route.sends!.binds.length > 0) {
+  if (send.binds.length > 0) {
     diags.push({
       severity: "error",
       code: "loom.route-send-binding-unsupported",
@@ -416,7 +417,7 @@ export function validateServedApiContexts(sys: SystemIR, diags: LoomDiagnostic[]
         });
       }
       for (const route of api.routes) {
-        if (hosted.has(route.target.context)) continue;
+        if (hosted.has(routeContext(route))) continue;
         diags.push({
           severity: "error",
           code: "loom.serves-context-unhosted",
@@ -424,7 +425,7 @@ export function validateServedApiContexts(sys: SystemIR, diags: LoomDiagnostic[]
             name: d.name,
             apiName: api.name,
             label: `${route.method} ${route.path}`,
-            context: route.target.context,
+            context: routeContext(route),
           }),
           source: `${sys.name}/${d.name}`,
         });

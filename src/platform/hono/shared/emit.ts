@@ -4,13 +4,13 @@ import {
 } from "../../../generator/typescript/emit/by-id-cache.js";
 import { cachePlanFor } from "../../../ir/plan/cache.js";
 import {
+  bodyIsolation,
   channelPlan,
   deployableNeedsInbox,
   hasDurableEvents,
   polymorphicReadMasked,
   QUERY_PARAM_MISMATCH_MESSAGES,
   routedPolymorphicRead,
-  workflowIsolation,
 } from "../../../ir/plan/index.js";
 import { testPrincipalShape } from "../../../ir/plan/test-principal.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
@@ -1099,7 +1099,7 @@ export function generateTypeScriptForContexts(
   // OWNING context, whose state dataSource supplies the default level.
   const resolveWorkflowIsolationLevel = (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
     const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
-    return workflowIsolation(wf, owningCtx, system.sys);
+    return bodyIsolation({ kind: "workflow", wf }, owningCtx, system.sys).level;
   };
   // Per-projection read-model-table schema — same owning-context map-back.
   const resolveProjectionSchema = (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {

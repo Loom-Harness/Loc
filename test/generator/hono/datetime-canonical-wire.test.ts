@@ -251,3 +251,89 @@ system N {
     expect(proj).not.toContain("{ ...row,");
   });
 });
+
+// An OPERATION's return value: the route answers the domain value the method
+// returned, so a `datetime` in it is a JS `Date` until the route encodes it.
+// The behaviour is observable only on a whole second (`toJSON` pads it to
+// `.000`; every other instant already has three digits), which the corpus
+// `now()` hits about one run in a thousand — so this drives the emitted success
+// expression itself with a whole-second `Date` and reads what goes on the wire.
+const OP_SOURCE = `
+system O {
+  subdomain S {
+    context C {
+      error NotFound { resource: string }
+      valueobject Stamp { moment: datetime }
+      response Quote { at: datetime, s: Stamp, maybe: datetime? }
+      aggregate Order with crudish {
+        code: string
+        operation clock(): datetime { return now() }
+        operation quote(): Quote or NotFound {
+          return Quote { at: now(), s: Stamp { moment: now() } }
+        }
+      }
+      repository Orders for Order { }
+    }
+  }
+  api A from S
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d {
+    platform: node
+    contexts: [C]
+    dataSources: [st]
+    serves: A
+    port: 4000
+  }
+}`;
+
+/** The 200 body the emitted `opName` route answers for `result`: the success
+ *  `c.json(…, 200)` the handler reaches — the arm guarded on `result.type` when
+ *  one matches, else the fallthrough — evaluated, then serialised exactly as
+ *  Hono's `c.json` does. */
+function answerOf(routes: string, opName: string, result: unknown): unknown {
+  const start = routes.indexOf(`const result = aggregate.${opName}(`);
+  expect(start, opName).toBeGreaterThan(-1);
+  const handler = routes.slice(start, routes.indexOf("\n  );", start));
+  const bodies = [...handler.matchAll(/return c\.json\((.*), 200\);/g)].map((m) => m[1]!);
+  expect(bodies.length, opName).toBeGreaterThan(0);
+  const guarded = [
+    ...handler.matchAll(/if \(result\.type === (".*?")\) \{\n\s*return c\.json\((.*), 200\);/g),
+  ];
+  const tag = (result as { type?: string }).type;
+  const expr = guarded.find((g) => JSON.parse(g[1]!) === tag)?.[2] ?? bodies[bodies.length - 1]!;
+  return JSON.parse(JSON.stringify(new Function("result", `return (${expr});`)(result)));
+}
+
+describe("node datetime wire form — operation returns", () => {
+  const whole = "2026-11-23T00:53:39Z";
+  const at = () => new Date(whole);
+
+  it("answers a whole-second instant inside a union success variant without a fraction", async () => {
+    const routes = (await generateSystemFiles(OP_SOURCE)).get("d/http/order.routes.ts")!;
+    const body = answerOf(routes, "quote", {
+      type: "Quote",
+      at: at(),
+      s: { moment: at() },
+      maybe: at(),
+    }) as { at: string; s: { moment: string }; maybe: string };
+    expect(body.at).toBe(whole);
+    expect(body.s.moment).toBe(whole);
+    expect(body.maybe).toBe(whole);
+    // An absent optional instant stays absent-as-null, and a sub-second one
+    // keeps its three digits (RS-38).
+    const sub = answerOf(routes, "quote", {
+      type: "Quote",
+      at: new Date("2026-11-23T00:53:39.120Z"),
+      s: { moment: at() },
+      maybe: null,
+    }) as { at: string; maybe: unknown };
+    expect(sub.at).toBe("2026-11-23T00:53:39.120Z");
+    expect(sub.maybe).toBeNull();
+  });
+
+  it("answers a whole-second scalar datetime return without a fraction", async () => {
+    const routes = (await generateSystemFiles(OP_SOURCE)).get("d/http/order.routes.ts")!;
+    expect(answerOf(routes, "clock", at())).toBe(whole);
+  });
+});

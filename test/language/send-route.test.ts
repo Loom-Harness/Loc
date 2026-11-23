@@ -7,6 +7,7 @@ import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import { routeHandler } from "../../src/ir/plan/route-handler.js";
 import { isApi } from "../../src/language/generated/ast.js";
 import { printStructural } from "../../src/language/print/index.js";
 import { parseString } from "../_helpers/parse.js";
@@ -45,11 +46,14 @@ describe("route … send <Ctx>.<Record>", () => {
     const { model } = await parseString(SRC, { validate: false });
     const loom = enrichLoomModel(lowerModel(model));
     const routes = loom.systems[0]!.apis[0]!.routes;
-    expect(routes.map((r) => r.target)).toEqual([
-      { context: "Ordering", handler: "ShipOrderHandler" },
-      { context: "Ordering", handler: "ShipOrderHandler" },
+    const ctx = loom.systems[0]!.subdomains[0]!.contexts.find((c) => c.name === "Ordering")!;
+    expect(routes.map((r) => routeHandler(r, ctx)?.handler.name)).toEqual([
+      "ShipOrderHandler",
+      "ShipOrderHandler",
     ]);
-    expect(routes[1]!.sends).toEqual({
+    expect(routes[1]!.binding).toEqual({
+      kind: "send",
+      context: "Ordering",
       record: "ShipOrder",
       binds: [{ field: "carrier", source: "header", header: "X-Carrier" }],
     });

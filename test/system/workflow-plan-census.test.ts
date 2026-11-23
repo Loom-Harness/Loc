@@ -67,8 +67,10 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               context route events through the outbox" test.
 //               → use `hasDurableEvents`.
 //   isolation   a call to `resolveWorkflowIsolation` — the per-backend choice
-//               of when a dataSource's `isolationLevel:` applies.
-//               → use `workflowIsolation`.
+//               of when a dataSource's `isolationLevel:` applies — or a read
+//               of a body's `.isolation` in a generator or a platform
+//               package — a backend resolving a body's level itself.
+//               → use `bodyIsolation`.
 //   implicit-tx a `||` over `.transactional` and a `bodyWriteScopeGuards(…)`
 //               or `commandCreateEntryResult(…)` call — a body that runs in a
 //               transaction the source does not declare.  `transactional` is
@@ -80,7 +82,7 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               backend choosing its own transaction boundary.  A workflow
 //               runs in one transaction exactly when the plan says so; any
 //               other commits each save on its own.
-//               → use `workflowRunsInTransaction` / `workflowIsolation`.
+//               → use `workflowRunsInTransaction` / `bodyIsolation`.
 //   wire-status a `workflowCanAnswerNotFound(…)` call that is not an argument
 //               of `errorStatuses` (or a backend wrapper that forwards to it:
 //               `errorResponsesKwarg`, `errorResponses`) — a backend
@@ -185,8 +187,8 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               → use `handlerFor` / `handlersOf` / `busEntries`.
 //
 //   handler-tx  each backend's command-handler emitter (`HANDLER_READERS`)
-//               must read `handlerRunsInTransaction` with the handler's own
-//               kind: a command handler is one transaction on every backend,
+//               must read `bodyIsolation(handlerScope(h, <role>))` with the
+//               handler's own role: a command handler is one transaction on every backend,
 //               whatever its body holds.  A call with a literal argument
 //               answers a constant and does not count as reading it.
 //
@@ -334,7 +336,8 @@ interface Violation {
 }
 
 /** Each backend's command-handler emitter: it reads
- *  `handlerRunsInTransaction` with the handler's kind, not a literal. */
+ *  `bodyIsolation(handlerScope(h, <role>))` with the handler's role, not a
+ *  literal. */
 const HANDLER_READERS: readonly string[] = [
   "src/platform/hono/shared/explicit-handlers-builder.ts",
   "src/generator/dotnet/explicit-handlers-emit.ts",
@@ -408,7 +411,7 @@ const ROUTE_STATUS_READERS: Readonly<Record<string, string>> = {
 const MAX_DEFERRAL_DAYS = 180;
 
 /** The waiver count may only fall: a fix deletes its waiver and lowers this. */
-const WAIVER_CEILING = 12;
+const WAIVER_CEILING = 11;
 
 type Waiver = { standing: string } | { deferred: string; reviewUntil: string; blockedBy?: string };
 
@@ -422,29 +425,7 @@ const HANDLER_POST_BODY: Waiver = {
 /** `rule  file  first line of the site's text` → its waiver (a reader rule's
  *  key is `rule  file`).  Keyed by text, not line, so a site moving inside its
  *  file keeps its waiver and an edited site loses it. */
-const ROUTE_HANDLER_LOOKUP: Waiver = {
-  deferred:
-    "a route still names its handler and each backend finds it by name; the routes send a record, and the plan's handlerFor answers, once routes carry `send`",
-  reviewUntil: "2027-01-31",
-  blockedBy: "#6227",
-};
-
 const WAIVERS: Readonly<Record<string, Waiver>> = {
-  "command-bus  src/generator/dotnet/explicit-handlers-emit.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/generator/elixir/vanilla/explicit-handlers-emit.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/generator/elixir/vanilla/openapi-emit.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/generator/java/explicit-handlers-emit.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/generator/python/explicit-handlers-emit.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/generator/python/index.ts  handler found by predicate": ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/platform/hono/shared/explicit-handlers-builder.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/platform/mock/surface-routes.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
   "post-body  src/generator/dotnet/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
   "post-body  src/generator/java/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
   "post-body  src/generator/python/explicit-handlers-emit.ts  h.savesAtExit.flatMap":
@@ -857,6 +838,13 @@ function scan(file: string): Violation[] {
       out.push({ rule: "isolation", where: at(n), text: n.getText(sf) });
     }
     if (
+      ts.isPropertyAccessExpression(n) &&
+      n.name.text === "isolation" &&
+      (rel.startsWith("src/generator/") || rel.startsWith("src/platform/"))
+    ) {
+      out.push({ rule: "isolation", where: at(n), text: n.getText(sf) });
+    }
+    if (
       ts.isBinaryExpression(n) &&
       n.operatorToken.kind === ts.SyntaxKind.BarBarToken &&
       !(
@@ -1114,13 +1102,13 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     })),
     ...HANDLER_READERS.filter(
       (rel) =>
-        !/\bhandlerRunsInTransaction\(\s*(?!["'`])/.test(
+        !/\bbodyIsolation\(\s*handlerScope\(\s*\w+\s*,\s*(?![\s"'`])/.test(
           fs.readFileSync(path.join(repoRoot, rel), "utf8"),
         ),
     ).map((rel) => ({
       rule: "handler-tx" as const,
       where: rel,
-      text: "never calls handlerRunsInTransaction with the handler's kind",
+      text: "never calls bodyIsolation(handlerScope(…)) with the handler's role",
     })),
   ];
   const waived = (v: Violation): boolean => Object.hasOwn(WAIVERS, waiverKey(v));
@@ -1175,7 +1163,7 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
-  it("no backend decides on its own when a dataSource isolation level applies (use workflowIsolation)", () => {
+  it("no backend decides on its own when a dataSource isolation level applies (use bodyIsolation)", () => {
     const hits = violations.filter((v) => v.rule === "isolation");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
@@ -1185,7 +1173,7 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
-  it("no backend chooses its own workflow transaction boundary (use workflowRunsInTransaction / workflowIsolation)", () => {
+  it("no backend chooses its own workflow transaction boundary (use workflowRunsInTransaction / bodyIsolation)", () => {
     const hits = violations.filter((v) => v.rule === "tx-boundary");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
@@ -1302,7 +1290,7 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
-  it("every command handler runs in one transaction on every backend (use handlerRunsInTransaction)", () => {
+  it("every command handler runs in one transaction on every backend (use bodyIsolation)", () => {
     const hits = violations.filter((v) => v.rule === "handler-tx");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });

@@ -828,7 +828,7 @@ function tsTypeForReturn(t: TypeIR): string {
       case "decimal":
         return "number";
       case "money":
-        return "Decimal";
+        return TT.Decimal;
       case "string":
       case "guid":
       case "date":

@@ -9,10 +9,19 @@
 
 import { describe, expect, it } from "vitest";
 import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
-import { renderTsExpr, renderTsType } from "../../../src/generator/typescript/render-expr.js";
+import {
+  renderTsExpr as renderTsExprMarked,
+  renderTsType,
+  type TsRenderContext,
+} from "../../../src/generator/typescript/render-expr.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import type { ExprOf } from "../../_helpers/ir-builders.js";
 import { uncheckedInt } from "../../_helpers/unchecked-int.js";
+
+/** The rendered text with its import symbols spelled (decimal.js's `Decimal`
+ *  is one), as the module finalizer spells them. */
+const renderTsExpr = (e: ExprIR, ctx?: TsRenderContext): string =>
+  spellMarkers(renderTsExprMarked(e, ctx));
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 const INT: TypeIR = { kind: "primitive", name: "int" };

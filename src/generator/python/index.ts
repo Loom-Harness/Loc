@@ -9,6 +9,7 @@ import {
   type QueryParamMismatchKind,
   routedPolymorphicRead,
 } from "../../ir/plan/index.js";
+import { routeContext, routeHandler } from "../../ir/plan/route-handler.js";
 import { testPrincipalShape } from "../../ir/plan/test-principal.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
@@ -1959,10 +1960,8 @@ function collectOpUnions(
       if (r?.type.kind === "union" && commandCreateEntryResult(wf)) add(r.type.variants, ctx);
     }
     for (const r of entryRoutes) {
-      if (r.target.context !== ctx.name) continue;
-      const h =
-        (ctx.commandHandlers ?? []).find((x) => x.name === r.target.handler) ??
-        (ctx.queryHandlers ?? []).find((x) => x.name === r.target.handler);
+      if (routeContext(r) !== ctx.name) continue;
+      const h = routeHandler(r, ctx)?.handler;
       if (!h || h.extern || h.returnType?.kind !== "union" || !entryResult(h)) continue;
       add(h.returnType.variants, ctx);
     }

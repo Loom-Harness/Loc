@@ -26,6 +26,7 @@ import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import { routeContext, routeHandlerName } from "../../src/ir/plan/route-handler.js";
 import { deriveContextOperations } from "../../src/ir/util/api-surface.js";
 import { isPermissionQueryOp } from "../../src/ir/util/op-gates.js";
 import { isAggregate, isBoundedContext, isOperation } from "../../src/language/generated/ast.js";
@@ -131,17 +132,18 @@ describe("permission query census", () => {
       for (const sys of loom.systems) {
         const contexts = sys.subdomains.flatMap((sd) => sd.contexts);
         for (const route of sys.apis.flatMap((a) => a.routes ?? [])) {
-          const ctx = contexts.find((c) => c.name === route.target.context);
+          const ctx = contexts.find((c) => c.name === routeContext(route));
           if (!ctx) continue;
+          const handler = routeHandlerName(route, ctx);
           for (const agg of ctx.aggregates) {
             for (const op of agg.operations.filter(isPermissionQueryOp)) {
-              if (canHandlerName(op.name, agg.name) !== route.target.handler) continue;
+              if (canHandlerName(op.name, agg.name) !== handler) continue;
               routed++;
               const probe = deriveContextOperations(ctx).find(
                 (o) => o.kind === "gateProbe" && o.aggregate === agg.name && o.operation === op,
               );
               if (!probe?.claimedByExplicitRoute)
-                unclaimed.push(`${file}: ${route.method} ${route.path} -> ${route.target.handler}`);
+                unclaimed.push(`${file}: ${route.method} ${route.path} -> ${handler}`);
             }
           }
         }

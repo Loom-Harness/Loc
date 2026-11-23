@@ -10,6 +10,7 @@
 // all.  Both the frontend api-module emitters and the page-read validator read
 // this one derivation, so the hook and the gate cannot disagree.
 
+import { resolveRoute } from "../plan/route-handler.js";
 import { pagedReturn } from "../stdlib/generics.js";
 import type { DeployableIR, FindIR, RouteIR, SystemIR } from "../types/loom-ir.js";
 import { pagedRunFindName, pagedRunReadsList, pagedRunStmt } from "./paged-run.js";
@@ -33,9 +34,8 @@ export function pagedFindRoutes(
     const api = sys.apis.find((a) => a.name === apiName);
     for (const route of api?.routes ?? []) {
       if (route.method.toUpperCase() !== "GET" || route.path.includes("{")) continue;
-      const h = contexts
-        .get(route.target.context)
-        ?.queryHandlers?.find((q) => q.name === route.target.handler);
+      const routed = resolveRoute(route, contexts)?.routed;
+      const h = routed?.kind === "query" ? routed.handler : undefined;
       if (!h || h.extern || !pagedReturn(h.returnType)) continue;
       const run = pagedRunStmt(h);
       // A handler paging the whole collection reads the list the derived

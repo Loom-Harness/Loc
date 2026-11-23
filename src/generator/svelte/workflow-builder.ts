@@ -2,7 +2,11 @@ import type { ContractWorkflow } from "../../ir/contract/frontend-contract.js";
 import type { BoundedContextIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { withFormTextImports } from "../_frontend/form-text-runtime.js";
-import { collectSchemaDeps, type WorkflowsModuleScope } from "../_frontend/workflows-module.js";
+import {
+  collectSchemaDeps,
+  type WorkflowsModuleScope,
+  workflowFormStateAliases,
+} from "../_frontend/workflows-module.js";
 import { zodForRequest, zodForResponse } from "../_frontend/zod-schemas.js";
 import { SCHEMA_NAMES } from "../_symbols/plan.js";
 
@@ -78,6 +82,7 @@ export function buildWorkflowsApiModule(
     }
     lines.push(`});`);
     lines.push(`export type ${base}Request = z.infer<typeof ${base}Request>;`);
+    lines.push(...workflowFormStateAliases(wf, scope));
     lines.push("");
     lines.push(`export function use${base}Workflow() {`);
     lines.push(`  return createMutation(() => ({`);

@@ -178,12 +178,12 @@ describe("scaffoldHandlers + scaffoldApi — equivalence with explicit form", ()
       {
         method: "GET",
         path: "/orders/{id}",
-        target: { context: "Ordering", handler: "GetOrderById" },
+        binding: { kind: "handler", context: "Ordering", handler: "GetOrderById" },
       },
       {
         method: "POST",
         path: "/orders/{id}/cancel",
-        target: { context: "Ordering", handler: "CancelOrder" },
+        binding: { kind: "handler", context: "Ordering", handler: "CancelOrder" },
       },
     ]);
   });

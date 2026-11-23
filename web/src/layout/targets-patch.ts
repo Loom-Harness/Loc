@@ -444,5 +444,8 @@ export function designPackMenu(target: TargetDeployable): string[] {
  *  of that line, so offering the cross swap would hand the user a source the
  *  validator rejects for a reason the drawer caused. */
 export function platformMenu(target: TargetDeployable): string[] {
+  // A gateway is neither: it hosts nothing, and no other platform takes its
+  // `gathers:` clause, so it offers only itself.
+  if (factsFor(target.platform)?.gathersWebDeployables) return [target.platform];
   return (target.isFrontend ? frontendPlatformNames() : backendPlatformNames()).sort();
 }
