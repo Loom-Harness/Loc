@@ -39,6 +39,7 @@ import { javaRef } from "../../_imports/java.js";
 import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { jid } from "../java-ident.js";
+import { javaIdRef } from "../java-symbols.js";
 import { packagePath } from "../naming.js";
 import { type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
 import {
@@ -116,7 +117,7 @@ function _renderClaimValue(field: FieldIR | undefined, value: string | readonly 
     return `java.util.List.of(${value.map((v) => JSON.stringify(v)).join(", ")})`;
   }
   const uuid = `java.util.UUID.fromString(${JSON.stringify(value)})`;
-  if (t?.kind === "id") return `new ${t.targetName}Id(${uuid})`;
+  if (t?.kind === "id") return `new ${javaIdRef(t.targetName)}(${uuid})`;
   if (t?.kind === "primitive" && t.name === "guid") return uuid;
   return JSON.stringify(value);
 }

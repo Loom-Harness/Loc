@@ -194,7 +194,8 @@
       "unit": false,
       "ui": true,
       "textProbe": "form-spec",
-      "devStub": true
+      "devStub": true,
+      "themeFont": "Lato"
     },
     {
       "name": "form-spec-ui-vue",

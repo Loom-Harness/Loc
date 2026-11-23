@@ -2,6 +2,7 @@ import { eventLogTable, foldedEventNames, requiredStateFields } from "../../../i
 import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { javaEventRef, javaIdRef } from "../java-symbols.js";
 import { renderJavaType } from "../render-expr.js";
 import { renderJavaStatements } from "../render-stmt.js";
 import { javaStateDefault } from "./workflow-state.js";
@@ -54,7 +55,7 @@ export function esWorkflowCorrIdClass(wf: WorkflowIR): string {
   if (t?.kind !== "id") {
     throw new Error(`java es-workflow: correlation field of '${wf.name}' must be id-typed`);
   }
-  return `${t.targetName}Id`;
+  return javaIdRef(t.targetName);
 }
 
 /** The fold class `<Wf>State`: plain state fields + `_apply<Event>` appliers +
@@ -99,7 +100,9 @@ export function renderEsWorkflowFoldClass(
   // exactly like the aggregate's appliers.
   const applierMethods: string[] = [];
   for (const ap of wf.appliers ?? []) {
-    applierMethods.push(`    private void _apply${ap.event}(${ap.event} ${ap.param}) {`);
+    applierMethods.push(
+      `    private void _apply${ap.event}(${javaEventRef(ap.event)} ${ap.param}) {`,
+    );
     const body = renderJavaStatements(ap.statements, renderCtx, {
       emitTrace: false,
       aggregate: wf.name,
@@ -142,7 +145,9 @@ export function renderEsWorkflowFoldClass(
     ...applierMethods,
     `    void _apply(DomainEvent ev) {`,
     `        switch (ev) {`,
-    ...(wf.appliers ?? []).map((ap) => `            case ${ap.event} e -> _apply${ap.event}(e);`),
+    ...(wf.appliers ?? []).map(
+      (ap) => `            case ${javaEventRef(ap.event)} e -> _apply${ap.event}(e);`,
+    ),
     `            default -> { }`,
     `        }`,
     `    }`,
@@ -158,7 +163,9 @@ export function renderEsWorkflowFoldClass(
     `    public static DomainEvent _rowToEvent(String type, String data) {`,
     `        try {`,
     `            return switch (type) {`,
-    ...eventNames.map((e) => `                case "${e}" -> JSON.readValue(data, ${e}.class);`),
+    ...eventNames.map(
+      (e) => `                case "${e}" -> JSON.readValue(data, ${javaEventRef(e)}.class);`,
+    ),
     `                default -> throw new IllegalStateException("unknown event type: " + type);`,
     `            };`,
     `        } catch (tools.jackson.core.JacksonException e) {`,

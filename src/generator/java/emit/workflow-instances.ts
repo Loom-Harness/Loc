@@ -17,7 +17,7 @@ import {
   SCHEMA_NAMES,
 } from "../../_symbols/plan.js";
 import { jsonProp } from "../java-ident.js";
-import { J } from "../java-symbols.js";
+import { J, javaIdRef } from "../java-symbols.js";
 import { renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import {
@@ -228,7 +228,7 @@ function renderInstancesController(
       );
     } else {
       const repo = stateRepoField(wf);
-      const idClass = `${idTargetName(corr)}Id`;
+      const idClass = javaIdRef(idTargetName(corr));
       reads.push(
         `    public List<${T}> ${javaInstancesReadMethod(wf)}() {`,
         `        return ${repo}.findAll().stream()`,

@@ -490,7 +490,7 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `loom.route-send-workflow-unsupported`.  The `send` route's binding block
  *  parses and validates (ruling 352) but needs `bytes` to bind the raw body;
  *  a record caught by a workflow `create` needs each backend's dispatch to
- *  start the workflow.  Drain with #6346 and #6347.
+ *  start the workflow.  Drain with #6367 and #6347.
  *
  *  23 -> 24: `loom.paged-list-unsupported`.  A paged queryHandler pages every
  *  row with `Repo.all()` through the aggregate's list read; over a storage

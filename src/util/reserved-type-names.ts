@@ -120,6 +120,11 @@ const eventsRuntime = (
 
 export const RESERVED_TYPE_NAMES: readonly ReservedTypeName[] = [
   {
+    name: "Bus",
+    category: "generated",
+    bindings: [n("elixir", "the generated context bus module <App>.<Context>.Bus")],
+  },
+  {
     name: "Create",
     category: "generated",
     bindings: [

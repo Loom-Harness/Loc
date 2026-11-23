@@ -6,6 +6,7 @@ import type {
   AggregateMember,
   BinaryChain,
   BuilderCall,
+  CanExpr,
   Criterion,
   EntityPart,
   EntityPartMember,
@@ -14,6 +15,7 @@ import type {
   FunctionDecl,
   Lambda,
   MemberSuffix,
+  Operation,
   PolicyDecl,
   PostfixChain,
   PostfixSuffix,
@@ -27,6 +29,7 @@ import {
   isBoolLit,
   isBuilderCall,
   isCallSuffix,
+  isCanExpr,
   isContainment,
   isCriterion,
   isDecLit,
@@ -64,6 +67,7 @@ import {
 } from "../../language/generated/ast.js";
 import { type ModelTextIndex, resolveModelText } from "../../language/model-text.js";
 import { moneyLiteralText } from "../../language/money-literal.js";
+import { requiresGateExprs } from "../../language/op-gate-params.js";
 import { queryNamesOf } from "../../language/repo-query-arg.js";
 import { type Ty, type TypingSession, toTypeIR } from "../../language/typing/index.js";
 import { typingFor } from "../../language/typing/shared.js";
@@ -98,8 +102,10 @@ import type {
   TypeIR,
 } from "../types/loom-ir.js";
 import { lit, type UnresolvedTypeSite } from "../types/loom-ir.js";
+import { gateRungs, type RequiresStmtIR } from "../util/op-gates.js";
 import { snapshotIdFor } from "../util/prov-id.js";
 import { UNRESOLVED_LAMBDA_PARAM_SHAPE } from "../util/unresolved-lambda-param.js";
+import { mapExprChildren } from "../util/walk.js";
 import { lowerStatement } from "./lower-stmt.js";
 import {
   cstText,
@@ -1527,6 +1533,7 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
       env.rowElem ?? { kind: "entity", name: UNRESOLVED_LAMBDA_PARAM_SHAPE, declKind: "synthetic" },
     );
   }
+  if (isCanExpr(expr)) return lowerCanExpr(expr, env);
   if (isExistsExpr(expr)) {
     // `exists <Agg> as s where p` — `s` binds one row of `<Agg>` (a `row`
     // local, so `s.field` lowers to an ordinary typed `member`); the enclosing
@@ -2030,6 +2037,107 @@ function inlineCriterion(c: Criterion, args: ExprIR[], env: Env): ExprIR {
     ...(c.alias ? { candidateAlias: c.alias } : {}),
   };
   return lowerExpr(c.body, bodyEnv);
+}
+
+/** Lower a permission query `can o.op(args)` to the boolean its operation's
+ *  gates answer on `o`: the signature `requires`, each leading body
+ *  `requires`, then the `when`, joined by `&&` (an ungated operation answers
+ *  `true`).  Each gate is re-lowered in the aggregate's scope with the
+ *  operation's parameters bound to the call's arguments, ordered by
+ *  `gateRungs` exactly as the operation's own route runs them, then rebound
+ *  from `this` to the receiver, so every target renders an expression it
+ *  already renders. */
+function lowerCanExpr(expr: CanExpr, env: Env): ExprIR {
+  const unresolved: ExprIR = { kind: "ref", name: `can ${expr.op}`, refKind: "unknown" };
+  const receiver = lowerExpr(expr.receiver, env);
+  const receiverType = receiver.kind === "ref" ? receiver.type : undefined;
+  if (receiverType?.kind !== "entity") return unresolved;
+  const agg = findEntityByName(env, receiverType.name);
+  if (!agg || !isAggregate(agg)) return unresolved;
+  const op = agg.members.find((m): m is Operation => isOperation(m) && m.name === expr.op);
+  if (!op) return unresolved;
+  const args = expr.args.map((a) => lowerExpr(a, env));
+  const argMap = new Map<string, ExprIR>();
+  op.params.forEach((p, i) => {
+    const a = args[i];
+    if (a) argMap.set(p.name, a);
+  });
+  const opEnv: Env = {
+    ...inAggregate(
+      { ...env, locals: new Map(), refAliases: undefined, candidateAlias: undefined },
+      agg,
+    ),
+    criterionArgs: argMap,
+  };
+  // The gates in the order the operation's own route runs them (`gateRungs`):
+  // the ones that read no row, then the ones that read it, then `when`.
+  const gates: RequiresStmtIR[] = requiresGateExprs(op).map((g) => ({
+    kind: "requires",
+    expr: lowerExpr(g, opEnv),
+    source: g.$cstNode?.text ?? "",
+  }));
+  const { preLoad, postLoad } = gateRungs(gates);
+  const ordered = [
+    ...[...preLoad, ...postLoad].map((g) => g.expr),
+    ...(op.when ? [lowerExpr(op.when, opEnv)] : []),
+  ];
+  const bool: TypeIR = { kind: "primitive", name: "bool" };
+  const parts = ordered.map((p) => rebindThis(p, receiver, receiverType));
+  if (parts.length === 0) return lit("bool", "true");
+  const joined = parts
+    .map((p): ExprIR => ({ kind: "paren", inner: p }))
+    .reduce(
+      (l, r): ExprIR => ({
+        kind: "binary",
+        op: "&&",
+        left: l,
+        right: r,
+        leftType: bool,
+        rightType: bool,
+        resultType: bool,
+      }),
+    );
+  return { kind: "paren", inner: joined };
+}
+
+/** `e` with its `this` rebound to `receiver`: `this` → the receiver, a bare
+ *  field → `receiver.field`, the bare `id` → `receiver.id`, and a bare call
+ *  of the aggregate's own function → that function called on the receiver. */
+function rebindThis(e: ExprIR, receiver: ExprIR, receiverType: TypeIR): ExprIR {
+  if (e.kind === "this") return receiver;
+  if (e.kind === "id") {
+    return {
+      kind: "member",
+      receiver,
+      member: "id",
+      receiverType,
+      memberType: {
+        kind: "id",
+        targetName: receiverType.kind === "entity" ? receiverType.name : "",
+      },
+    };
+  }
+  if (e.kind === "ref" && e.refKind === "this-prop") {
+    return {
+      kind: "member",
+      receiver,
+      member: e.name,
+      receiverType,
+      memberType: e.type ?? UNRESOLVED_PLACEHOLDER,
+    };
+  }
+  if (e.kind === "call" && e.callKind === "function") {
+    return {
+      kind: "method-call",
+      receiver,
+      member: e.name,
+      args: e.args.map((a) => rebindThis(a, receiver, receiverType)),
+      receiverType,
+      isCollectionOp: false,
+      ...(e.resultType ? { resultType: e.resultType } : {}),
+    };
+  }
+  return mapExprChildren(e, (c) => rebindThis(c, receiver, receiverType));
 }
 
 /** The top-level (ambient) helper `function` named `name`, or undefined. */

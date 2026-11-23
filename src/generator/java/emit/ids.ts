@@ -7,7 +7,7 @@
 
 import { lines } from "../../../util/code-builder.js";
 import { javaRef } from "../../_imports/java.js";
-import { J } from "../java-symbols.js";
+import { J, javaIdRef } from "../java-symbols.js";
 import { javaNewIdValue } from "../render-expr.js";
 
 const GENERATORS = javaRef("com.fasterxml.uuid", "Generators");
@@ -23,8 +23,8 @@ export function renderJavaId(name: string, basePkg: string): string {
     ``,
     `@Embeddable`,
     `public record ${name}Id(${valueType} value) implements Serializable {`,
-    `    public static ${name}Id newId() {`,
-    `        return new ${name}Id(${newExpr});`,
+    `    public static ${javaIdRef(name)} newId() {`,
+    `        return new ${javaIdRef(name)}(${newExpr});`,
     `    }`,
     ``,
     `    @Override`,
@@ -60,7 +60,7 @@ function parseIdValueExpr(varName: string): string {
  *  `@JdbcTypeCode(JSON)` compose: the converter defines domain↔relational
  *  (`List<String>`), the jdbc-type-code binds it through jsonb. */
 export function renderJavaIdListConverter(targetAgg: string, basePkg: string): string {
-  const idClass = `${targetAgg}Id`;
+  const idClass = javaIdRef(targetAgg);
   return lines(
     `package ${basePkg}.domain.ids;`,
     ``,
@@ -71,7 +71,7 @@ export function renderJavaIdListConverter(targetAgg: string, basePkg: string): s
     `import jakarta.persistence.Converter;`,
     ``,
     `@Converter`,
-    `public class ${idClass}JsonListConverter implements AttributeConverter<List<${idClass}>, List<String>> {`,
+    `public class ${targetAgg}IdJsonListConverter implements AttributeConverter<List<${idClass}>, List<String>> {`,
     `    @Override`,
     `    public List<String> convertToDatabaseColumn(List<${idClass}> attribute) {`,
     `        List<String> out = new ArrayList<>();`,
