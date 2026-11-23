@@ -1,0 +1,100 @@
+// shape: `==` / `!=` between two lists (ruling 456).
+//
+// Two lists are equal when they have the same length and equal elements in the
+// same order — on every backend.  The elements compare by their own value
+// equality: a money by value whatever its scale, a value object field by
+// field (here a value object list, which node and .NET compared by reference).  Before the ruling node and .NET compared the lists' REFERENCES (so
+// any two lists were unequal), Java compared `BigDecimal` elements with the
+// scale-sensitive `equals`, and Elixir compared `%Decimal{}` structs by scale.
+//
+// Each request below sends a list whose money values are spelled at a
+// different scale from the stored ones (`"10"` against a stored `10.0000`), so
+// a scale-sensitive comparison answers false where the language answers true.
+// A reordered and a shorter list answer false on every backend.
+system ListEquality {
+  subdomain Bags {
+    context Bags {
+      valueobject Amount {
+        label: string
+        count: int
+      }
+
+      aggregate Bag with crudish {
+        tags: string[]
+        prices: money[]
+        amounts: Amount[]
+        tagsMatch: bool
+        pricesMatch: bool
+        amountsMatch: bool
+        tagsDiffer: bool
+
+        operation compare(t: string[], p: money[], a: Amount[]) {
+          tagsMatch := tags == t
+          pricesMatch := prices == p
+          amountsMatch := amounts == a
+          tagsDiffer := tags != t
+        }
+      }
+      repository Bags for Bag { }
+    }
+  }
+
+  api BagsApi from Bags
+  storage primary { type: postgres }
+  resource bagsState { for: Bags, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Bags]
+    dataSources: [bagsState]
+    serves: BagsApi
+    port: 4000
+  }
+
+  test e2e "two lists are equal element by element, in order" against d {
+    let b = api.bags.create({
+      tags: ["a", "b"],
+      prices: ["10.00", "2.50"],
+      amounts: [{ label: "x", count: 1 }],
+      tagsMatch: false,
+      pricesMatch: false,
+      amountsMatch: false,
+      tagsDiffer: false
+    })
+
+    api.bags.compare(b, { t: ["a", "b"], p: ["10", "2.5"], a: [{ label: "x", count: 1 }] })
+    let same = api.bags.getById(b)
+    expect(same.tagsMatch).toBe(true)
+    expect(same.pricesMatch).toBe(true)
+    expect(same.amountsMatch).toBe(true)
+    expect(same.tagsDiffer).toBe(false)
+
+    api.bags.compare(b, { t: ["b", "a"], p: ["10"], a: [{ label: "x", count: 9 }] })
+    let differ = api.bags.getById(b)
+    expect(differ.tagsMatch).toBe(false)
+    expect(differ.pricesMatch).toBe(false)
+    expect(differ.amountsMatch).toBe(false)
+    expect(differ.tagsDiffer).toBe(true)
+
+    let all = api.bags.all()
+    expect(all.items.length).toBe(1)
+    api.bags.update(b, {
+      tags: [],
+      prices: [],
+      amounts: [],
+      tagsMatch: false,
+      pricesMatch: false,
+      amountsMatch: false,
+      tagsDiffer: false
+    })
+    let spare = api.bags.create({
+      tags: [],
+      prices: [],
+      amounts: [],
+      tagsMatch: false,
+      pricesMatch: false,
+      amountsMatch: false,
+      tagsDiffer: false
+    })
+    api.bags.destroy(spare)
+  }
+}

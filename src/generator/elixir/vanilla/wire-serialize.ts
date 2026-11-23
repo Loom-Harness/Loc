@@ -528,6 +528,21 @@ function renderShapeSerialize(
         // RS-24 — a plain `decimal` is a JSON NUMBER on every other backend.
         usedDecimal = true;
         ve = `__decimal_num(${ve})`;
+      } else if (
+        innerMoney.kind === "array" &&
+        innerMoney.element.kind === "primitive" &&
+        (innerMoney.element.name === "money" || innerMoney.element.name === "decimal")
+      ) {
+        // A `money[]` / `decimal[]` field: each element takes the same wire
+        // coercion as a scalar of its type (RS-12 / RS-24).
+        const money = innerMoney.element.name === "money";
+        if (money) usedMoney = true;
+        else usedDecimal = true;
+        const each = `&${money ? "__money_round" : "__decimal_num"}/1`;
+        const optional = (provenancedCarrier(wf.type) ?? wf.type).kind === "optional";
+        ve = optional
+          ? `(case ${ve} do nil -> nil; loom_list -> Enum.map(loom_list, ${each}) end)`
+          : `Enum.map(${ve}, ${each})`;
       }
       // RS-18 / M-T6.12 — a provenanced field ships its value and the lineage
       // of the write that produced it as ONE carrier object, so the lineage no

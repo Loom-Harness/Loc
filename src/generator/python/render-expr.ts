@@ -1,3 +1,4 @@
+import { listEqualityPlan } from "../../ir/plan/list-equality.js";
 import { numericOpPlan } from "../../ir/plan/numeric-op.js";
 import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -787,6 +788,10 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // Which numeric operation this is was decided once (`numericOpPlan`); this
   // backend only spells it.  `money` is a `decimal.Decimal` here and `decimal`
   // a `float` (the representation rule on `PY_TYPE_TARGET`).
+  // `==` / `!=` between two lists (ruling 456): Python's list `==` already
+  // compares element by element, each element by its own `__eq__` — a
+  // `Decimal` by value, a dataclass value object field by field.
+  if (listEqualityPlan(e) !== undefined) return `${left} ${pyBinOp(e.op)} ${right}`;
   const plan = numericOpPlan(e);
   switch (plan.kind) {
     // `x == null` / `x != null` → Python identity `x is None` / `x is not

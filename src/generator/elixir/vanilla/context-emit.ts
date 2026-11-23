@@ -373,6 +373,15 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
   if (t?.kind === "array" && t.element.kind === "enum") {
     return `(if is_list(${varName}), do: Enum.map(${varName}, fn ${RT.enumElem} -> ${enumParamAtom(RT.enumElem)} end), else: ${varName})`;
   }
+  // A `money[]` / `decimal[]` param arrives as a JSON list of strings or
+  // numbers; each element takes the scalar coercion below.
+  if (
+    t?.kind === "array" &&
+    t.element.kind === "primitive" &&
+    (t.element.name === "money" || t.element.name === "decimal")
+  ) {
+    return `(if is_list(${varName}), do: Enum.map(${varName}, fn loom_m -> ${coerceOpParam("loom_m", t.element)} end), else: ${varName})`;
+  }
   if (t?.kind !== "primitive") return varName;
   switch (t.name) {
     case "money":

@@ -51,6 +51,7 @@
 //   - `isWalkableLayoutBody(body)` — predicate the page emitter
 //     uses to decide whether to dispatch to the walker.
 
+import { listEqualityPlan } from "../../ir/plan/list-equality.js";
 import { PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
@@ -1817,7 +1818,9 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // and the host operator on the page-side representation compares
       // references on most targets.  Only VO-typed comparisons reach the seam;
       // a target that omits it, and every scalar `==`, render as before.
-      if (isValueObjectEquality(expr)) {
+      // A list `==` (ruling 456) is the same structural question: element by
+      // element, each element by its own value.
+      if (isValueObjectEquality(expr) || listEqualityPlan(expr) !== undefined) {
         const valueEq = ctx.target.exprValueEquality?.(left, right, expr);
         if (valueEq !== undefined && valueEq !== null) return valueEq;
       }
