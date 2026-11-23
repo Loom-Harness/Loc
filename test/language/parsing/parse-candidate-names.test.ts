@@ -38,8 +38,11 @@ describe("parse-error candidates omit name-only keywords", () => {
     // toward the hidden tail.  `id` still does — `IdRef` makes it an expression
     // atom of its own — and so do `create`/`ignoring`, which a rule calling
     // Expression uses as syntax right after one.
+    // The hidden tail counts the LET's right-hand side alternatives — a
+    // `send` or an expression (grammar `LetStmt`) — so it is that alternation's
+    // first tokens, not the `Expression` rule's own.
     expect(firstError(handler("let x = ?"))).toBe(
-      "Unexpected '?'. Expected one of: 'match', '!', '-', '{', '(' (+19 more).",
+      "Unexpected '?'. Expected one of: 'match', '!', '-', '{', '(' (+17 more).",
     );
   });
 

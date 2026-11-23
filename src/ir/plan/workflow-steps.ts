@@ -41,6 +41,7 @@ import type {
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../util/walk.js";
+import { nestedSaveScopes } from "./workflow-saves.js";
 
 export type SendIR = Extract<WorkflowStmtIR, { kind: "send" }>;
 export type StepBlockIR = Extract<WorkflowStmtIR, { kind: "step" }>;
@@ -59,6 +60,9 @@ export interface WorkflowStep {
   readonly mode: StepMode;
   /** The block's compensation; a lone send has none. */
   readonly compensation: StepCompensationIR["kind"];
+  /** True for a block that commits on its own, carries neither `undo` nor
+   *  `final`, and is followed by something able to fail. */
+  readonly owesCompensation: boolean;
   /** The source statement. */
   readonly stmt: SendIR | StepBlockIR;
 }
@@ -73,65 +77,70 @@ export function sendsIn(stmts: readonly WorkflowStmtIR[]): SendIR[] {
   return out;
 }
 
-/** The steps of one body, in source order.  `holdsTransaction` is the body's
- *  own transaction (`bodyIsolation(…).holdsTransaction` for a workflow's
- *  command `create`): when it holds one, every step joins it. */
+/** The steps of one body, in source order, at any depth: a step inside an
+ *  `if`, a loop or a match arm is a step of the body too.  `holdsTransaction`
+ *  is the body's own transaction (`bodyIsolation(…).holdsTransaction` for a
+ *  workflow's command `create`): when it holds one, every step joins it.  A
+ *  step inside another step joins that step's transaction, and a send inside a
+ *  step is part of it, not a step of its own.  Sends in an `undo` body are the
+ *  step's compensation, not steps. */
 export function workflowSteps(
   statements: readonly WorkflowStmtIR[],
   holdsTransaction: boolean,
+  stateful = false,
 ): WorkflowStep[] {
-  const mode: StepMode = holdsTransaction ? "joins" : "own-commit";
   const out: WorkflowStep[] = [];
-  for (const st of statements) {
-    if (st.kind === "step") {
-      out.push({
-        name: st.name,
-        kind: "block",
-        sends: sendsIn(st.body),
-        mode,
-        compensation: st.compensation.kind,
-        stmt: st,
-      });
-    } else if (st.kind === "send") {
-      out.push({
-        name: st.record,
-        kind: "send",
-        sends: [st],
-        mode,
-        compensation: "none",
-        stmt: st,
-      });
-    }
-  }
+  const visit = (stmts: readonly WorkflowStmtIR[], inStep: boolean, followed: boolean): void => {
+    stmts.forEach((st, i) => {
+      // Anything after this statement in its block, in an enclosing block, or
+      // a later loop iteration can still fail once it has committed.
+      const followedHere = followed || i < stmts.length - 1;
+      const mode: StepMode = holdsTransaction || inStep ? "joins" : "own-commit";
+      if (st.kind === "step") {
+        out.push({
+          name: st.name,
+          kind: "block",
+          sends: sendsIn(st.body),
+          mode,
+          compensation: st.compensation.kind,
+          owesCompensation:
+            mode === "own-commit" && st.compensation.kind === "none" && (followedHere || stateful),
+          stmt: st,
+        });
+        visit(st.body, true, followedHere);
+      } else if (st.kind === "send") {
+        if (!inStep)
+          out.push({
+            name: st.record,
+            kind: "send",
+            sends: [st],
+            mode,
+            compensation: "none",
+            owesCompensation: false,
+            stmt: st,
+          });
+      } else {
+        for (const scope of nestedSaveScopes(st))
+          visit(scope.body, inStep, followedHere || scope.kind === "iteration");
+      }
+    });
+  };
+  visit(statements, false, false);
   return out;
 }
 
-/** True when `st` is a statement that can fail after a step has committed:
- *  anything but a `match` over a result the body already holds that runs
- *  only statements which cannot fail either. */
-function canFail(st: WorkflowStmtIR): boolean {
-  if (st.kind === "variant-match")
-    return [...st.arms.flatMap((a) => a.body), ...(st.elseBody ?? [])].some(canFail);
-  return true;
-}
-
-/** The committed steps that must carry `undo { … }` or `final`: a block that
- *  commits on its own (the body holds no transaction) followed by a
- *  statement that can fail, or by the end write of a workflow that keeps
- *  state (`stateful`). */
+/** The step blocks that must carry `undo { … }` or `final` (ruling 124): a
+ *  block that commits on its own and that something able to fail follows — a
+ *  later statement at any level, a later loop iteration, or the end write of
+ *  a workflow that keeps state (`stateful`). */
 export function stepsNeedingCompensation(
   statements: readonly WorkflowStmtIR[],
   holdsTransaction: boolean,
   stateful: boolean,
 ): StepBlockIR[] {
-  if (holdsTransaction) return [];
-  const out: StepBlockIR[] = [];
-  statements.forEach((st, i) => {
-    if (st.kind !== "step" || st.compensation.kind !== "none") return;
-    const after = statements.slice(i + 1);
-    if (stateful || after.some(canFail)) out.push(st);
-  });
-  return out;
+  return workflowSteps(statements, holdsTransaction, stateful)
+    .filter((s) => s.owesCompensation)
+    .map((s) => s.stmt as StepBlockIR);
 }
 
 /** Why a step or a body reaches a storage. */

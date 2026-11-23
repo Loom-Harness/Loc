@@ -93,7 +93,9 @@ export function checkUnhandledResults(model: Model, accept: ValidationAcceptor):
         { node, property: "target", code: "loom.unhandled-result" },
       );
     } else if (isLetStmt(node)) {
-      if (exempt(node)) continue;
+      // A `let` bound to a `send` has no expression; its result is checked
+      // against the handler's (`loom.workflow-send-result-unmatched`).
+      if (!node.expr || exempt(node)) continue;
       const result = typingFor(node).synthAt(node.expr);
       const errors = errorVariants(result);
       if (errors.length === 0 || isRead(node)) continue;

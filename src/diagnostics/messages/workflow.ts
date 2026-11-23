@@ -474,12 +474,6 @@ export const messages = {
     `handler '${p.handler}': \`${p.what}\` — only a workflow sends a command or groups sends in a step.  A handler changes its aggregates itself; to run another handler's work, start a workflow (emit an event, or route a command to a workflow \`create\`).`,
   "loom.workflow-send-placement#outside": (p: { owner: unknown }) =>
     `a \`send\` or \`step\` sits in ${p.owner}, but only a workflow body sends commands.  Move it into a workflow's \`create\` or \`on\` body.`,
-  "loom.workflow-send-placement#nested": (p: { owner: unknown; what: unknown }) =>
-    `${p.owner}: \`${p.what}\` sits inside a loop, a branch or a match arm.  A send and a step are steps of the body, committed in order: put a send at the top level of the body or directly inside a \`step\`, and a \`step\` at the top level.`,
-  "loom.workflow-send-placement#duplicate": (p: { owner: unknown; step: unknown }) =>
-    `${p.owner}: two steps are named '${p.step}'.  A step's name is what the logs and a failure answer show, so each step of a body needs its own.`,
-  "loom.workflow-send-placement#step-body": (p: { owner: unknown; step: unknown }) =>
-    `${p.owner}: step '${p.step}' holds a statement that is not a \`send\`.  A step groups sends (its \`undo { … }\` too); compute values before the step, and change aggregates through the commands it sends.`,
   "loom.workflow-send-record#unknown": (p: { owner: unknown; record: unknown; context: unknown }) =>
     `${p.owner}: \`send ${p.record}\` — context '${p.context}' declares no \`command\` or \`query\` record '${p.record}'.  Declare it (\`command ${p.record} { … }\`), or qualify the name with the context that declares it (\`send Billing.${p.record} { … }\`).`,
   "loom.workflow-send-record#unknown-field": (p: {

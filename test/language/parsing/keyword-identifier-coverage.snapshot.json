@@ -804,6 +804,16 @@
     "paramName",
     "stateField"
   ],
+  "final": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "find": [
     "memberAccess"
   ],
@@ -1989,6 +1999,16 @@
     "paramName",
     "stateField"
   ],
+  "step": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "storage": [
     "fieldName",
     "fieldNameAfterField",
@@ -2159,6 +2179,16 @@
     "stateField"
   ],
   "ui": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "undo": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",

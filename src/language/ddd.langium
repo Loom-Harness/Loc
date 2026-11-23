@@ -1070,8 +1070,11 @@ EnumDecl:
         values+=EnumValue (','? values+=EnumValue)* ','?
     '}';
 
+// `step` / `undo` / `final` are soft keywords (the workflow step syntax), and
+// a target's reserved words are legal enum values here (`final` is one on Java
+// and Dart), so they stay admissible as value names.
 EnumValue:
-    name=ID;
+    name=(ID | 'step' | 'undo' | 'final');
 
 ValueObject:
     'valueobject' name=ID '{'
@@ -2490,8 +2493,14 @@ RequiresStmt:
 // `event.amount`.
 // `let x = e` takes the expression's type; `let x: T = e` declares it, and the
 // value is checked against (and a bare literal promoted to) `T`.
+// `let x = <expr>` and `let r = send <Record> { … }` are ONE rule: both start
+// with `let`, and two alternatives that do cannot be told apart by lookahead —
+// the parser then reports every failed `let` right-hand side at the `let`
+// itself instead of naming what an expression may start with.  `send` carries
+// the bound-send right-hand side (see `SendStmt`); exactly one of `expr` /
+// `send` is present.
 LetStmt:
-    'let' name=(ID | CommonSoftKeywords) (':' type=TypeRef)? '=' expr=Expression;
+    'let' name=(ID | CommonSoftKeywords) (':' type=TypeRef)? '=' (send=SendRhs | expr=Expression);
 
 // `send <Record> { field: value, … }` — a workflow sends a command or a query
 // to the record's one handler.  `let r = send …` binds the handler's declared
@@ -2500,7 +2509,11 @@ LetStmt:
 // statement, not an expression: a send is a step of the workflow, never a
 // value inside a larger expression.
 SendStmt:
-    ('let' name=(ID | CommonSoftKeywords) (':' type=TypeRef)? '=')?
+    rhs=SendRhs;
+
+// The right-hand side of a send: `send <Record> { … }`.  Shared by the bare
+// statement form and the `let`-bound form, so both carry the same node.
+SendRhs:
     'send' target=SendTarget '{'
         (fields+=EmitField (',' fields+=EmitField)* ','?)?
     '}';
@@ -2881,7 +2894,9 @@ MemberName returns string:
 // block reuses the existing `Statement` rule so all of `let`, `:=`, `+=`,
 // `-=`, calls, and `emit` are admissible inside.
 Lambda:
-    param=ID '=>' (
+    // `step` / `undo` / `final` are soft keywords: a parameter may still be
+    // named one (`final => final > 0`).
+    param=(ID | 'step' | 'undo' | 'final') '=>' (
         body=Expression
       | '{' stmts+=Statement* '}'
     );

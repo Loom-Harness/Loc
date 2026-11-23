@@ -257,6 +257,9 @@ export const SITES = {
     "SeedIR.rows",
     "SeedRowIR.fields",
     "StateFieldIR.init",
+    // A `step`'s `undo { … }` body: walked with the step's own body by
+    // `walkWorkflowStmtChildren`, so its expressions are visited.
+    "StepCompensationIR.body",
     "StoreIR.actions",
     "StoreIR.state",
     "SubdomainIR.contexts",

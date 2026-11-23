@@ -475,9 +475,13 @@ export class Elaborator {
       if (isLetStmt(n)) {
         // A declared type is the binding's type; the value is checked against
         // it by the validator (`loom.let-type-mismatch`).
+        // A `let` bound to a `send` has no expression here: its type is the
+        // sent record's handler result, resolved in lowering.
         const t = n.type
           ? this.resolveType(n.type, block)
-          : (this.types.get(n.expr) ?? Ty.unknown("no-rule"));
+          : n.expr
+            ? (this.types.get(n.expr) ?? Ty.unknown("no-rule"))
+            : Ty.unknown("no-rule");
         block.bind(n.name, t, n, "let");
       }
     }

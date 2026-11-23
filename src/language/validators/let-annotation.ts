@@ -11,7 +11,9 @@ import { modelContents } from "./model-contents.js";
 
 export function checkLetAnnotations(model: Model, accept: ValidationAcceptor): void {
   for (const node of modelContents(model)) {
-    if (!isLetStmt(node) || !node.type) continue;
+    // A `let` bound to a `send` carries no expression to compare with its
+    // declared type; the IR checks it against the handler's result.
+    if (!isLetStmt(node) || !node.type || !node.expr) continue;
     const declared = resolveTypeRef(node.type);
     // An unresolved declared type is reported where it is written.
     if (declared.kind === "unknown") continue;

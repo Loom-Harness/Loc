@@ -11,7 +11,9 @@ import type {
   OnDecl,
   QueryHandler,
   Repository,
+  SendRhs,
   Statement,
+  TypeRef,
   Workflow,
   WorkflowCreateDecl,
 } from "../../language/generated/ast.js";
@@ -833,6 +835,25 @@ function withBodyNames(env: Env, body: readonly Statement[]): Env {
   return { ...env, bodyNames: names };
 }
 
+/** `send <Record> { … }`, bare or bound by a `let` (`binder`). */
+function loweredSend(
+  rhs: SendRhs,
+  binder: { name: string; type?: TypeRef } | undefined,
+  env: Env,
+): LoweredWorkflowStmt {
+  const result = lowerSendResult(rhs, binder, env);
+  return {
+    stmt: {
+      kind: "send",
+      context: sendContext(rhs, env)?.name ?? "",
+      record: rhs.target.record,
+      fields: lowerSendFields(rhs, env),
+      ...(result ? { result } : {}),
+    },
+    envAfter: result ? withLocal(env, result.name, "let", result.type) : env,
+  };
+}
+
 function lowerWorkflowStatementInner(
   stmt: Statement,
   env: Env,
@@ -863,19 +884,7 @@ function lowerWorkflowStatementInner(
       envAfter: env,
     };
   }
-  if (isSendStmt(stmt)) {
-    const result = lowerSendResult(stmt, env);
-    return {
-      stmt: {
-        kind: "send",
-        context: sendContext(stmt, env)?.name ?? "",
-        record: stmt.target.record,
-        fields: lowerSendFields(stmt, env),
-        ...(result ? { result } : {}),
-      },
-      envAfter: result ? withLocal(env, result.name, "let", result.type) : env,
-    };
-  }
+  if (isSendStmt(stmt)) return loweredSend(stmt.rhs, undefined, env);
   if (isStepStmt(stmt)) {
     // A step is not a scope: a name its sends bind is read after it and by its
     // `undo` body.
@@ -1225,6 +1234,14 @@ function lowerWorkflowStatementInner(
       envAfter: env,
     };
   }
+  // `let r = send <Record> { … }` — the bound send, one `let`-led rule with
+  // the plain `let` (grammar `LetStmt`).
+  if (isLetStmt(stmt) && stmt.send)
+    return loweredSend(
+      stmt.send,
+      { name: stmt.name, ...(stmt.type ? { type: stmt.type } : {}) },
+      env,
+    );
   if (isLetStmt(stmt)) {
     const expr = stmt.expr;
     // `ignoring` filter-bypass clause (named-filter-bypass.md §11) — only a

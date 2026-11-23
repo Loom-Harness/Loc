@@ -1083,7 +1083,7 @@ workflow PlaceOrder {
 
 The rules the compiler checks (`D-WORKFLOW-STEPS`):
 
-- Only a workflow sends. A send or a step in a handler, an operation or any other body is `loom.workflow-send-placement`. A step sits at the top level of a `create` / `on` body; a send sits there or directly inside a step (or its `undo`); a step holds only sends; step names are unique in a body.
+- Only a workflow sends. A send or a step in a handler, an operation or any other body is `loom.workflow-send-placement`. Inside a workflow body a step or a send may sit anywhere a statement may: in an `if`, a loop or a match arm too. A step inside another step joins its transaction.
 - The record is a `command` or `query` of the named context, and the send sets its fields (`loom.workflow-send-record`). Exactly one declaration catches it, and `let r = send` needs that handler to declare a result (`loom.workflow-send-handler`).
 - A send runs now when the deployable hosts the record's context on the sending context's storage. Any other send would go through the command outbox and is refused (`loom.workflow-send-outbox-unsupported`); inside a step or a `transactional` workflow, where it could not join the transaction, it is `loom.workflow-step-cross-storage`.
 - A sent command's `requires` is checked against the workflow's caller, or the system principal in a reaction.

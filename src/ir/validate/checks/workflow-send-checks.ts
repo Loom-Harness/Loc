@@ -2,11 +2,7 @@
 // Workflow `send` and `step` (D-WORKFLOW-STEPS).
 //
 //   loom.workflow-send-placement   only a workflow body sends (a handler does
-//                                  not); a `step` sits at the top level of a
-//                                  `create` / `on` body; a send sits there or
-//                                  directly in a step's body or `undo` body; a
-//                                  step and its `undo` hold only sends; step
-//                                  names are unique in a body.
+//                                  not, ruling 135).
 //   loom.workflow-send-record      the sent name is a `command` / `query`
 //                                  record of the named context; its fields are
 //                                  the record's.
@@ -33,11 +29,11 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { handlersOf } from "../../plan/command-bus.js";
 import {
   type SendIR,
-  type StepBlockIR,
   sendDelivery,
   sendsIn,
   stepStores,
   stepsNeedingCompensation,
+  workflowSteps,
 } from "../../plan/workflow-steps.js";
 import type {
   BoundedContextIR,
@@ -47,7 +43,7 @@ import type {
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
-import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../util/walk.js";
+import { walkWorkflowStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 interface Body {
@@ -87,7 +83,6 @@ export function validateWorkflowSends(loom: EnrichedLoomModel, diags: LoomDiagno
       for (const body of workflowBodies(wf)) {
         const where = `${ctx.name}/${wf.name}`;
         const owner = `workflow '${wf.name}' ${body.label}`;
-        checkPlacement(body, owner, where, diags);
         for (const send of sendsIn(body.statements))
           checkSend(send, owner, where, ctxByName, body.statements, diags);
         for (const step of stepsNeedingCompensation(
@@ -129,45 +124,6 @@ function refuseInHandler(
         origin: n.origin,
       });
     });
-}
-
-function checkPlacement(body: Body, owner: string, where: string, diags: LoomDiagnostic[]): void {
-  const push = (st: WorkflowStmtIR, message: string) =>
-    diags.push({
-      severity: "error",
-      code: "loom.workflow-send-placement",
-      message,
-      source: where,
-      origin: st.origin,
-    });
-  const spell = (c: SendIR | StepBlockIR) =>
-    c.kind === "send" ? `send ${c.record}` : `step ${c.name}`;
-  const names = new Set<string>();
-  // A step or send nested under any other statement (a loop, a branch, a
-  // match arm) has no fixed place in the body's sequence of commits.
-  const nested = (st: WorkflowStmtIR): void =>
-    walkWorkflowStmtChildren(st, {
-      workflowStmt: (c) => {
-        if (c.kind === "send" || c.kind === "step")
-          push(c, diagMessage("loom.workflow-send-placement#nested", { owner, what: spell(c) }));
-        nested(c);
-      },
-    });
-  for (const st of body.statements) {
-    if (st.kind === "step") {
-      if (names.has(st.name))
-        push(st, diagMessage("loom.workflow-send-placement#duplicate", { owner, step: st.name }));
-      names.add(st.name);
-      const inside = [...st.body, ...(st.compensation.kind === "undo" ? st.compensation.body : [])];
-      for (const s of inside) {
-        if (s.kind !== "send")
-          push(s, diagMessage("loom.workflow-send-placement#step-body", { owner, step: st.name }));
-        else nested(s);
-      }
-    } else if (st.kind !== "send") {
-      nested(st);
-    }
-  }
 }
 
 function checkSend(
@@ -299,14 +255,14 @@ function checkDelivery(
   where: string,
   diags: LoomDiagnostic[],
 ): void {
-  const steps = body.statements.filter(
-    (s): s is Extract<WorkflowStmtIR, { kind: "step" }> => s.kind === "step",
+  const steps = workflowSteps(body.statements, body.oneTransaction).filter(
+    (s) => s.kind === "block" && s.mode === "own-commit",
   );
   for (const d of sys.deployables) {
     if (!d.contextNames.includes(sender.name)) continue;
     const scopes: { name: string; sends: SendIR[]; ownState: boolean }[] = body.oneTransaction
       ? [{ name: body.label, sends: sendsIn(body.statements), ownState: true }]
-      : steps.map((s) => ({ name: `step ${s.name}`, sends: sendsIn(s.body), ownState: false }));
+      : steps.map((s) => ({ name: `step ${s.name}`, sends: [...s.sends], ownState: false }));
     const inScope = new Set(scopes.flatMap((s) => s.sends));
     for (const scope of scopes) {
       const stores = stepStores(scope.sends, sender, d, sys, scope.ownState);
@@ -332,7 +288,7 @@ function checkDelivery(
           reached: reached.join(", "),
         }),
         source: where,
-        origin: (scope.sends[0] ?? steps[0])?.origin,
+        origin: (scope.sends[0] ?? steps[0]?.stmt)?.origin,
       });
     }
     for (const send of sendsIn(body.statements)) {

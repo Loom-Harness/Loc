@@ -11,8 +11,8 @@ named steps, `step <name> { … }`, each committed as one transaction; a send
 outside a step is a step of its own. In a `transactional` workflow every step
 joins the body's transaction. A committed step that anything able to fail
 follows carries `undo { … }` or `final`; there is no one-line form. A step
-holds only sends; steps sit at the top level of a `create` / `on` body and do
-not nest. A send is delivered now when the deployable hosts the target context
+holds any workflow statements; a step or a send may sit anywhere a statement
+may, and a step inside another step joins its transaction. A send is delivered now when the deployable hosts the target context
 on the sender's storage; otherwise it needs the command outbox, which is
 refused until it exists, and is a compile error inside a scope that must be one
 transaction. A sent command's `requires` is checked against the workflow's

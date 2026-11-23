@@ -238,18 +238,21 @@ describe("validators", () => {
     expect(joined.map((d) => d.code)).not.toContain("loom.workflow-step-undo-required");
   });
 
-  it("refuses a step outside the top level, a non-send in a step, and a repeated step name", async () => {
+  it("accepts a step inside a branch and a non-send statement inside a step", async () => {
     const diags = await codesFor(
-      `          step a { let y = 1 } final\n          step a { send Release { qty: 1 } } final\n          if qty > 1 { send Release { qty: 1 } }`,
+      `          if qty > 1 {\n            step a { let y = qty + 1  send Release { qty: y } } final\n          }\n          send Release { qty: 1 }`,
     );
-    const msgs = diags
-      .filter((d) => d.code === "loom.workflow-send-placement")
-      .map((d) => d.message);
-    expect(msgs).toEqual([
-      expect.stringContaining("step 'a' holds a statement that is not a `send`"),
-      expect.stringContaining("two steps are named 'a'"),
-      expect.stringContaining("`send Release` sits inside a loop, a branch or a match arm"),
-    ]);
+    const errors = diags.filter((d) => d.severity === "error").map((d) => d.code);
+    expect(errors).toEqual(["loom.target-unsupported"]);
+  });
+
+  it("a nested committed step owes undo or final when the enclosing body goes on", async () => {
+    const diags = await codesFor(
+      `          if qty > 1 {\n            step a { send Release { qty: 1 } }\n          }\n${LONE}`,
+    );
+    expect(
+      diags.filter((d) => d.code === "loom.workflow-step-undo-required").map((d) => d.message),
+    ).toEqual([expect.stringContaining("step 'a' commits on its own")]);
   });
 
   it("refuses a send to another deployable: in a step it cannot join, alone it needs the outbox", async () => {

@@ -1,4 +1,4 @@
-import type { LValue, Statement } from "../generated/ast.js";
+import type { LValue, SendRhs, Statement } from "../generated/ast.js";
 import {
   indentBlock,
   printExpr,
@@ -39,7 +39,9 @@ export function printStmt(node: Statement): string {
     case "RequiresStmt":
       return `requires ${printExpr(node.expr)}`;
     case "LetStmt":
-      return `let ${node.name}${node.type ? `: ${printTypeRef(node.type)}` : ""} = ${printExpr(node.expr)}`;
+      return `let ${node.name}${node.type ? `: ${printTypeRef(node.type)}` : ""} = ${
+        node.send ? printSendRhs(node.send) : printExpr(node.expr!)
+      }`;
     case "EmitStmt": {
       const fields = withIndent(() => node.fields.map((f) => `${f.name}: ${printExpr(f.value)}`));
       return wrapBraced(`emit ${node.event.$refText} `, fields);
@@ -96,16 +98,8 @@ export function printStmt(node: Statement): string {
       });
       return `match ${printExpr(node.subject)} {\n${indentBlock(parts.join("\n"))}\n}`;
     }
-    case "SendStmt": {
-      const bind = node.name
-        ? `let ${node.name}${node.type ? `: ${printTypeRef(node.type)}` : ""} = `
-        : "";
-      const record = node.target.context
-        ? `${node.target.context.$refText}.${node.target.record}`
-        : node.target.record;
-      const fields = withIndent(() => node.fields.map((f) => `${f.name}: ${printExpr(f.value)}`));
-      return wrapBraced(`${bind}send ${record} `, fields);
-    }
+    case "SendStmt":
+      return printSendRhs(node.rhs);
     case "StepStmt": {
       const head = stmtBlock(`step ${node.name}`, node.body);
       if (node.final) return `${head} final`;
@@ -117,6 +111,15 @@ export function printStmt(node: Statement): string {
       throw new Error(`printStmt: unhandled node ${(exhaustive as { $type: string }).$type}`);
     }
   }
+}
+
+/** `send <Record> { field: value, … }` — the shared right-hand side. */
+function printSendRhs(rhs: SendRhs): string {
+  const record = rhs.target.context
+    ? `${rhs.target.context.$refText}.${rhs.target.record}`
+    : rhs.target.record;
+  const fields = withIndent(() => rhs.fields.map((f) => `${f.name}: ${printExpr(f.value)}`));
+  return wrapBraced(`send ${record} `, fields);
 }
 
 function printLValue(lv: LValue): string {

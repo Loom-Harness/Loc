@@ -1308,7 +1308,7 @@ export function isDomainServiceOperation(item: unknown): item is DomainServiceOp
 }
 
 export interface EmitField extends langium.AstNode {
-    readonly $container: EmitStmt | SendStmt;
+    readonly $container: EmitStmt | SendRhs;
     readonly $type: 'EmitField';
     name: LooseName;
     value: Expression;
@@ -1394,7 +1394,7 @@ export function isEnumDecl(item: unknown): item is EnumDecl {
 export interface EnumValue extends langium.AstNode {
     readonly $container: EnumDecl;
     readonly $type: 'EnumValue';
-    name: string;
+    name: 'final' | 'step' | 'undo' | string;
 }
 
 export const EnumValue = {
@@ -1825,7 +1825,7 @@ export interface Lambda extends langium.AstNode {
     readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | CanExpr | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExistsExpr | ExpectStmt | FilterDecl | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PolicyReadRule | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | ReturnStmt | StateField | TemplateHole | TernaryExpr | TestPrincipalClaim | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'Lambda';
     body?: Expression;
-    param: string;
+    param: 'final' | 'step' | 'undo' | string;
     stmts: Array<Statement>;
 }
 
@@ -1921,8 +1921,9 @@ export function isLayoutSlotName(item: unknown): item is LayoutSlotName {
 export interface LetStmt extends langium.AstNode {
     readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | TestBlock | TestE2E | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'LetStmt';
-    expr: Expression;
+    expr?: Expression;
     name: CommonSoftKeywords | string;
+    send?: SendRhs;
     type?: TypeRef;
 }
 
@@ -1930,6 +1931,7 @@ export const LetStmt = {
     $type: 'LetStmt',
     expr: 'expr',
     name: 'name',
+    send: 'send',
     type: 'type'
 } as const;
 
@@ -3501,21 +3503,32 @@ export function isSelfType(item: unknown): item is SelfType {
     return reflection.isInstance(item, SelfType.$type);
 }
 
+export interface SendRhs extends langium.AstNode {
+    readonly $container: LetStmt | SendStmt;
+    readonly $type: 'SendRhs';
+    fields: Array<EmitField>;
+    target: SendTarget;
+}
+
+export const SendRhs = {
+    $type: 'SendRhs',
+    fields: 'fields',
+    target: 'target'
+} as const;
+
+export function isSendRhs(item: unknown): item is SendRhs {
+    return reflection.isInstance(item, SendRhs.$type);
+}
+
 export interface SendStmt extends langium.AstNode {
     readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'SendStmt';
-    fields: Array<EmitField>;
-    name?: CommonSoftKeywords | string;
-    target: SendTarget;
-    type?: TypeRef;
+    rhs: SendRhs;
 }
 
 export const SendStmt = {
     $type: 'SendStmt',
-    fields: 'fields',
-    name: 'name',
-    target: 'target',
-    type: 'type'
+    rhs: 'rhs'
 } as const;
 
 export function isSendStmt(item: unknown): item is SendStmt {
@@ -3523,7 +3536,7 @@ export function isSendStmt(item: unknown): item is SendStmt {
 }
 
 export interface SendTarget extends langium.AstNode {
-    readonly $container: SendStmt;
+    readonly $container: SendRhs;
     readonly $type: 'SendTarget';
     context?: langium.Reference<BoundedContext>;
     record: string;
@@ -4232,7 +4245,7 @@ export function isTypeAtom(item: unknown): item is TypeAtom {
 }
 
 export interface TypeRef extends langium.AstNode {
-    readonly $container: ActionType | CommandHandler | Criterion | DerivedProp | DomainServiceOperation | FunctionDecl | LetStmt | Operation | Parameter | PolicyDecl | Property | QueryHandler | Retrieval | SendStmt | StateField | UiFunction | UserField | WorkflowCreateDecl;
+    readonly $container: ActionType | CommandHandler | Criterion | DerivedProp | DomainServiceOperation | FunctionDecl | LetStmt | Operation | Parameter | PolicyDecl | Property | QueryHandler | Retrieval | StateField | UiFunction | UserField | WorkflowCreateDecl;
     readonly $type: 'TypeRef';
     alternatives: Array<TypeAtom>;
     array: boolean;
@@ -4802,6 +4815,7 @@ export type DddAstType = {
     Seed: Seed
     SeedRow: SeedRow
     SelfType: SelfType
+    SendRhs: SendRhs
     SendStmt: SendStmt
     SendTarget: SendTarget
     SensitivityClause: SensitivityClause
@@ -6300,10 +6314,15 @@ export class DddAstReflection extends langium.AbstractAstReflection {
             name: LetStmt.$type,
             properties: {
                 expr: {
-                    name: LetStmt.expr
+                    name: LetStmt.expr,
+                    optional: true
                 },
                 name: {
                     name: LetStmt.name
+                },
+                send: {
+                    name: LetStmt.send,
+                    optional: true
                 },
                 type: {
                     name: LetStmt.type,
@@ -7618,24 +7637,25 @@ export class DddAstReflection extends langium.AbstractAstReflection {
             },
             superTypes: [BaseType.$type]
         },
-        SendStmt: {
-            name: SendStmt.$type,
+        SendRhs: {
+            name: SendRhs.$type,
             properties: {
                 fields: {
-                    name: SendStmt.fields,
+                    name: SendRhs.fields,
                     defaultValue: [],
                     optional: true
                 },
-                name: {
-                    name: SendStmt.name,
-                    optional: true
-                },
                 target: {
-                    name: SendStmt.target
-                },
-                type: {
-                    name: SendStmt.type,
-                    optional: true
+                    name: SendRhs.target
+                }
+            },
+            superTypes: []
+        },
+        SendStmt: {
+            name: SendStmt.$type,
+            properties: {
+                rhs: {
+                    name: SendStmt.rhs
                 }
             },
             superTypes: [Statement.$type]

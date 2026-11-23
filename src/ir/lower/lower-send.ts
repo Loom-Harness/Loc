@@ -15,7 +15,7 @@
 import type {
   BoundedContext,
   PayloadDecl,
-  SendStmt,
+  SendRhs,
   TypeRef,
 } from "../../language/generated/ast.js";
 import {
@@ -30,7 +30,7 @@ import { isErrorVariantTag, lowerExpr, lowerExprInContext } from "./lower-expr.j
 import { type Env, lowerType } from "./lower-types.js";
 
 /** The context that declares the sent record. */
-export function sendContext(stmt: SendStmt, env: Env): BoundedContext | undefined {
+export function sendContext(stmt: SendRhs, env: Env): BoundedContext | undefined {
   return stmt.target.context?.ref ?? env.ctx;
 }
 
@@ -42,7 +42,7 @@ function recordDecl(ctx: BoundedContext | undefined, name: string): PayloadDecl 
 }
 
 /** The field values, each lowered against the record's declared field type. */
-export function lowerSendFields(stmt: SendStmt, env: Env): { name: string; value: ExprIR }[] {
+export function lowerSendFields(stmt: SendRhs, env: Env): { name: string; value: ExprIR }[] {
   const decl = recordDecl(sendContext(stmt, env), stmt.target.record);
   const typeOf = new Map<string, TypeIR>();
   for (const f of decl?.fields ?? []) typeOf.set(f.name, lowerType(f.type, env));
@@ -57,7 +57,7 @@ export function lowerSendFields(stmt: SendStmt, env: Env): { name: string; value
 
 /** The result a `let r = send …` binds, or `undefined` when the record has no
  *  single handler or the handler declares no result. */
-function handlerResultType(stmt: SendStmt, env: Env): TypeIR | undefined {
+function handlerResultType(stmt: SendRhs, env: Env): TypeIR | undefined {
   const ctx = sendContext(stmt, env);
   const record = stmt.target.record;
   const catches = (params: readonly { type: TypeRef }[]): boolean => {
@@ -81,17 +81,21 @@ function handlerResultType(stmt: SendStmt, env: Env): TypeIR | undefined {
   return results.length === 1 ? results[0] : undefined;
 }
 
-/** The `let`-bound result of a send, or `undefined` for a bare send.  An
- *  unresolved result types as the declared `let` type, else `none`; the
- *  validator names why. */
-export function lowerSendResult(stmt: SendStmt, env: Env): CallResultBindingIR | undefined {
-  if (!stmt.name) return undefined;
-  const type: TypeIR = stmt.type
-    ? lowerType(stmt.type, env)
-    : (handlerResultType(stmt, env) ?? { kind: "none" });
+/** The result a `let r = send …` binds (`binder` is the `let`'s name and its
+ *  declared type, if any).  An unresolved result types as the declared type,
+ *  else `none`; the validator names why. */
+export function lowerSendResult(
+  rhs: SendRhs,
+  binder: { name: string; type?: TypeRef } | undefined,
+  env: Env,
+): CallResultBindingIR | undefined {
+  if (!binder) return undefined;
+  const type: TypeIR = binder.type
+    ? lowerType(binder.type, env)
+    : (handlerResultType(rhs, env) ?? { kind: "none" });
   const errorVariants =
     type.kind === "union"
       ? type.variants.map(variantTag).filter((tag) => isErrorVariantTag(tag, env))
       : [];
-  return { name: stmt.name, type, errorVariants };
+  return { name: binder.name, type, errorVariants };
 }
