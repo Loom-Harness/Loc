@@ -112,6 +112,7 @@ export {
   route,
   selfId,
   selfRef,
+  sendRoute,
   singletonProjection,
   targetFields,
   thisRef,

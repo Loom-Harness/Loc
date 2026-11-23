@@ -146,18 +146,18 @@ describe("scaffoldHandlers — contract records (M-T5.10 PR1)", () => {
 
     const cancel = byName(payloads, "CancelOrderCommand");
     expect(cancel?.kind).toBe("command");
-    expect(fieldNames(cancel!)).toEqual([]); // `operation cancel()` has no params
+    expect(fieldNames(cancel!)).toEqual(["id"]); // the order `cancel()` addresses
 
     const destroy = byName(payloads, "DestroyOrderCommand");
     expect(destroy?.kind).toBe("command");
-    expect(fieldNames(destroy!)).toEqual([]); // id is a route param, not a body field
+    expect(fieldNames(destroy!)).toEqual(["id"]); // the route's `{id}` binds it
   });
 
   it("splices the query record for the get-by-id target", async () => {
     const payloads = await contextPayloads();
     const getById = byName(payloads, "GetOrderByIdQuery");
     expect(getById?.kind).toBe("query");
-    expect(fieldNames(getById!)).toEqual([]); // id is a route param, not a record field
+    expect(fieldNames(getById!)).toEqual(["id"]); // the route's `{id}` binds it
   });
 
   it("unfolds (prints) the records as valid `.ddd` inside the context", async () => {
@@ -233,14 +233,14 @@ describe("scaffoldHandlers handlers CONSUME the contract records (byte-identical
           // hand-written record mirrors what scaffoldHandlers auto-splices (and
           // what the .NET read projection supplies as d.Version).
           response OrderResponse { status: string  rowVersion: int }
-          query GetOrderByIdQuery { }
-          command CancelOrderCommand { }
-          queryHandler GetOrderById(id: Order id): OrderResponse {
-            let o = Orders.get(id)
+          query GetOrderByIdQuery { id: Order id }
+          command CancelOrderCommand { id: Order id }
+          queryHandler GetOrderById(query: GetOrderByIdQuery): OrderResponse {
+            let o = Orders.get(query.id)
             return o
           }
-          commandHandler CancelOrder(id: Order id) {
-            let o = Orders.get(id)
+          commandHandler CancelOrder(cmd: CancelOrderCommand) {
+            let o = Orders.get(cmd.id)
             o.cancel()
           }
           queryHandler ListOrders(): Order paged {
@@ -250,8 +250,8 @@ describe("scaffoldHandlers handlers CONSUME the contract records (byte-identical
         }
       }
       api SalesApi from Sales {
-        route GET  "/orders/{id}"        -> Ordering.GetOrderById
-        route POST "/orders/{id}/cancel" -> Ordering.CancelOrder
+        route GET  "/orders/{id}"        send Ordering.GetOrderByIdQuery
+        route POST "/orders/{id}/cancel" send Ordering.CancelOrderCommand
       }
       storage pg { type: postgres }
       resource st { for: Ordering, kind: state, use: pg }
@@ -262,8 +262,8 @@ describe("scaffoldHandlers handlers CONSUME the contract records (byte-identical
   it("emits byte-identical .NET for the scaffolded vs hand-written record-param form", async () => {
     // BOTH halves go through the CHECKED helper (phases ①/④/⑦), so the
     // comparison is between two models the product accepts.  The hand-written
-    // half spells `commandHandler CancelOrder(id: Order id)` and
-    // `queryHandler GetOrderById(id: Order id): OrderResponse`.
+    // half spells `commandHandler CancelOrder(cmd: CancelOrderCommand)` and
+    // `queryHandler GetOrderById(query: GetOrderByIdQuery): OrderResponse`.
     const macro = await generateSystemFiles(MACRO);
     const explicit = await generateSystemFiles(EXPLICIT);
     const macroKeys = [...macro.keys()].sort();

@@ -468,9 +468,17 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
     // declaration and thus no `UserId` strong-id class.  Lower it to the
     // principal's declared id scalar (`user { id: <type> }`) as a plain
     // primitive so the field, the `currentUser` stamp, and the wire all agree —
-    // otherwise a phantom `UserId` wrapper dangles on every backend.  Only the
-    // unresolved ref reaches here; a real aggregate named `User` resolves above.
-    if (!target && env?.user && base.target?.$refText === PRINCIPAL_TYPE_NAME) {
+    // otherwise a phantom `UserId` wrapper dangles on every backend.  Only an
+    // unresolved ref reaches here, and only when the context declares no
+    // aggregate of that name: a macro-built `User id` has no `$refNode`, so it
+    // stays unresolved even when an `aggregate User` is in scope, and then it
+    // names that aggregate.
+    if (
+      !target &&
+      env?.user &&
+      base.target?.$refText === PRINCIPAL_TYPE_NAME &&
+      !(env.ctx?.members ?? []).some((m) => isAggregate(m) && m.name === PRINCIPAL_TYPE_NAME)
+    ) {
       const principalId = env.user.fields.find((f) => f.name === "id")?.type;
       if (principalId) return principalId;
     }

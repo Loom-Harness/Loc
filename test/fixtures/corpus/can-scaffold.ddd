@@ -2,12 +2,13 @@
 // whose gates read no parameter:
 //
 //   payload CanResult { allowed: bool }
-//   queryHandler canCloseTicket(id: Ticket id): CanResult {
-//     let o = Tickets.get(id)
+//   query CanCloseTicketQuery { id: Ticket id }
+//   queryHandler canCloseTicket(query: CanCloseTicketQuery): CanResult {
+//     let o = Tickets.get(query.id)
 //     return CanResult { allowed: can o.close() }
 //   }
 //
-// and `scaffoldApi` routes it at `GET /tickets/{id}/can_close`, the slot the
+// and `scaffoldApi` sends it at `GET /tickets/{id}/can_close`, the slot the
 // derived probe would serve.  `reassign(to)` reads its parameter in a gate, so
 // it has no permission query: its submit answers 403 or 409 itself.
 system CanScaffold {
@@ -47,23 +48,23 @@ system CanScaffold {
   test e2e "a scaffolded permission query answers what the operation would" against d {
     api.support.createTicket({ title: "Printer", owner: "ann" })
     let t = api.tickets.all().items.first()
-    expect(api.support.canCloseTicket(t).allowed).toBe(true)
+    expect(api.support.canCloseTicket({ id: t.id }).allowed).toBe(true)
 
     // No permission query for `reassign`: its gate reads `to`, so the submit
     // answers for itself — 403 on the `requires`, 204 when it passes.
-    expect(api.support.reassignTicket(t, { to: "ann" })).toThrow(403)
-    api.support.reassignTicket(t, { to: "bob" })
-    expect(api.support.getTicketById(t).owner).toBe("bob")
+    expect(api.support.reassignTicket({ id: t.id, to: "ann" })).toThrow(403)
+    api.support.reassignTicket({ id: t.id, to: "bob" })
+    expect(api.support.getTicketById({ id: t.id }).owner).toBe("bob")
 
-    api.support.closeTicket(t, { note: "replaced toner" })
-    expect(api.support.canCloseTicket(t).allowed).toBe(false)
+    api.support.closeTicket({ id: t.id, note: "replaced toner" })
+    expect(api.support.canCloseTicket({ id: t.id }).allowed).toBe(false)
     // Once closed, the `when` refuses both operations with 409.
-    expect(api.support.closeTicket(t, { note: "again" })).toThrow(409)
-    expect(api.support.reassignTicket(t, { to: "cy" })).toThrow(409)
+    expect(api.support.closeTicket({ id: t.id, note: "again" })).toThrow(409)
+    expect(api.support.reassignTicket({ id: t.id, to: "cy" })).toThrow(409)
 
-    api.support.updateTicket(t, { title: "Scanner" })
-    expect(api.support.getTicketById(t).title).toBe("Scanner")
-    expect(api.support.getTicketById(t).resolution).toBe("replaced toner")
+    api.support.updateTicket({ id: t.id, title: "Scanner" })
+    expect(api.support.getTicketById({ id: t.id }).title).toBe("Scanner")
+    expect(api.support.getTicketById({ id: t.id }).resolution).toBe("replaced toner")
     expect(api.tickets.all().items.length).toBe(1)
   }
 }

@@ -20,13 +20,15 @@ import {
   param,
   payload,
   primType,
+  query,
   queryHandler,
   returnStmt,
 } from "../../api/index.js";
-import { contractRecords } from "./_contracts-shared.js";
+import { contractRecords, idField } from "./_contracts-shared.js";
 import {
   CAN_RESULT,
   canHandlerName,
+  canRecordName,
   createRequestMembers,
   type HandlerTarget,
   handlerTargets,
@@ -35,6 +37,7 @@ import {
   listReadTargets,
   permissionQueryTargets,
   targetHandlerName,
+  targetRecordName,
   unservedAggregateMessages,
 } from "./_handlers-shared.js";
 
@@ -122,19 +125,17 @@ export default defineMacro({
         returnStmt(nameRef("r")),
       ]),
     );
-    const cans = permissionQueryTargets(ctx).map(({ agg, repo, op }) =>
+    const canTargets = permissionQueryTargets(ctx);
+    const canRecords = canTargets.map(({ agg, op }) =>
+      query(canRecordName(op.name, agg.name), [idField(agg.name)]),
+    );
+    const cans = canTargets.map(({ agg, repo, op }) =>
       queryHandler(
         canHandlerName(op.name, agg.name),
-        [param(ID_PARAM, idRef(agg.name))],
+        [param(QUERY, namedType(canRecordName(op.name, agg.name)))],
         namedType(CAN_RESULT),
         [
-          letStmt(
-            "o",
-            memberAccess(nameRef(repo.name), repoOpVerb("load"), {
-              call: true,
-              args: [nameRef(ID_PARAM)],
-            }),
-          ),
+          loadById(repo.name, QUERY),
           returnStmt(builderCall(CAN_RESULT, [{ name: "allowed", value: canExpr("o", op.name) }])),
         ],
       ),
@@ -146,7 +147,7 @@ export default defineMacro({
       cans.length > 0 && !declaresCanResult
         ? [payload(CAN_RESULT, [field("allowed", primType("bool"))])]
         : [];
-    return [...contractRecords(ctx), ...canRecord, ...handlers, ...lists, ...cans];
+    return [...contractRecords(ctx), ...canRecord, ...canRecords, ...handlers, ...lists, ...cans];
   },
 });
 
@@ -159,24 +160,13 @@ export default defineMacro({
 function buildHandler(t: HandlerTarget, errors: ReadonlySet<string>) {
   switch (t.kind) {
     case "operation": {
-      const idParam = ID_PARAM;
       const opParams = t.op.params.filter((p) => p.type != null);
-      // `(id: Order id[, cmd: <Op><Agg>Command])` — the id rides as a path
-      // param (a route `{id}` can't live in a body record); the op's own
-      // params ride in the command record.  An op with no params omits `cmd`.
-      const params = [
-        param(idParam, idRef(t.agg.name)),
-        ...(opParams.length > 0 ? [param("cmd", namedType(`${targetHandlerName(t)}Command`))] : []),
-      ];
-      // `let o = <Repo>.get(<idParam>)`
-      const load = letStmt(
-        "o",
-        memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
-          call: true,
-          args: [nameRef(idParam)],
-        }),
-      );
-      const args = () => opParams.map((p) => memberAccess(nameRef("cmd"), p.name));
+      // `(cmd: <Op><Agg>Command)` — the record carries the `id` and the op's
+      // own params.
+      const params = [recordParam(t)];
+      // `let o = <Repo>.get(cmd.id)`
+      const load = loadById(t.repo.name, CMD);
+      const args = () => opParams.map((p) => memberAccess(nameRef(CMD), p.name));
       const result = t.op.returnType;
       if (result && carriesError(result, errors)) {
         // An expected failure (`T or E`) is the handler's answer: the result is
@@ -214,8 +204,7 @@ function buildHandler(t: HandlerTarget, errors: ReadonlySet<string>) {
       const fields = createRequestMembers(t.agg, t.create, { inherited: false }).filter(
         (f) => f.type != null,
       );
-      const params =
-        fields.length > 0 ? [param("cmd", namedType(`${targetHandlerName(t)}Command`))] : [];
+      const params = [recordParam(t)];
       const body = [
         // `let o = <Agg>.create(<field>: cmd.<field>, …)` — a factory-let;
         // each argument reads off the command record.  `computeSaves`
@@ -226,7 +215,7 @@ function buildHandler(t: HandlerTarget, errors: ReadonlySet<string>) {
             call: true,
             namedArgs: fields.map((f) => ({
               name: f.name,
-              value: memberAccess(nameRef("cmd"), f.name),
+              value: memberAccess(nameRef(CMD), f.name),
             })),
           }),
         ),
@@ -237,21 +226,10 @@ function buildHandler(t: HandlerTarget, errors: ReadonlySet<string>) {
       return commandHandler(targetHandlerName(t), params, body, { returnType: idRef(t.agg.name) });
     }
     case "getById": {
-      // The canonical get-by-id read: the id rides as the `id` path param
-      // (its query record is empty, so the handler omits it, as an empty
-      // command record is omitted), then load + return the aggregate as
-      // `<Agg>Response`.
-      const params = [param(ID_PARAM, idRef(t.agg.name))];
-      const body = [
-        letStmt(
-          "o",
-          memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
-            call: true,
-            args: [nameRef(ID_PARAM)],
-          }),
-        ),
-        returnStmt(nameRef("o")),
-      ];
+      // The canonical get-by-id read: load the aggregate the query's `id`
+      // names and return it as `<Agg>Response`.
+      const params = [recordParam(t)];
+      const body = [loadById(t.repo.name, QUERY), returnStmt(nameRef("o"))];
       // Return type is the aggregate's response record.
       return queryHandler(targetHandlerName(t), params, namedType(`${t.agg.name}Response`), body);
     }
@@ -263,23 +241,38 @@ function buildHandler(t: HandlerTarget, errors: ReadonlySet<string>) {
       // return after a delete (the entity is gone; `return o.id` would read a
       // just-removed row), so the handler yields no value, exactly like a
       // fire-and-forget `operation` commandHandler.
-      const idParam = ID_PARAM;
-      const params = [param(idParam, idRef(t.agg.name))];
+      const params = [recordParam(t)];
       const body = [
-        // `let o = <Repo>.get(<idParam>)`
-        letStmt(
-          "o",
-          memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
-            call: true,
-            args: [nameRef(idParam)],
-          }),
-        ),
+        // `let o = <Repo>.get(cmd.id)`
+        loadById(t.repo.name, CMD),
         // `<Repo>.remove(o)` — a repo-delete statement.
         callStmt([t.repo.name, repoOpVerb("remove")], [nameRef("o")]),
       ];
       return commandHandler(targetHandlerName(t), params, body);
     }
   }
+}
+
+/** The parameter a write handler names its command record by. */
+const CMD = "cmd";
+/** The parameter a read handler names its query record by. */
+const QUERY = "query";
+
+/** A target handler's one parameter: its request record
+ * (`cmd: CancelOrderCommand`, `query: GetOrderByIdQuery`). */
+function recordParam(t: HandlerTarget) {
+  return param(t.kind === "getById" ? QUERY : CMD, namedType(targetRecordName(t)));
+}
+
+/** `let o = <Repo>.get(<record>.id)` — load the aggregate a record addresses. */
+function loadById(repoName: string, record: string) {
+  return letStmt(
+    "o",
+    memberAccess(nameRef(repoName), repoOpVerb("load"), {
+      call: true,
+      args: [memberAccess(nameRef(record), ID_PARAM)],
+    }),
+  );
 }
 
 /** The names of the `error` records the model declares — the variants that

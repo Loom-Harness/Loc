@@ -31,11 +31,13 @@ describe("a bound union arm answered by an entry point", () => {
     expect(ending(all, "domain/order.ts")).toContain(
       'return { type: "Order", id: this.id, code: this.code, paid: this.paid, rowVersion: this.rowVersion };',
     );
-    const routes = ending(all, "http/shopApi-routes.ts");
-    expect(routes).toContain(
+    // The fixture's routes `send` their records, so the arms render in the
+    // context's dispatcher, which every such route calls.
+    const dispatch = ending(all, "http/sales-dispatch.ts");
+    expect(dispatch).toContain(
       'handlerResult = { type: "Unsettled", ...(v as Record<string, unknown>) }',
     );
-    expect(routes).toContain("getById(Ids.OrderId(String(v.id)))");
+    expect(dispatch).toContain("getById(Ids.OrderId(String(v.id)))");
   });
 
   it(".NET: the own arm is the projection of `this`, re-read once after the save", async () => {

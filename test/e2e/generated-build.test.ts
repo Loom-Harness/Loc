@@ -386,11 +386,11 @@ describe.skipIf(!ENABLED)(
         );
         const proj = path.join(outDir, "api");
         const router = fs.readFileSync(path.join(proj, "http", "salesApi-routes.ts"), "utf8");
-        // The create handler binds the command record's fields as the body and
-        // reads them off `cmd.<field>`; the get-by-id handler takes the path
-        // `id` as a plain param, so it binds no query record.
+        // Every scaffolded handler takes one record: the create handler's
+        // command record binds from the body, and the get-by-id handler's query
+        // record binds its `id` from the path.
         expect(router).toContain("const cmd = {");
-        expect(router).not.toContain("const query = {");
+        expect(router).toContain("const query = { id: Ids.OrderId(params.id) };");
         installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });

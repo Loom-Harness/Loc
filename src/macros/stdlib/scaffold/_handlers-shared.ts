@@ -211,6 +211,12 @@ export function canHandlerName(opName: string, aggName: string): string {
   return `can${upperFirst(opName)}${upperFirst(aggName)}`;
 }
 
+/** `Can<Op><Agg>Query` — the record a permission query takes (`ship` on
+ *  `Order` → `CanShipOrderQuery`), carrying the aggregate's `id`. */
+export function canRecordName(opName: string, aggName: string): string {
+  return `${upperFirst(canHandlerName(opName, aggName))}Query`;
+}
+
 /** `/<coll>/{id}/can_<op>` — a permission query's route path. */
 export function canRoutePath(aggName: string, opName: string): string {
   return `${collectionPath(aggName)}/{${ID_PARAM}}/can_${snake(opName)}`;
@@ -311,6 +317,22 @@ export function targetHandlerName(t: HandlerTarget | RequestTarget): string {
     case "destroy":
       return `Destroy${upperFirst(t.agg.name)}`;
   }
+}
+
+/** The request record a target's handler takes and its route sends — the
+ * single source of truth for the record name, which `_contracts-shared`
+ * declares, the handler's one parameter types, and `scaffoldApi` sends:
+ * `<Handler>Command` for a write, `<Handler>Query` for the get-by-id read
+ * (`CancelOrderCommand`, `GetOrderByIdQuery`). */
+export function targetRecordName(t: HandlerTarget | RequestTarget): string {
+  return `${targetHandlerName(t)}${t.kind === "getById" ? "Query" : "Command"}`;
+}
+
+/** Whether a target's record carries the aggregate's `id`: every kind that
+ * addresses one existing aggregate (all but `create`).  The route's `{id}`
+ * placeholder binds to it. */
+export function targetCarriesId(t: HandlerTarget | RequestTarget): boolean {
+  return t.kind !== "create";
 }
 
 /** The HTTP method a target binds to: POST for writes (create / operation),

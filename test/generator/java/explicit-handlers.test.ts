@@ -120,7 +120,12 @@ describe("java — scaffolded handlers consume command/query record params", () 
     expect(ctrl).toContain(
       "var result = orderingDispatch.createOrderCommand(new CreateOrderCommand(body.code(), body.status(), body.total()));",
     );
-    expect(ctrl).toContain("setNoteOrderHandler.handle(new OrderId(id), body.note());");
+    // An operation's record carries the path id and the op's params, so the
+    // body record holds only `note` and the id rides the path.
+    expect(ctrl).toContain("record SetNoteOrderBody(@NotNull String note) {}");
+    expect(ctrl).toContain(
+      "orderingDispatch.setNoteOrderCommand(new SetNoteOrderCommand(new OrderId(id), body.note()));",
+    );
     // getById projects the entity to its wire DTO at the boundary.
     expect(ctrl).toContain("return ResponseEntity.ok(OrderResponse.from(result));");
   });

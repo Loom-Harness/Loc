@@ -2,6 +2,7 @@ import {
   PROVENANCED_LINEAGE_NULLABLE,
   provenancedTypeMembers,
 } from "../generator/_payload/provenanced-wire.js";
+import { type RequestFieldSource, requestFieldSources } from "../ir/plan/request-wire.js";
 import type {
   EnrichedSystemIR,
   PayloadIR,
@@ -39,7 +40,9 @@ export interface WireSpecDoc {
   aggregates: Record<string, JsonSchemaObject>;
   parts: Record<string, JsonSchemaObject>;
   valueObjects: Record<string, JsonSchemaObject>;
-  /** The request contracts: every declared `command` / `query` record. */
+  /** The request contracts: every declared `command` / `query` record, as
+   *  the JSON body a client sends, with `bound` naming the fields that ride
+   *  in the path, the query string, a header or the raw body instead. */
   requests: Record<string, JsonSchemaObject>;
 }
 
@@ -48,6 +51,8 @@ interface JsonSchemaObject {
   properties: Record<string, JsonSchemaProperty>;
   required: string[];
   additionalProperties: false;
+  /** A request's fields that ride outside the JSON body, each with where. */
+  bound?: Record<string, RequestFieldSource[]>;
 }
 
 type JsonSchemaProperty =
@@ -103,6 +108,8 @@ interface CollectedEntry {
   ctx: string;
   name: string;
   rows: WireField[];
+  /** A request's fields that ride outside the body (`requestBody`). */
+  bound?: Record<string, RequestFieldSource[]>;
 }
 
 /** Bare names that appear under more than one context with a STRUCTURALLY
@@ -172,6 +179,7 @@ export function buildWireSpec(sys: EnrichedSystemIR): WireSpecDoc {
   const parts: CollectedEntry[] = [];
   const vos: CollectedEntry[] = [];
   const requests: CollectedEntry[] = [];
+  const sources = requestFieldSources(sys);
   for (const m of sys.subdomains) {
     for (const ctx of m.contexts) {
       for (const a of ctx.aggregates) {
@@ -187,7 +195,11 @@ export function buildWireSpec(sys: EnrichedSystemIR): WireSpecDoc {
       }
       for (const p of ctx.payloads) {
         if (!isRequestRecord(p)) continue;
-        requests.push({ ctx: ctx.name, name: p.name, rows: requestRows(p) });
+        requests.push({
+          ctx: ctx.name,
+          name: p.name,
+          ...requestBody(requestRows(p), sources.get(ctx.name)?.get(p.name)),
+        });
       }
       // A command-started workflow's request contract is its facade create's
       // declared parameter list — keyed `<Workflow>Command` (PascalCase) beside the records,
@@ -244,11 +256,8 @@ export function buildWireSpec(sys: EnrichedSystemIR): WireSpecDoc {
     collided: Set<string>,
   ) => {
     for (const e of entries) {
-      bucket[keyOf(collided, e.ctx, e.name)] = objectSchemaFromWireShape(
-        e.rows,
-        refIn(e.ctx),
-        enumsIn(e.ctx),
-      );
+      const schema = objectSchemaFromWireShape(e.rows, refIn(e.ctx), enumsIn(e.ctx));
+      bucket[keyOf(collided, e.ctx, e.name)] = e.bound ? { ...schema, bound: e.bound } : schema;
     }
   };
   fill(doc.aggregates, aggs, collidedAgg);
@@ -274,6 +283,25 @@ function requestRows(p: PayloadIR): WireField[] {
     source: "property",
     access: "editable",
   }));
+}
+
+/** A request record's JSON body: the rows no route carrying the record binds
+ *  outside the body, and where the others ride.  A field one route sends in
+ *  the body and another binds elsewhere stays in the body and is listed in
+ *  `bound` too.  A record no route carries is all body. */
+function requestBody(
+  rows: WireField[],
+  fieldSources: ReadonlyMap<string, ReadonlySet<RequestFieldSource>> | undefined,
+): Pick<CollectedEntry, "rows" | "bound"> {
+  const bound: Record<string, RequestFieldSource[]> = {};
+  const body = rows.filter((r) => {
+    const at = fieldSources?.get(r.name);
+    if (!at) return true;
+    const outside = [...at].filter((s) => s !== "body").sort();
+    if (outside.length > 0) bound[r.name] = outside;
+    return at.has("body");
+  });
+  return Object.keys(bound).length > 0 ? { rows: body, bound } : { rows: body };
 }
 
 /** The rows of a workflow's command request: its facade create's params. */

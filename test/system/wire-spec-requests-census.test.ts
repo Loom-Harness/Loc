@@ -5,10 +5,17 @@
 // workflow (its facade create's parameters).  The artefact is what `ddd diff`
 // compares, so a request missing here is a request whose breaking changes go
 // unreported.
+//
+// A request entry describes the JSON BODY a client sends: a field the route
+// carrying the record binds from the path, the query string, a header or the
+// raw body (`requestFieldSources`) is named under `bound` and is NOT a body
+// property, so `ddd diff` never reads a path `id` as a body field a client
+// must start sending.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import { requestFieldSources } from "../../src/ir/plan/request-wire.js";
 import type { EnrichedSystemIR } from "../../src/ir/types/loom-ir.js";
 import { workflowEmitsCommandRoute } from "../../src/ir/types/queries.js";
 import { declaredResponseFor } from "../../src/ir/util/declared-response.js";
@@ -76,5 +83,42 @@ describe("wire-spec request contracts (corpus census)", () => {
     expectReach("served requests", requests, 900);
     expectReach("command-started workflows", workflows, 50);
     expect(missing).toEqual([]);
+  }, 180_000);
+
+  it("a request's body omits every field its route binds elsewhere, and names where", async () => {
+    const wrong: string[] = [];
+    let bound = 0;
+    for (const file of trackedDddFiles().filter(
+      (f) => f.startsWith("test/fixtures/corpus/") && f.endsWith(".ddd"),
+    )) {
+      const { model, errors } = await parseString(dddSourceOf(file), { validate: true });
+      expect(errors, `${file}: corpus fixture must parse`).toEqual([]);
+      const loom = enrichLoomModel(lowerModel(model));
+      for (const sys of loom.systems) {
+        const doc = buildWireSpec(sys);
+        const entry = (record: string) =>
+          doc.requests[record] ??
+          Object.entries(doc.requests).find(([k]) => k.split(".").pop() === record)?.[1];
+        for (const [, byRecord] of requestFieldSources(sys)) {
+          for (const [record, byField] of byRecord) {
+            const schema = entry(record);
+            if (!schema) continue; // a record the requests bucket does not carry
+            for (const [field, sources] of byField) {
+              if (sources.has("body")) continue;
+              bound++;
+              const at = schema.bound?.[field];
+              if (!at) wrong.push(`${file}: ${record}.${field} is not listed in \`bound\``);
+              else if (Object.hasOwn(schema.properties, field))
+                wrong.push(
+                  `${file}: ${record}.${field} rides in ${at.join("/")} but is a body property`,
+                );
+            }
+          }
+        }
+      }
+    }
+    // The denominator: every corpus model routes a path `{id}` into a record.
+    expectReach("fields bound outside the body", bound, 500);
+    expect(wrong).toEqual([]);
   }, 180_000);
 });

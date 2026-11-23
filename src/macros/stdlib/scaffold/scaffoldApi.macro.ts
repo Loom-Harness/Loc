@@ -1,13 +1,13 @@
 import type { Route, Subdomain } from "../../../language/generated/ast.js";
-import { defineMacro, handlerRef, route } from "../../api/index.js";
+import { defineMacro, sendRoute } from "../../api/index.js";
 import {
-  canHandlerName,
+  canRecordName,
   canRoutePath,
   handlerTargets,
   permissionQueryTargets,
-  targetHandlerName,
   targetMethod,
   targetPath,
+  targetRecordName,
 } from "./_handlers-shared.js";
 
 /** Emit a `route <METHOD> <path> -> <Context>.<Handler>` for every eligible
@@ -53,16 +53,17 @@ export default defineMacro({
     const out: Route[] = [];
     for (const ctx of sub.contexts ?? []) {
       for (const t of handlerTargets(ctx)) {
-        out.push(route(targetMethod(t), targetPath(t), handlerRef(ctx.name, targetHandlerName(t))));
+        out.push(sendRoute(targetMethod(t), targetPath(t), ctx.name, targetRecordName(t)));
       }
       // The permission queries: `GET /<coll>/{id}/can_<op>`, the slot the
       // derived probe would otherwise serve (an explicit route claims it).
       for (const { agg, op } of permissionQueryTargets(ctx)) {
         out.push(
-          route(
+          sendRoute(
             "GET",
             canRoutePath(agg.name, op.name),
-            handlerRef(ctx.name, canHandlerName(op.name, agg.name)),
+            ctx.name,
+            canRecordName(op.name, agg.name),
           ),
         );
       }

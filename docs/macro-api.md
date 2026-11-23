@@ -173,6 +173,7 @@ Used by the context- and api-target scaffold macros.
 | `singletonProjection(name, source, alias, members, selects, opts?)` | A keyless query-time `projection` returning one row (`opts.where`, `groupBys`, `gate`). |
 | `handlerRef(context, handler)` | A `Context.Handler` reference, the target of a route. |
 | `route(method, path, target)` | A `route <METHOD> <path> -> Context.Handler` api member (`path` unquoted). |
+| `sendRoute(method, path, context, record)` | A `route <METHOD> <path> send Context.Record` api member: the request carries the record, whose one handler catches it. |
 | `apiReadFields(agg)` / `apiReadFieldsOf(members, …)` | The response field list of an aggregate / entity part, with no `id` row. |
 
 ### `ui-factories.ts` — UI-side AST nodes

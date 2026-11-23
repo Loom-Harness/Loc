@@ -643,7 +643,7 @@ by who it breaks:
 
 | Class | Raised by | Examples |
 |---|---|---|
-| `breaking-for-clients` | the wire contract (`contracts/wire-spec.json`) moved under an existing client — a read record or a request record | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field; on a request: an operation or `create` parameter dropped, or a new required one |
+| `breaking-for-clients` | the wire contract (`contracts/wire-spec.json`) moved under an existing client — a read record or a request record | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field; on a request: an operation or `create` parameter dropped, a new required one, or a field moving between the JSON body and the path / query string / a header |
 | `breaking-for-data` | the destructive migration gate — the same one `migrate add` applies without `--allow-destructive` | a column or table drop, a NOT NULL add with no default or backfill, a narrowing column type, a reshape |
 | `compatible` | everything else | a new optional field, required → optional, a new aggregate, a declared `RENAME COLUMN` |
 

@@ -119,6 +119,7 @@ import {
   mkProjectionSelect,
   mkProperty,
   mkQueryHandler,
+  mkRecordRef,
   mkRequiresStmt,
   mkReturnStmt,
   mkRoute,
@@ -1244,6 +1245,30 @@ export function route(method: HttpMethod, path: string, target: HandlerRef): Rou
   const origin = currentOrigin();
   const node: Route = tag(mkRoute({ $type: "Route", method, path, target, binds: [] }), origin);
   setContainer(target, node, "target");
+  return node;
+}
+
+/** A `route <METHOD> <PATH> send Context.Record` api-body binding: the
+ * request carries the named `command` / `query` record, whose one handler
+ * catches it.  Path placeholders, the query string (GET) and the JSON body
+ * bind to the record's fields by name. */
+export function sendRoute(
+  method: HttpMethod,
+  path: string,
+  contextName: string,
+  recordName: string,
+): Route {
+  const origin = currentOrigin();
+  const sends = tag(
+    mkRecordRef({
+      $type: "RecordRef",
+      context: makeRef<import("../../language/generated/ast.js").BoundedContext>(contextName),
+      record: recordName,
+    }),
+    origin,
+  );
+  const node: Route = tag(mkRoute({ $type: "Route", method, path, sends, binds: [] }), origin);
+  setContainer(sends, node, "sends");
   return node;
 }
 
