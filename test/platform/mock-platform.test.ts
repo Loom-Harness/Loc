@@ -1,47 +1,13 @@
-// The `mock` platform's project and compose service: `generate system` emits
-// a dependency-free Node server for the mock deployable that answers
-// `/health` and refuses every other request with a problem-details 501, and
-// compose runs it with no database while the web deployable reaches it
-// exactly as it reaches a node backend.
+// The `mock` platform's project and compose service, at the emission tier:
+// what `generate system` writes for a mock deployable, what it depends on, and
+// how compose wires it.  What the app DOES (routes, rows, statuses, its
+// OpenAPI document against the node backend's) is the opt-in runtime tier,
+// `mock-runtime.test.ts`, which installs and runs the emitted project.
 
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { request, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { BACKEND_PINS } from "../../src/platform/hono/v5/pins.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { mockSystem } from "../_helpers/mock-system.js";
-
-/** One request against the in-process server.  Plain `node:http` rather than
- *  `fetch`: the unit project shares a module graph per worker
- *  (`isolate: false`), so another file's stubbed global `fetch` would reach
- *  this one. */
-function call(
-  url: string,
-  method: string,
-): Promise<{ status: number; contentType: string | undefined; body: unknown }> {
-  return new Promise((resolve, reject) => {
-    const req = request(url, { method }, (res) => {
-      let text = "";
-      res.setEncoding("utf8");
-      res.on("data", (chunk: string) => {
-        text += chunk;
-      });
-      res.on("end", () =>
-        resolve({
-          status: res.statusCode ?? 0,
-          contentType: res.headers["content-type"],
-          body: JSON.parse(text),
-        }),
-      );
-    });
-    req.on("error", reject);
-    req.end();
-  });
-}
 
 /** The service stanza of `name` in a rendered docker-compose.yml. */
 function composeService(compose: string, name: string): string {
@@ -55,59 +21,65 @@ function composeService(compose: string, name: string): string {
 describe("platform: mock — generated project", () => {
   let files: Map<string, string>;
   let nodeFiles: Map<string, string>;
-  let dir: string;
-  let server: Server;
-  let base: string;
+  let own: string[];
 
   beforeAll(async () => {
     files = await generateSystemFiles(mockSystem("mock"));
     nodeFiles = await generateSystemFiles(mockSystem("node"));
-    dir = mkdtempSync(join(tmpdir(), "loom-mock-"));
-    const serverPath = join(dir, "server.mjs");
-    writeFileSync(serverPath, files.get("api/server.mjs") ?? "");
-    const mod = (await import(pathToFileURL(serverPath).href)) as {
-      start: (port: number) => Server;
+    own = [...files.keys()].filter((p) => p.startsWith("api/")).sort();
+  });
+
+  it("emits the Hono app, its runtime and its routers, and no database layer", () => {
+    expect(own).toEqual([
+      "api/.dockerignore",
+      "api/Dockerfile",
+      "api/boot.ts",
+      "api/http/index.ts",
+      "api/http/mock-runtime.ts",
+      "api/http/problem-details.ts",
+      "api/http/project.routes.ts",
+      "api/http/task.routes.ts",
+      "api/http/tasksApi-routes.ts",
+      "api/index.ts",
+      "api/package.json",
+      "api/tsconfig.json",
+      "api/tsup.config.ts",
+    ]);
+  });
+
+  it("depends on the node backend's pins for the packages it shares", () => {
+    const pkg = JSON.parse(files.get("api/package.json") ?? "{}") as {
+      dependencies: Record<string, string>;
+      devDependencies: Record<string, string>;
     };
-    server = mod.start(0);
-    if (!server.listening) await new Promise((r) => server.once("listening", r));
-    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  });
-
-  afterAll(async () => {
-    await new Promise((r) => server?.close(r));
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("emits exactly the placeholder project for the mock deployable", () => {
-    const own = [...files.keys()].filter((p) => p.startsWith("api/")).sort();
-    expect(own).toEqual(["api/Dockerfile", "api/package.json", "api/server.mjs"]);
-  });
-
-  it("emits a server node accepts", () => {
-    // `node --check` parses the module without running it.
-    const check = () => execFileSync(process.execPath, ["--check", join(dir, "server.mjs")]);
-    expect(check).not.toThrow();
-  });
-
-  it("answers /health with 200", async () => {
-    const res = await call(`${base}/health`, "GET");
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: "ok" });
-  });
-
-  it("refuses every other route with a problem-details 501", async () => {
-    for (const [method, path] of [
-      ["GET", "/api/projects"],
-      ["POST", "/api/tasks"],
-    ] as const) {
-      const res = await call(`${base}${path}`, method);
-      expect(res.status).toBe(501);
-      expect(res.contentType).toBe("application/problem+json");
-      const body = res.body as { status: number; title: string; detail: string };
-      expect(body.status).toBe(501);
-      expect(body.title).toBe("Not Implemented");
-      expect(body.detail).toContain(`${method} ${path}`);
+    for (const name of ["hono", "@hono/node-server", "@hono/zod-openapi", "zod"] as const) {
+      expect(pkg.dependencies[name], name).toBe(BACKEND_PINS.dependencies[name]);
     }
+    for (const name of ["typescript", "tsx", "tsup"] as const) {
+      expect(pkg.devDependencies[name], name).toBe(BACKEND_PINS.devDependencies[name]);
+    }
+    expect(Object.keys(pkg.dependencies)).not.toContain("pg");
+    expect(Object.keys(pkg.dependencies)).not.toContain("drizzle-orm");
+  });
+
+  it("serves the same problem-details module the node backend does", () => {
+    // The 422 body every invalid request answers comes from this module.
+    expect(files.get("api/http/problem-details.ts")).toBe(
+      nodeFiles.get("api/http/problem-details.ts"),
+    );
+  });
+
+  // Import hygiene, which no booted tier reads: the app half must bundle for a
+  // browser, so only the server entry may import a Node-only module.
+  it("imports nothing Node-only outside the server entry", () => {
+    const browserSafe = own.filter((p) => p.startsWith("api/http/") || p === "api/boot.ts");
+    expect(browserSafe.length).toBeGreaterThan(4);
+    for (const p of browserSafe) {
+      const src = files.get(p) ?? "";
+      expect(src, p).not.toMatch(/from "node:/);
+      expect(src, p).not.toMatch(/\bprocess\./);
+    }
+    expect(files.get("api/index.ts")).toMatch(/from "@hono\/node-server"/);
   });
 
   it("composes the mock with no database and probes its /health", () => {

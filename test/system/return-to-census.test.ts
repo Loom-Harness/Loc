@@ -28,6 +28,7 @@ const RULE = "util/return-to.ts";
 /** The readers: each backend's OIDC handshake and each frontend's sign-in. */
 const READERS = [
   "platform/hono/shared/auth-emit.ts",
+  "platform/mock/surface-routes.ts",
   "generator/dotnet/auth-emit.ts",
   "generator/elixir/auth-emit.ts",
   "generator/python/auth-emit.ts",

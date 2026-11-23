@@ -468,7 +468,7 @@ export class ConcurrencyError extends Error {
  *  `defaultHook` (passed to `new OpenAPIHono({ defaultHook })` so Zod parse
  *  failures translate to 422 ProblemDetails with per-field `errors[]`
  *  consumed by the frontend ACL's `applyServerErrors`). */
-function problemDetailsTs(
+export function problemDetailsTs(
   versioned: boolean,
   valueObjectInvariants = false,
   domainFloorCodes = false,
@@ -1911,6 +1911,10 @@ export interface BackendPins {
   devDependencies: Record<string, string>;
 }
 
+/** The `decimal.js` pin a project carrying `money` (or exact `decimal`
+ *  arithmetic) depends on. */
+export const DECIMAL_JS_VERSION = "10.6.0";
+
 function projectPackageJson(
   pins: BackendPins,
   opts: {
@@ -2014,7 +2018,7 @@ function projectPackageJson(
         },
         dependencies: {
           ...dependencies,
-          ...(opts.withMoney ? { "decimal.js": "10.6.0" } : {}),
+          ...(opts.withMoney ? { "decimal.js": DECIMAL_JS_VERSION } : {}),
           // OIDC token verification (D-AUTH-OIDC) — jose owns JWKS fetch +
           // signature/claims validation in the generated verifier.
           ...(opts.withOidc ? { jose: "5.10.0" } : {}),
@@ -2062,7 +2066,7 @@ export default defineConfig({
 // an uncaught throw → 500), and exposes the parsed `Decimal`
 // instance to route handlers.  Routes reference `moneySchema` rather
 // than redeclaring the chain at every field site.
-const LIB_SCHEMAS_MONEY_TS = `// Auto-generated.  Do not edit by hand.
+export const LIB_SCHEMAS_MONEY_TS = `// Auto-generated.  Do not edit by hand.
 import Decimal from "decimal.js";
 import { z } from "@hono/zod-openapi";
 
@@ -2119,7 +2123,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
  *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md. `noEmit` (already set below) is the other
  *  half of that flag's precondition. Flag-off keeps this field absent, so
  *  the emitted tsconfig.json is byte-identical to before. */
-function projectTsconfigJson(debugImports: boolean): string {
+export function projectTsconfigJson(debugImports: boolean): string {
   return (
     JSON.stringify(
       {
@@ -2184,7 +2188,7 @@ export default defineConfig({
 `;
 }
 
-const TSUP_CONFIG = `// Auto-generated.  tsup bundles index.ts → dist/index.js for
+export const TSUP_CONFIG = `// Auto-generated.  tsup bundles index.ts → dist/index.js for
 // production.  Externals match runtime deps from package.json so
 // pg's native bindings + drizzle's heavy modules stay outside the
 // bundle (loaded from node_modules at runtime).

@@ -42,10 +42,13 @@ A `mock` deployable stands in for a backend at the api contract.  It takes
 as it targets one, but it runs no domain logic and owns no database, broker,
 migrations, metrics or tracing — `servesContractOnly` in its `facts` marks
 it, and the persistence, tenancy and channel checks skip it as they skip a
-frontend.  Its project (`src/generator/mock/`) is a dependency-free Node
-server: it answers `GET /health` with 200 and every other request with 501
-and an `application/problem+json` body.  A `dataSources:` list on it is
-accepted and binds nothing.
+frontend.  Its project (`src/platform/mock/`) is a Hono app with the `node`
+backend's routes: the same paths, methods, operationIds, request and response
+schemas and declared statuses, so its `/openapi.json` is the `node` backend's
+for the same model.  It answers them from an in-memory store of wire rows,
+seeded at start with generated rows, and simulates no rule, permission,
+tenancy check or workflow.  A `dataSources:` list on it is accepted and binds
+nothing.
 
 A frontend's framework is the `ui`'s own `framework:` clause, never the
 deployable's: one `ui` renders in exactly one framework, and a `web`

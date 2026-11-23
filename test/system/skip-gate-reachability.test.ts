@@ -312,6 +312,8 @@ const ON_DEMAND_SCRIPTS: Readonly<Record<string, string>> = {
     "measures URLs of apps the caller already booted (docs/testing.md: local / on-demand)",
   "test:format-dotnet": "dotnet-format conformance of a generated tree, run locally on demand",
   "test:fuzz-deep": "long-running deep pipeline fuzz, run locally on demand",
+  "test:mock-runtime":
+    "installs the mock and node projects from the registry and runs both; run locally on demand",
 };
 
 /** Scripts that set a gate var no workflow sets itself, and that no workflow

@@ -1455,11 +1455,39 @@ The plan does not cover:
 
 A contract-class deployable: it hosts contexts and `serves:` apis so a
 frontend can `targets:` it, but it emits no domain code and owns no database.
-Its project is three files — `package.json`, `server.mjs` (a dependency-free
-`node:http` server) and a single-stage `Dockerfile` on the Node base image the
-`node` backend runs on.  The server answers `GET /health` with `200` and every
-other request with `501` and an `application/problem+json` body naming the
-method and path.
+Its emitter (`src/platform/mock/`) renders the `node` backend's route
+declarations through the Hono builders' schema helpers, so for the same model
+the two apps publish the same `/openapi.json`.  Only the handlers differ: they
+read and write wire rows in an in-memory store.
+
+| File | Holds |
+|---|---|
+| `http/index.ts` | `createApp(db?, events?)` — the `node` backend's factory signature, arguments ignored.  Mounts every router, `GET /health`, `GET /ready`, the plain-text notice at `GET /`, and the `x-loom-mock: rules-not-simulated` header on every response. |
+| `http/<agg>.routes.ts` | One aggregate's routes and schemas, plus the store's description of its row (`<Agg>Model`). |
+| `http/<api>-routes.ts`, `http/workflows.ts`, `http/projections.ts` | Explicit api routes, workflow start and instance routes, projection reads. |
+| `http/auth.ts` | With `auth: required`: `/api/auth/me` answers the one `DEFAULT_USER` (every declared permission), `/refresh`, `/login` and `/logout` succeed. |
+| `http/mock-runtime.ts` | The store, the stable ids and `initialRows`, the single source of starting rows. |
+| `http/problem-details.ts` | The `node` backend's module, so a validation failure is the same 422 body. |
+| `boot.ts`, `index.ts` | `bootApp` in the `node` backend's call shape; the server entry on `@hono/node-server`, the only module that imports a Node API. |
+
+Each aggregate starts with 25 rows generated from its response schema by
+`zocker`, seeded per aggregate so a model yields the same rows on every start,
+then corrected by the field's wire type: a stable id per row, every `X id` an
+id of a real row of `X`, typical nouns for common field names, `display` from
+the name-like field, version 1, ISO datetimes.  A route answers per kind:
+
+| Route | Answer |
+|---|---|
+| list (`all`) and other finds | Stored rows, filtered by query parameters named like a field; paged reads page, sort and count for real. |
+| get by id | The row, or the 404 problem body. |
+| create | A generated row with the request's fields copied over, `201 {id}`. |
+| `update` | The request merged over the row (absent keeps, `null` clears), version bumped, a stale `If-Match` a 409. |
+| any other operation | Nothing changes: 204, or a generated value of its declared result (a `T or E` result answers `501`). |
+| destroy | Removes the row, 204; 404 when absent. |
+| `can_<op>` | `{ allowed: true }`. |
+| workflow start | 204, or a generated value of its declared result; instance reads are empty. |
+| query / command handler, projection | Stored rows where the result is an aggregate, else a generated value of the declared result; a command changes nothing. |
+| file upload, realtime | `501` problem body. |
 
 ---
 

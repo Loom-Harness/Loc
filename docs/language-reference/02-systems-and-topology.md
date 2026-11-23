@@ -378,7 +378,7 @@ Each backend's connection string targets its storage's database (`…/primary`) 
 Platform: 'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | 'gateway' | 'mock' | STRING;
 ```
 
-A `mock` deployable takes `contexts:` and `serves:` like a backend and a frontend may `targets:` it, but it runs no domain logic and owns no database: its generated server answers `GET /health` and refuses every other request with `501` ([`platforms.md`](../platforms.md#registered-platforms)).
+A `mock` deployable takes `contexts:` and `serves:` like a backend and a frontend may `targets:` it, but it runs no domain logic and owns no database: its generated app serves the `node` backend's routes and schemas from an in-memory store of generated rows ([`platforms.md`](../platforms.md#registered-platforms)).
 
 The backend families and what they generate (registered in `src/platform/registry.ts`, each implementing `PlatformSurface`; the client-safe facts live in `src/platform/metadata.ts`):
 
