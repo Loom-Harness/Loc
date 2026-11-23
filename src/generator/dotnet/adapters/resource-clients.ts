@@ -19,6 +19,7 @@ import {
   resourceSidecarUrl,
   SENDGRID_API_BASE,
 } from "../../../util/resource-env.js";
+import { CS_NAME } from "../cs-symbols.js";
 
 export interface DotnetResourceAdapter {
   readonly name: string;
@@ -144,7 +145,7 @@ const s3DotnetAdapter: DotnetResourceAdapter = {
         "        {",
         `            BucketName = ${cls}Bucket,`,
         "            Key = key,",
-        "            Expires = DateTime.UtcNow.AddHours(1),",
+        `            Expires = ${CS_NAME.DateTime}.UtcNow.AddHours(1),`,
         `            Protocol = ${cls}Endpoint?.StartsWith("http://", StringComparison.Ordinal) == true ? Protocol.HTTP : Protocol.HTTPS,`,
         "        });",
         "        return Task.FromResult(url);",
@@ -226,7 +227,7 @@ const localDiskDotnetAdapter: DotnetResourceAdapter = {
         // GET /files/{key} param is caller-supplied, so keep it inside the dir.
         `    private static string ${cls}Path(string key)`,
         "    {",
-        "        var safe = new string(Array.ConvertAll(",
+        `        var safe = new string(${CS_NAME.Array}.ConvertAll(`,
         "            key.ToCharArray(),",
         "            c => char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-' ? c : '_'));",
         `        return Path.Combine(${cls}Dir, safe);`,
@@ -275,7 +276,7 @@ const localDiskDotnetAdapter: DotnetResourceAdapter = {
         `    public static Task<IReadOnlyList<string>> ${cls}_List(string prefix)`,
         "    {",
         `        if (!Directory.Exists(${cls}Dir))`,
-        "            return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());",
+        `            return Task.FromResult<IReadOnlyList<string>>(${CS_NAME.Array}.Empty<string>());`,
         "        var keys = new List<string>();",
         `        foreach (var f in Directory.GetFiles(${cls}Dir))`,
         "        {",

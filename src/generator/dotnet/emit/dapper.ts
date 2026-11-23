@@ -90,6 +90,7 @@ import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { csIdSqlType, csJsonSqlType, csSqlType } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
@@ -201,7 +202,7 @@ const PRIM_ROW_CS: Readonly<Record<string, string>> = {
   decimal: "decimal",
   money: "decimal",
   bool: "bool",
-  datetime: "DateTime",
+  datetime: CS_NAME.DateTime,
   date: "DateOnly",
   guid: "Guid",
   // A `json` field and a `File` field's FileRef persist as jsonb (M-T1.2); the
@@ -353,7 +354,15 @@ function idColumn(agg: EnrichedAggregateIR, idClass = `${agg.name}Id`): DapperCo
 }
 
 /** C# row types that are value types: a nullable one reads `.Value`. */
-const CS_VALUE_TYPES = new Set(["int", "long", "decimal", "bool", "DateTime", "DateOnly", "Guid"]);
+const CS_VALUE_TYPES = new Set([
+  "int",
+  "long",
+  "decimal",
+  "bool",
+  CS_NAME.DateTime,
+  "DateOnly",
+  "Guid",
+]);
 
 /** `read` (a nullable row slot of C# type `rowCs`) as its non-null value. */
 function nonNull(read: string, rowCs: string): string {
@@ -2097,7 +2106,7 @@ export function renderDapperRepository(
     ? [
         "        foreach (var __lin in aggregate.DrainProv())",
         "        {",
-        `            await conn.ExecuteAsync(new CommandDefinition("INSERT INTO provenance_records (trace_id, snapshot_id, target_type, field, inputs, computed_value, at, correlation_id, scope_id, actor_id, parent_id) VALUES (@trace_id, @snapshot_id, @target_type, @field, CAST(@inputs AS jsonb), CAST(@computed_value AS jsonb), @at, @correlation_id, @scope_id, @actor_id, @parent_id)", new { trace_id = Guid.NewGuid().ToString(), snapshot_id = __lin.SnapshotId, target_type = __lin.Target.Type, field = __lin.Target.Field, inputs = System.Text.Json.JsonSerializer.Serialize(__lin.Inputs, ProvJson.Options), computed_value = System.Text.Json.JsonSerializer.Serialize(__lin.ComputedValue, ProvJson.Options), at = DateTime.UtcNow, correlation_id = RequestContext.Current?.CorrelationId, scope_id = RequestContext.Current?.ScopeId, actor_id = RequestContext.Current?.ActorId, parent_id = RequestContext.Current?.ParentId }, transaction: __tx, cancellationToken: cancellationToken));`,
+        `            await conn.ExecuteAsync(new CommandDefinition("INSERT INTO provenance_records (trace_id, snapshot_id, target_type, field, inputs, computed_value, at, correlation_id, scope_id, actor_id, parent_id) VALUES (@trace_id, @snapshot_id, @target_type, @field, CAST(@inputs AS jsonb), CAST(@computed_value AS jsonb), @at, @correlation_id, @scope_id, @actor_id, @parent_id)", new { trace_id = Guid.NewGuid().ToString(), snapshot_id = __lin.SnapshotId, target_type = __lin.Target.Type, field = __lin.Target.Field, inputs = System.Text.Json.JsonSerializer.Serialize(__lin.Inputs, ProvJson.Options), computed_value = System.Text.Json.JsonSerializer.Serialize(__lin.ComputedValue, ProvJson.Options), at = ${CS_NAME.DateTime}.UtcNow, correlation_id = ${CS_NAME.RequestContext}.Current?.CorrelationId, scope_id = ${CS_NAME.RequestContext}.Current?.ScopeId, actor_id = ${CS_NAME.RequestContext}.Current?.ActorId, parent_id = ${CS_NAME.RequestContext}.Current?.ParentId }, transaction: __tx, cancellationToken: cancellationToken));`,
         "        }",
       ]
     : [];
@@ -2527,7 +2536,7 @@ export function renderDapperRepository(
       ...writeScopeMethod,
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${idClass}> ids, CancellationToken cancellationToken = default)`,
       "    {",
-      "        if (ids.Count == 0) return Array.Empty<" + agg.name + ">();",
+      `        if (ids.Count == 0) return ${CS_NAME.Array}.Empty<${agg.name}>();`,
       `        ${dapperOpenConn(ns)}`,
       `        var rows = await conn.QueryAsync<Row>(new CommandDefinition(${csSqlLiteral(`SELECT ${colList} FROM ${table} WHERE id = ANY(@ids)${andFilter(true)}`)}, new { ids = ids.Select(x => x.Value).ToArray()${princSuffix} }, cancellationToken: cancellationToken));`,
       ...(hasContains
@@ -2892,7 +2901,7 @@ export function renderDapperDocumentRepository(
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${agg.name}Id> ids, CancellationToken cancellationToken = default)`,
       "    {",
-      `        if (ids.Count == 0) return Array.Empty<${agg.name}>();`,
+      `        if (ids.Count == 0) return ${CS_NAME.Array}.Empty<${agg.name}>();`,
       `        ${dapperOpenConn(ns)}`,
       `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} WHERE id = ANY(@ids)", new { ids = ids.Select(x => x.Value).ToArray() }, cancellationToken: cancellationToken));`,
       `        return __rows.Select(__d => ${deser})${capFilter}.ToList();`,
@@ -3135,7 +3144,7 @@ export function renderDapperEventSourcedRepository(
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${agg.name}Id> ids, CancellationToken cancellationToken = default)`,
       "    {",
-      `        if (ids.Count == 0) return Array.Empty<${agg.name}>();`,
+      `        if (ids.Count == 0) return ${CS_NAME.Array}.Empty<${agg.name}>();`,
       `        var __out = new List<${agg.name}>();`,
       "        foreach (var __id in ids)",
       "        {",
@@ -3320,7 +3329,7 @@ function renderDapperDateOnlyHandler(ns: string): string {
     "    }",
     "",
     "    public override DateOnly Parse(object value) =>",
-    "        value is DateOnly d ? d : DateOnly.FromDateTime((DateTime)value);",
+    `        value is DateOnly d ? d : DateOnly.FromDateTime((${CS_NAME.DateTime})value);`,
     "}",
   );
 }

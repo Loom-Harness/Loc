@@ -69,7 +69,7 @@ describe("feliz param-less operation forms", () => {
   it("wires the update arm — submit posts `()`, done navigates (no form reset)", async () => {
     const app = await appFs();
     expect(app).toContain(
-      "  | SubmitConfirmOrderOpForm id -> { model with ConfirmOrderOpFormServer = ServerErrors.empty; ConfirmOrderOpFormPending = true }, Cmd.OfAsync.either (Api.confirmOrder id) () ConfirmOrderOpDone (fun ex -> ConfirmOrderOpDone (Error (ServerErrors.formLevel ex.Message)))",
+      "  | SubmitConfirmOrderOpForm id -> { model with ConfirmOrderOpFormServer = ServerErrors.empty; ConfirmOrderOpFormPending = true }, Cmd.OfAsync.either (Api.confirmOrder id) () ConfirmOrderOpDone (fun _ -> ConfirmOrderOpDone (Error ServerErrors.unreachable))",
     );
     // Success stays on the record's page and reloads it.
     expect(app).toContain(

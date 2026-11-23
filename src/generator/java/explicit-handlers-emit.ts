@@ -866,6 +866,7 @@ function javaDispatchFiles(
   }
   if (entries.length === 0) return [];
   const imports = [...imported].sort();
+  const request = javaRequestInterface(ctx.name);
   const records = entries.map(({ rec }) => ({
     name: `${rec.name}.java`,
     content: lines(
@@ -875,7 +876,7 @@ function javaDispatchFiles(
       ``,
       `public record ${rec.name}(${rec.fields
         .map((f) => `${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)}`)
-        .join(", ")}) {}`,
+        .join(", ")}) implements ${request} {}`,
       ``,
     ),
   }));
@@ -907,7 +908,66 @@ function javaDispatchFiles(
     `}`,
     ``,
   );
-  return [...records, { name: `${cls}.java`, content: dispatcher }];
+  const requestFile = lines(
+    `package ${appPkg};`,
+    ``,
+    `public sealed interface ${request} permits ${entries.map(({ rec }) => rec.name).join(", ")} {}`,
+    ``,
+  );
+  const busCls = javaBusClass(ctx.name);
+  const bus = lines(
+    `package ${appPkg};`,
+    ``,
+    `import org.springframework.stereotype.Service;`,
+    ...imports,
+    ``,
+    `@Service`,
+    `public class ${busCls} {`,
+    `    private final ${cls} dispatch;`,
+    ``,
+    `    public ${busCls}(${cls} dispatch) {`,
+    `        this.dispatch = dispatch;`,
+    `    }`,
+    ...entries.flatMap(({ rec, ret }) => {
+      const call = `dispatch.${javaDispatchMethod(rec.name)}(request)`;
+      return [
+        ``,
+        `    public ${ret} send(${rec.name} request) {`,
+        ret === "void" ? `        ${call};` : `        return ${call};`,
+        `    }`,
+      ];
+    }),
+    ``,
+    `    public Object send(${request} request) {`,
+    `        return switch (request) {`,
+    ...entries.map(({ rec, ret }) => {
+      const call = `dispatch.${javaDispatchMethod(rec.name)}(r)`;
+      return ret === "void"
+        ? `            case ${rec.name} r -> { ${call}; yield null; }`
+        : `            case ${rec.name} r -> ${call};`;
+    }),
+    `        };`,
+    `    }`,
+    `}`,
+    ``,
+  );
+  return [
+    ...records,
+    { name: `${request}.java`, content: requestFile },
+    { name: `${cls}.java`, content: dispatcher },
+    { name: `${busCls}.java`, content: bus },
+  ];
+}
+
+/** `<Ctx>Request`, the sealed interface every request record of a context
+ *  implements: a `switch` over it is exhaustive or it does not compile. */
+function javaRequestInterface(context: string): string {
+  return `${DOMAIN_NAMES.java.type(context)}Request`;
+}
+
+/** `<Ctx>Bus`, the typed bus over `<Ctx>Dispatch`. */
+function javaBusClass(context: string): string {
+  return `${DOMAIN_NAMES.java.type(context)}Bus`;
 }
 
 /** `<Ctx>Dispatch`, the bean a context's request records are dispatched through. */

@@ -9,6 +9,7 @@ import { inheritanceDepth } from "../../../ir/util/inheritance.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { renderCsExpr } from "../render-expr.js";
 
 // EF Core SaveChangesInterceptor that stamps fields on lifecycle
@@ -181,10 +182,12 @@ function renderArm(
   // the legacy fallback keeps the plain render.
   const renderValue = (value: ExprIR): string =>
     isCurrentUserRef(value) && actorIdProp
-      ? `RequestContext.Current!.CurrentUser!.${actorIdProp}`
+      ? `${CS_NAME.RequestContext}.Current!.CurrentUser!.${actorIdProp}`
       : renderCsExpr(value, {
           thisName: argName,
-          ...(actorIdProp ? { currentUserExpr: "RequestContext.Current!.CurrentUser!" } : {}),
+          ...(actorIdProp
+            ? { currentUserExpr: `${CS_NAME.RequestContext}.Current!.CurrentUser!` }
+            : {}),
         });
   // EF metadata write through the compile-checked lambda: keeps the stamped
   // property `private set` (the CLR setter is never invoked) yet binds the
@@ -199,9 +202,9 @@ function renderArm(
   // from SaveChanges as an opaque 500 naming nothing.
   const claimGuard = (event: "create" | "update"): string[] =>
     requiredClaimStamps(agg, event).flatMap((stamp) => [
-      `                        if (string.IsNullOrEmpty(RequestContext.Current!.CurrentUser!.${upperFirst(stamp.claim)}))`,
+      `                        if (string.IsNullOrEmpty(${CS_NAME.RequestContext}.Current!.CurrentUser!.${upperFirst(stamp.claim)}))`,
       "                        {",
-      `                            throw new ForbiddenException(${JSON.stringify(missingClaimMessage(stamp))});`,
+      `                            throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(missingClaimMessage(stamp))});`,
       "                        }",
     ]);
 

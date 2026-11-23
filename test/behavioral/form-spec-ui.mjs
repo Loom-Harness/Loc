@@ -649,3 +649,57 @@ export function themeFontWhy(got, family) {
   }
   return why;
 }
+
+/** The form-level messages of a failed submit (`_frontend/submit-failure.ts`):
+ *  a refusal's catalog text, and the sentence for no answer at all. */
+export const FORM_FAILURE_MESSAGES = {
+  conflict: "Someone else changed this. Reload and try again.",
+  unreachable: "Could not reach the server. Try again.",
+};
+
+/** A submit the server refuses with a 409, then one that gets no answer: each
+ *  shows its message inside the form (`meters-new-error`) and the form stays
+ *  on screen — never a crash banner or an empty page. */
+export async function judgeTransportFailure(page, origin) {
+  const why = [];
+  const isCreate = (url) => url.pathname === "/api/meters";
+  const attempt = async (handler, want, label) => {
+    await page.route(isCreate, (r) => (r.request().method() === "POST" ? handler(r) : r.continue()));
+    try {
+      await page.goto(`${origin}/meters/new`);
+      await (await inputOf(page, "meters-new-input-reading")).fill("5");
+      await page.locator('[data-testid="meters-new-submit"]').first().click({ timeout: 10000 });
+      const message = page.locator('[data-testid="meters-new-error"]').first();
+      const text = await message
+        .waitFor({ timeout: 10000 })
+        .then(() => message.innerText())
+        .catch(() => "");
+      if (!text.includes(want)) {
+        why.push(`transport failure: a ${label} shows no form message "${want}" (meters-new-error holds ${JSON.stringify(text)})`);
+      }
+      if (!new URL(page.url()).pathname.endsWith("/meters/new")) {
+        why.push(`transport failure: a ${label} left the create form (now at ${page.url()})`);
+      }
+    } finally {
+      await page.unroute(isCreate);
+    }
+  };
+  await attempt(
+    (r) =>
+      r.fulfill({
+        status: 409,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          type: "about:blank",
+          title: "Conflict",
+          status: 409,
+          code: "problem.version-conflict",
+          detail: FORM_FAILURE_MESSAGES.conflict,
+        }),
+      }),
+    FORM_FAILURE_MESSAGES.conflict,
+    "409",
+  );
+  if (why.length === 0) await attempt((r) => r.abort("failed"), FORM_FAILURE_MESSAGES.unreachable, "network failure");
+  return why;
+}

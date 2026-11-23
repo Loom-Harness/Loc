@@ -19,12 +19,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
               enqueueSnackbar({{{successMessage}}}, { variant: "success" });
               setOpen(false);
             } catch (e) {
-              const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-              if (outcome.kind === "global") {
-                enqueueSnackbar(outcome.title, { variant: "error" });
-              } else if (outcome.kind === "unhandled") {
-                enqueueSnackbar((e as Error).message, { variant: "error" });
-              }
+              applyServerErrors({ error: e, setError, fieldMap: {} as const });
             }
           })}
         >
@@ -32,7 +27,8 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
             <Stack gap={2}>
               {{#if hasParams}}{{#each fieldHtmls}}{{{this}}}
               {{/each}}{{else}}<Typography color="text.secondary">{{{chrome "noParameters"}}}</Typography>
-              {{/if}}</Stack>
+              {{/if}}<FormFailure error={errors.root?.submit} testid="{{errorTestid}}" />
+            </Stack>
           </DialogContent>
           <DialogActions>
             <Button type="button" onClick={() => setOpen(false)}>{{{cancelLabel}}}</Button>

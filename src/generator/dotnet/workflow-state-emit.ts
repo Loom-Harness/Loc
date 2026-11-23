@@ -3,6 +3,7 @@ import type { TypeIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { plural, snake, workflowStateTableName } from "../../util/naming.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import { CS_NAME } from "./cs-symbols.js";
 import { renderCsType } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -159,9 +160,9 @@ export function csStateDefault(t: TypeIR): string {
     case "bool":
       return "false";
     case "datetime":
-      return "DateTime.UtcNow";
+      return `${CS_NAME.DateTime}.UtcNow`;
     case "date":
-      return "DateOnly.FromDateTime(DateTime.UtcNow)";
+      return `DateOnly.FromDateTime(${CS_NAME.DateTime}.UtcNow)`;
     case "json":
     case "text":
       return '""';

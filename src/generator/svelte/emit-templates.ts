@@ -1,7 +1,11 @@
 // Static (non-templated) sources the Svelte generator emits verbatim.
 // Sibling of src/generator/react/emit-templates.ts.
 
-import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
+import {
+  ERROR_CODE_HELPERS_TS,
+  errorCodeTBinding,
+  submitFailureTs,
+} from "../_frontend/error-codes.js";
 import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
 import { TS_RUNTIME } from "../_symbols/plan.js";
 
@@ -11,11 +15,11 @@ import { TS_RUNTIME } from "../_symbols/plan.js";
  *  react-hook-form + apply-server-errors: `form.values` (bind:
  *  targets, deep-reactive), `form.errors` (per-field message map
  *  keyed by dotted path), `form.submit(onValid)` (zod parse → error
- *  map fill → submit), `form.applyServerErrors(e)` (RFC 7807
- *  ProblemDetails 422 → per-field errors). */
+ *  map fill → submit), `form.applyServerErrors(e)` (a failed submit: an RFC
+ *  7807 422's field errors on their fields, any other failure as the form's
+ *  one message, `form.failure`). */
 const SVELTE_LIB_FORMS_TEMPLATE = `// Auto-generated.  Do not edit by hand.
 import type { z } from "zod";
-import { ApiError } from "./api/client";
 /*{{T_BINDING}}*/
 /*{{HELPERS}}*/
 /** A form error with the catalog identity it localizes by.  The map a page
@@ -100,12 +104,14 @@ export interface LoomForm<T> {
   readonly submitting: boolean;
   reset(): void;
   submit(onValid: (vals: T) => Promise<void> | void): Promise<void>;
-  /** Decode an RFC 7807 ProblemDetails 422 body (its \`errors\` ARRAY of
-   *  \`{ pointer, code, message }\`) into per-field errors.  Returns "fields"
-   *  when every error attached to a field, "global" with a title for a
-   *  pointer-less error or a problem body without field errors, and
-   *  "unhandled" otherwise. */
-  applyServerErrors(e: unknown): { kind: "fields" } | { kind: "global"; title: string } | { kind: "unhandled" };
+  /** The one message a failed submit shows on the form: a refusal's catalog
+   *  text, or the unreachable sentence.  Null until a submit fails; cleared
+   *  when the next submit starts. */
+  readonly failure: string | null;
+  /** Show what a failed submit answered: a 422's \`errors\` ARRAY (\`{ pointer,
+   *  code, message }\`) on their fields (a pointer-less entry is the form's
+   *  message), any other failure as \`failure\`. */
+  applyServerErrors(e: unknown): { kind: "fields" } | { kind: "form" };
 }
 
 /** Deep-copy the defaults while PRESERVING prototypes.
@@ -143,6 +149,7 @@ export function createForm<S extends z.ZodType>(
   let values = $state(cloneDefaults(defaults) as FormValues<z.infer<S>>);
   let errorEntries = $state<Record<string, FormError>>({});
   let submitting = $state(false);
+  let failure = $state<string | null>(null);
 
   return {
     get values() {
@@ -159,11 +166,16 @@ export function createForm<S extends z.ZodType>(
     get submitting() {
       return submitting;
     },
+    get failure() {
+      return failure;
+    },
     reset() {
       values = cloneDefaults(defaults) as FormValues<z.infer<S>>;
       errorEntries = {};
+      failure = null;
     },
     async submit(onValid: (vals: z.infer<S>) => Promise<void> | void) {
+      failure = null;
       const parsed = schema.safeParse(values);
       if (!parsed.success) {
         const next: Record<string, FormError> = {};
@@ -187,60 +199,34 @@ export function createForm<S extends z.ZodType>(
       }
     },
     applyServerErrors(e: unknown) {
-      const body = e instanceof ApiError ? e.body : e;
-      if (body && typeof body === "object") {
-        const rec = body as {
-          errors?: unknown;
-          title?: string;
-          detail?: string;
-          code?: string;
+      const outcome = classifySubmitFailure(e);
+      if (outcome.kind === "form") {
+        failure = outcome.message;
+        return { kind: "form" as const };
+      }
+      const body = (e as { body?: { errors?: unknown[] } }).body;
+      const next: Record<string, FormError> = { ...errorEntries };
+      for (const entry of body?.errors ?? []) {
+        if (!entry || typeof entry !== "object") continue;
+        const { pointer, message, code, params } = entry as {
+          pointer?: unknown;
+          message?: unknown;
+          code?: unknown;
           params?: Record<string, unknown>;
         };
-        // A 422's \`errors\` is an ARRAY of \`{ pointer, code, message }\`: an entry
-        // whose JSON pointer names a field lands on that field's dot-path
-        // (\`/price/amount\` → \`price.amount\`); a pointer-less entry (a
-        // whole-object rule) is the form-level message.
-        if (Array.isArray(rec.errors)) {
-          const next: Record<string, FormError> = { ...errorEntries };
-          let any = false;
-          let formLevel: string | undefined;
-          for (const entry of rec.errors as unknown[]) {
-            if (!entry || typeof entry !== "object") continue;
-            const { pointer, message, code, params } = entry as {
-              pointer?: unknown;
-              message?: unknown;
-              code?: unknown;
-              params?: Record<string, unknown>;
-            };
-            if (typeof message !== "string" || message.length === 0) continue;
-            const path = typeof pointer === "string" ? pointerToPath(pointer) : "";
-            if (path) {
-              next[path] = { code: typeof code === "string" ? code : "field.rule", message, params };
-              any = true;
-            } else {
-              formLevel ??= localizeProblem(typeof code === "string" ? code : "problem.internal", message, params);
-            }
-          }
-          if (any) errorEntries = next;
-          if (formLevel !== undefined) return { kind: "global" as const, title: formLevel };
-          if (any) return { kind: "fields" as const };
-        }
-        // RFC 7807 \`detail\` carries the domain sentence; \`title\` is only the
-        // reason phrase ("Unprocessable Entity"), so prefer the former.
-        const globalMessage =
-          typeof rec.detail === "string" && rec.detail.length > 0
-            ? rec.detail
-            : typeof rec.title === "string" && rec.title.length > 0
-              ? rec.title
-              : undefined;
-        if (globalMessage !== undefined) {
-          return {
-            kind: "global" as const,
-            title: localizeProblem(rec.code ?? "problem.internal", globalMessage, rec.params),
-          };
+        if (typeof message !== "string" || message.length === 0) continue;
+        // An entry whose JSON pointer names a field lands on that field's
+        // dot-path (\`/price/amount\` → \`price.amount\`); a pointer-less entry (a
+        // whole-object rule) is the form's message.
+        const path = typeof pointer === "string" ? pointerToPath(pointer) : "";
+        if (path) {
+          next[path] = { code: typeof code === "string" ? code : "field.rule", message, params };
+        } else {
+          failure ??= localizeProblem(typeof code === "string" ? code : "problem.internal", message, params);
         }
       }
-      return { kind: "unhandled" as const };
+      errorEntries = next;
+      return { kind: "fields" as const };
     },
   };
 }
@@ -303,7 +289,7 @@ export function modalTrap(node: HTMLElement, onClose: () => void) {
 export function svelteLibForms(i18n: boolean): string {
   return SVELTE_LIB_FORMS_TEMPLATE.replace("/*{{T_BINDING}}*/", () =>
     errorCodeTBinding(i18n, "./locale.svelte"),
-  ).replace("/*{{HELPERS}}*/", () => ERROR_CODE_HELPERS_TS);
+  ).replace("/*{{HELPERS}}*/", () => `${ERROR_CODE_HELPERS_TS}\n${submitFailureTs(i18n)}`);
 }
 
 /** The forms runtime of an app without a catalog. */

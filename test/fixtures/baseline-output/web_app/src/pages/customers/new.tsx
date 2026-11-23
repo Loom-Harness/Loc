@@ -4,6 +4,7 @@ import { CreateCustomerRequest, type CreateCustomerFormState, useCreateCustomer 
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
+import { FormFailure } from "../../lib/form-failure";
 import { zodResolver } from "../../lib/zod-resolver";
 import { Anchor, Breadcrumbs, Button, Card, Group, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
@@ -31,12 +32,7 @@ export default function CustomerNew() {
                     notifications.show({ color: "green", message: t("chrome.created.Customer", "Customer created") });
                     navigate(`/customers/${out.id}`);
                   } catch (e) {
-                    const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-                    if (outcome.kind === "global") {
-                      notifications.show({ color: "red", message: outcome.title });
-                    } else if (outcome.kind === "unhandled") {
-                      notifications.show({ color: "red", message: (e as Error).message });
-                    }
+                    applyServerErrors({ error: e, setError, fieldMap: {} as const });
                   }
                 })} data-testid="customers-new">
           <Stack gap="md">
@@ -52,6 +48,7 @@ export default function CustomerNew() {
               )}
             />
     
+            <FormFailure error={errors.root?.submit} testid="customers-new-error" />
             <Group justify="flex-end" gap="xs" mt="md">
               <Button type="submit" loading={ create.isPending } data-testid="customers-new-submit">{t("Customers.Customer.op.create", "Create")}</Button>
             </Group>

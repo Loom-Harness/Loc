@@ -23,7 +23,7 @@ import {
 import type { PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import type { ColumnType } from "../../ir/types/migrations-ir.js";
 import { numericEncode } from "../_numeric/target.js";
-import { CS } from "./cs-symbols.js";
+import { CS, CS_NAME } from "./cs-symbols.js";
 import { CS_NUMERIC, csDecimalToWireDouble } from "./numeric-codec.js";
 
 // ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@ export function csInstantIngressTruncate(parsed: string): string {
  *  text carries an offset — the request boundary's one instant parse. */
 export function csInstantTryParse(expr: string, outVar: string): string {
   return (
-    `DateTime.TryParse(${expr}, ${CS.CultureInfo}.InvariantCulture, ` +
+    `${CS_NAME.DateTime}.TryParse(${expr}, ${CS.CultureInfo}.InvariantCulture, ` +
     `${CS.DateTimeStyles}.AssumeUniversal | ${CS.DateTimeStyles}.AdjustToUniversal, out var ${outVar})`
   );
 }
@@ -233,7 +233,7 @@ export function csProvWireClass(): string {
     "{",
     `    public static string? Money(decimal? v) => v is null ? null : ${numericEncode(CS_NUMERIC, "money", "dto-map", "v.Value")};`,
     `    public static double? Decimal(decimal? v) => v is null ? null : ${csDecimalToWireDouble("v.Value")};`,
-    `    public static string? Instant(DateTime? v) => v is null ? null : ${csInstantWire("v.Value")};`,
+    `    public static string? Instant(${CS_NAME.DateTime}? v) => v is null ? null : ${csInstantWire("v.Value")};`,
     // IFormattable, not DateOnly?: naming the type would make every provenanced
     // Dapper project register the DateOnly type handler (wireDapperDateOnlyHandler
     // keys on the text), and a DateOnly boxes to it.

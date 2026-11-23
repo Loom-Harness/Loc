@@ -5,6 +5,11 @@
 // named from the project root (`~/domain/ids`); the finalizer makes the
 // specifier relative to the importing file.  `TT` holds the same symbols for
 // a type position.
+//
+// A library or runtime name a model type can also take is referenced ONLY
+// through its symbol here: the finalizer imports it under an alias in the
+// module that also binds the model's type (`finalizeTsModule`), so no emitter
+// spells such a name bare.
 // ---------------------------------------------------------------------------
 
 import { ref } from "../_imports/symbol.js";
@@ -70,6 +75,18 @@ const TS_SYM = {
   sql: tsNamed("drizzle-orm", "sql"),
   schema: tsNamespace("~/db/schema", "schema"),
   NodePgDatabase: tsNamed("drizzle-orm/node-postgres", "NodePgDatabase"),
+  AnyPgColumn: tsNamed("drizzle-orm/pg-core", "AnyPgColumn"),
+  HTTPException: tsNamed("hono/http-exception", "HTTPException"),
+  OpenAPIHono: tsNamed("@hono/zod-openapi", "OpenAPIHono"),
+  DomainError: tsNamed("~/domain/errors", "DomainError"),
+  AggregateNotFoundError: tsNamed("~/domain/errors", "AggregateNotFoundError"),
+  ConcurrencyError: tsNamed("~/domain/errors", "ConcurrencyError"),
+  ValueObjectInvariantError: tsNamed("~/domain/errors", "ValueObjectInvariantError"),
+  DisallowedError: tsNamed("~/domain/errors", "DisallowedError"),
+  ForbiddenError: tsNamed("~/domain/errors", "ForbiddenError"),
+  ExternHandlerError: tsNamed("~/domain/errors", "ExternHandlerError"),
+  ProblemDetails: tsNamed("~/http/problem-details", "ProblemDetails"),
+  UuidString: tsNamed("~/http/problem-details", "UuidString"),
   EntityManager: tsNamed("@mikro-orm/postgresql", "EntityManager"),
 } as const;
 

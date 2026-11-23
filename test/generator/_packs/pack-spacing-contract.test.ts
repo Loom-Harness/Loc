@@ -279,6 +279,7 @@ const formCtx = {
   submitBody: "{}",
   submitPendingExpr: "pending",
   submitTestid: "t",
+  errorTestid: "t-error",
   submitLabel: "Save",
 };
 const tableCtx = {
