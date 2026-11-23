@@ -136,7 +136,7 @@ open PR covers it. **PLANNED M-x** = a `docs/new-plan` mission tracks it.
 ## What worked well (keep it)
 
 - `ddd new --template crud` → `parse` → `generate` takes about 2 s, and the starter validates clean.
-- `when` gates → 409 plus `can_<op>` endpoints, and the UI disables buttons from them.
+- `when` gates → 409 plus `can_<op>` endpoints, and the UI disables buttons from them. That holds for an operation none of whose gates reads a parameter: `comment`, whose `requires` reads `internal`, has no `can_comment`, so its button stays enabled on a Closed ticket and the submit answers the 409.
 - Problem details are consistent: a dangling `X id` → 422, a referenced delete → 409, a unique violation → 409, field-level `errors[]` with `msg.<hash>` codes.
 - Migration safety: rename detection, `migration` blocks, backfills, raw `sql`, immutable emitted migrations, transactional apply, and `--allow-destructive` as an explicit opt-in.
 - `stamp onCreate { … }` with an expression, `implements auditable`, grouped projections done in SQL.

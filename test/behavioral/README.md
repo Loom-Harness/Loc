@@ -163,6 +163,13 @@ the runner's RSS.
   committed file is named `.pw.ts` so the repo's vitest run never discovers
   it). Gates in `behavioral-ui-e2e.yml` after the emitted round-trips; run:
   `node paged-ui.mjs`.
+- **can-ui** — the permission query in a browser (`can-ui.mjs`, fixture
+  `can-ui.ddd`, spec `can-ui.pw.ts`, copied in as `can-ui.spec.ts`). On the
+  same one-origin stack as `paged-ui`, the detail page disables `Close` once
+  `GET /tickets/{id}/can_close` answers `{ allowed: false }`, while `Reassign`
+  — whose `requires` reads its parameter, so it has no permission query —
+  stays enabled, is never asked about, and answers 403 / 409 on submit. Gates
+  in `behavioral-ui-e2e.yml` after `paged-ui`; run: `node can-ui.mjs`.
 - **i18n-ui** — the translated-locale leg (`i18n-ui.mjs`, fixture
   `i18n-ui/i18n-ui.ddd` with its `fr` translator tree beside it). The fixture's
   chrome claims (a page-`requires` Forbidden view, a `money` ICU hole, a titled

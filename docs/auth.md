@@ -489,13 +489,13 @@ POST /api/tickets/<missing id>/reopen   (role: "agent")  → 404
 The canonical `DELETE /{id}` and the generic `update` follow the same order:
 their `requires` that read no row refuse before the load.
 
-`GET /{id}/can_<op>`, the probe of a `when`-gated operation, runs the same
-ladder without a body.  The by-id read's gate refuses it (403) and a row the
-caller cannot read is 404, exactly as `GET /{id}` answers.  The operation's
-own `requires` and `when` answer `{ "allowed": false }`.  A `requires` that
-reads an operation parameter cannot be decided without the body, so the probe
-answers `{ "allowed": false }` for it, after the load (a missing row is still
-404).
+`GET /{id}/can_<op>`, the permission query of a `when`-gated operation, runs
+the same ladder without a body.  The by-id read's gate refuses it (403) and a
+row the caller cannot read is 404, exactly as `GET /{id}` answers.  The
+operation's own `requires` and `when` answer `{ "allowed": false }`.  An
+operation with a `requires` that reads a parameter has no permission query: it
+cannot be decided without the body, so its button stays enabled and its submit
+answers 403 or 409.
 
 `test/system/gate-ladder-census.test.ts` refuses a backend that classifies a
 gate itself instead of rendering the plan's rungs.

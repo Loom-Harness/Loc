@@ -16,6 +16,7 @@ import {
   isAllFind,
 } from "../../../ir/util/api-surface.js";
 import { mergePatchFields } from "../../../ir/util/merge-patch.js";
+import { isPermissionQueryOp } from "../../../ir/util/op-gates.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
   aggregateTypeKey,
@@ -104,9 +105,9 @@ export function buildOperationSpec(
         valueObjectPool(ctx),
       ) ?? undefined,
     guarded: operationIsGuarded(op),
-    // `when` canCommand gate: 409 on the action + the GET can_<op>
-    // companion (criterion.md use site 2).
-    whenGated: !!op.when,
+    // The GET can_<op> companion: present exactly for an operation with a
+    // permission query (`isPermissionQueryOp`).
+    whenGated: isPermissionQueryOp(op),
     // A versioned aggregate's `update` declares 409 (stale `If-Match` →
     // optimistic-concurrency conflict), mirroring the Hono contract so the
     // conformance error-response dimension compares equal.

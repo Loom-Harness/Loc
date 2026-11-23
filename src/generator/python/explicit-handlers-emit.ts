@@ -62,6 +62,7 @@ import { entryResult } from "../../ir/util/entry-result.js";
 import {
   normalizeHandlerReturn,
   requestRecordFor,
+  returnsBuiltRecord,
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
@@ -478,7 +479,9 @@ function renderHandlerModule(
   const projRet = projectionReturnOf(h);
   if (normRet && !projRet) {
     const info = wireTypeInfo(normRet, "response");
-    if (info.refKind === "entity") {
+    // Only an aggregate has a repository to project through; a returned
+    // record (`payload`/`response`) is already its own wire body.
+    if (info.refKind === "entity" && ctx.aggregates.some((a) => a.name === info.base)) {
       projectIsCollection = info.isCollection;
       const projAgg = ctx.aggregates.find((a) => a.name === info.base);
       if (projAgg && aggHasFieldMask(projAgg)) projectWire = "to_wire_masked";
@@ -515,9 +518,12 @@ function renderHandlerModule(
         ? projectIsCollection
           ? "list[dict[str, object]]"
           : "dict[str, object]"
-        : normRet
-          ? renderPyType(normRet)
-          : "None";
+        : returnsBuiltRecord(normRet)
+          ? // A record body renders as a dict literal (its wire body).
+            "dict[str, object]"
+          : normRet
+            ? renderPyType(normRet)
+            : "None";
   const repoLines = [...repos].map(
     ([repo, agg]) =>
       `    ${DOMAIN_NAMES.python.binding(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,

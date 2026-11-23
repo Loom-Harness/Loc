@@ -59,6 +59,7 @@ import { entryResult } from "../../ir/util/entry-result.js";
 import {
   normalizeHandlerReturn,
   requestRecordFor,
+  returnsBuiltRecord,
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
@@ -1027,6 +1028,8 @@ function handlerResultCs(h: Handler, t: TypeIR, ns: string): string {
     const resp = `global::${ns}.Application.Workflows.${DOMAIN_NAMES.csharp.type(pr.name)}Response`;
     return pr.many ? `List<${resp}>` : resp;
   }
+  // A record the handler builds renders as an anonymous object.
+  if (returnsBuiltRecord(t)) return "object";
   return t.kind === "union" && entryResult(h)
     ? `global::${entryResultNs(ns)}.${entryUnionName(t)}`
     : renderCsType(t);

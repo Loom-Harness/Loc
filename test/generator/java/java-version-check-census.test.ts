@@ -85,8 +85,13 @@ describe("java checksVersion census — emitted routes and saves", () => {
     let checked = 0;
     for (const ctx of enrichedContexts(loom)) {
       for (const agg of ctx.aggregates) {
+        // The derived controller: an explicit route (`<Api>RoutesController`)
+        // dispatches to a handler, whose save is checked in `handle`.
         const controller = javaFiles.find(
-          ([p, t]) => p.endsWith("Controller.java") && t.includes(`${agg.name}(@PathVariable`),
+          ([p, t]) =>
+            p.endsWith("Controller.java") &&
+            !p.endsWith("RoutesController.java") &&
+            t.includes(`${agg.name}(@PathVariable`),
         )?.[1];
         const service = javaFiles.find(([p]) => p.endsWith(`/${agg.name}Service.java`))?.[1];
         if (!controller || !service) continue;

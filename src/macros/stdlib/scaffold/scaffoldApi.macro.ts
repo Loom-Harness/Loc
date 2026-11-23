@@ -1,6 +1,14 @@
 import type { Route, Subdomain } from "../../../language/generated/ast.js";
 import { defineMacro, handlerRef, route } from "../../api/index.js";
-import { handlerTargets, targetHandlerName, targetMethod, targetPath } from "./_handlers-shared.js";
+import {
+  canHandlerName,
+  canRoutePath,
+  handlerTargets,
+  permissionQueryTargets,
+  targetHandlerName,
+  targetMethod,
+  targetPath,
+} from "./_handlers-shared.js";
 
 /** Emit a `route <METHOD> <path> -> <Context>.<Handler>` for every eligible
  * source of every aggregate across the named subdomain's contexts
@@ -15,6 +23,7 @@ import { handlerTargets, targetHandlerName, targetMethod, targetPath } from "./_
  *   route GET  "/orders/{id}"               -> Ordering.GetOrderById
  *   route POST "/orders"                    -> Ordering.CreateOrder
  *   route POST "/orders/{id}/cancel"        -> Ordering.CancelOrder
+ *   route GET  "/orders/{id}/can_ship"      -> Ordering.canShipOrder
  *
  * Host-local: the routes splice into the api's own `routes[]`.  The route's
  * method, path, and handler segment are all derived from the SAME
@@ -45,6 +54,17 @@ export default defineMacro({
     for (const ctx of sub.contexts ?? []) {
       for (const t of handlerTargets(ctx)) {
         out.push(route(targetMethod(t), targetPath(t), handlerRef(ctx.name, targetHandlerName(t))));
+      }
+      // The permission queries: `GET /<coll>/{id}/can_<op>`, the slot the
+      // derived probe would otherwise serve (an explicit route claims it).
+      for (const { agg, op } of permissionQueryTargets(ctx)) {
+        out.push(
+          route(
+            "GET",
+            canRoutePath(agg.name, op.name),
+            handlerRef(ctx.name, canHandlerName(op.name, agg.name)),
+          ),
+        );
       }
     }
     return out;

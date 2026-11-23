@@ -50,3 +50,11 @@ function paramsRead(op: Operation, exprs: readonly Expression[]): Set<string> {
 export function gateReadParams(op: Operation): Set<string> {
   return paramsRead(op, [...requiresGateExprs(op), ...(op.when ? [op.when] : [])]);
 }
+
+/** True when `op` gets a permission query: a public, `when`-gated operation
+ *  none of whose gates reads a parameter, so the query answers it from the row
+ *  alone.  The AST twin of `isPermissionQueryOp` (`src/ir/util/op-gates.ts`),
+ *  read by the scaffold, which expands before the IR exists. */
+export function hasPermissionQuery(op: Operation): boolean {
+  return !op.private && op.when !== undefined && gateReadParams(op).size === 0;
+}

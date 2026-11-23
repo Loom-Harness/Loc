@@ -21,7 +21,11 @@ import type {
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { contractResponsesFor } from "../../ir/util/declared-response.js";
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
-import { clientActionGates, operationFormParams } from "../../ir/util/op-gates.js";
+import {
+  clientActionGates,
+  isPermissionQueryOp,
+  operationFormParams,
+} from "../../ir/util/op-gates.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import {
   listShapedProjectionNames,
@@ -68,7 +72,9 @@ function walkerOperationOf(
     ifMatch: op.name === "update" && !!agg && aggregateIsVersioned(agg),
     params: op.params,
     formParams: operationFormParams(op),
-    gated: !!op.when,
+    // The permission query the derived `gateProbe` entry serves — the same
+    // fact the contract path reads off the api surface.
+    gated: isPermissionQueryOp(op),
     ...(clientGates ? { clientGates } : {}),
     invariants: operationWireInvariants(agg, op),
   };

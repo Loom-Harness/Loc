@@ -107,6 +107,13 @@ system HeexUiSystem {
         operation settle() requires currentUser.role == "adjuster" when status == Open {
           status := Settled
         }
+        // A gate that reads a parameter has no permission query, so the
+        // page cannot ask before the form is filled: its trigger stays
+        // enabled and the submit answers for itself.
+        tag: string immutable = ""
+        operation retag(t: string) requires t != tag when status == Open {
+          tag := t
+        }
       }
       repository Claims for Claim { }
 

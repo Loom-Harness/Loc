@@ -1086,33 +1086,6 @@
       "body": {
         "allowed": true
       }
-    },
-    {
-      "seq": 90,
-      "method": "POST",
-      "path": "/api/tickets",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
-      "seq": 91,
-      "method": "GET",
-      "path": "/api/tickets/{id}/can_retitle",
-      "status": 200,
-      "body": {
-        "allowed": false
-      }
-    },
-    {
-      "seq": 92,
-      "method": "GET",
-      "path": "/api/tickets/{id}/can_retitle",
-      "status": 200,
-      "body": {
-        "allowed": false
-      }
     }
   ]
 }

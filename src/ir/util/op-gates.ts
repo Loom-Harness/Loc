@@ -121,6 +121,21 @@ export function gateRungs(gates: readonly RequiresStmtIR[]): {
   };
 }
 
+/** True when `op` has a permission query: a public, `when`-gated operation
+ *  none of whose gates (its `requires` and its `when`) reads a parameter.  The query carries only
+ *  the row's id, so a gate that reads an argument cannot be answered from it;
+ *  such an operation has no permission query and its submit decides.  Read
+ *  by the derived `can_<op>` probe (`api-surface.ts`) and by the scaffold's
+ *  AST twin's census, so the two cannot disagree. */
+export function isPermissionQueryOp(op: OperationIR): boolean {
+  return (
+    op.visibility === "public" &&
+    op.when !== undefined &&
+    !operationGates(op).some(gateReadsParam) &&
+    !gateReadsParam({ kind: "requires", expr: op.when, source: "" })
+  );
+}
+
 /** The gates a caller must evaluate before invoking `op` on a loaded aggregate. */
 export function operationGates(op: OperationIR): RequiresStmtIR[] {
   return splitLeadingGates(op.statements).gates;

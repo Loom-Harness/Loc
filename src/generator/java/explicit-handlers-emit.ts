@@ -64,6 +64,7 @@ import { entryResult } from "../../ir/util/entry-result.js";
 import {
   normalizeHandlerReturn,
   requestRecordFor,
+  returnsBuiltRecord,
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
@@ -611,9 +612,11 @@ function renderHandlerClass(
         ? projRet.many
           ? `${javaRef("java.util", "List")}<${DOMAIN_NAMES.java.type(projRet.name)}Response>`
           : `${DOMAIN_NAMES.java.type(projRet.name)}Response`
-        : internalRet
-          ? renderJavaType(internalRet)
-          : "void";
+        : returnsBuiltRecord(internalRet)
+          ? `${javaRef("java.util", "Map")}<String, Object>`
+          : internalRet
+            ? renderJavaType(internalRet)
+            : "void";
   const params = flat.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`).join(", ");
 
   const fields = [
