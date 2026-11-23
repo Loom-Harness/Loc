@@ -2,7 +2,9 @@ import { requiredStateFields, stateZero } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, FieldIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, workflowStateTableName } from "../../../util/naming.js";
+import { javaProjectRef } from "../../_imports/java.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { javaIdRef } from "../java-symbols.js";
 import { renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
 import { type JpaFieldOwner, jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
@@ -60,7 +62,7 @@ function corrIdClass(wf: WorkflowIR): string {
   if (inner.kind !== "id") {
     throw new Error(`java saga-state: correlation field of '${wf.name}' must be id-typed`);
   }
-  return `${inner.targetName}Id`;
+  return javaIdRef(inner.targetName);
 }
 
 /** The saga-state `@Entity` — correlation field as `@EmbeddedId`, the rest as
@@ -186,7 +188,9 @@ export function javaStateDefault(f: FieldIR, ctx: EnrichedBoundedContextIR): str
     case "text":
       return '""';
     case "enum":
-      return z.first ? `${z.name}.${DOMAIN_NAMES.java.prop(z.first)}` : "null";
+      return z.first
+        ? `${javaProjectRef(z.name, "enum")}.${DOMAIN_NAMES.java.prop(z.first)}`
+        : "null";
     // `X id` non-correlation state field — uncommon; left null (optional in
     // practice; a required one would need an explicit seed the model doesn't give).
     default:
@@ -199,7 +203,6 @@ export function javaStateDefault(f: FieldIR, ctx: EnrichedBoundedContextIR): str
  *  load/save through. */
 export function renderWorkflowStateRepository(
   wf: WorkflowIR,
-  basePkg: string,
   pkg: string,
   entityPkg: string,
 ): string {
@@ -211,7 +214,6 @@ export function renderWorkflowStateRepository(
     `import org.springframework.data.jpa.repository.JpaRepository;`,
     ``,
     `import ${entityPkg}.${cls};`,
-    `import ${basePkg}.domain.ids.${idClass};`,
     ``,
     `public interface ${cls}Repository extends JpaRepository<${cls}, ${idClass}> {`,
     `}`,

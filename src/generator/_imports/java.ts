@@ -58,7 +58,12 @@ const PROJECT_MODULE = "loom.project";
 /** The package (below the project's base package) each declared domain-type
  *  kind lives in — what settles a domain type whose simple name a generated
  *  runtime type shares (a value object `DomainException`). */
-const DOMAIN_KIND_PACKAGE = { enum: "domain.enums", valueobject: "domain.valueobjects" } as const;
+const DOMAIN_KIND_PACKAGE = {
+  enum: "domain.enums",
+  valueobject: "domain.valueobjects",
+  event: "domain.events",
+  id: "domain.ids",
+} as const;
 
 /** A reference to a type the generated project declares (a domain type), by
  *  its simple name.  The finalizer finds its package in the project's type

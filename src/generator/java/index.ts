@@ -1043,7 +1043,6 @@ function emitProjectFromContexts(
         "spring-data-repository",
         renderWorkflowStateRepository(
           wf,
-          basePkg,
           pkgFor("spring-data-repository"),
           pkgFor("infra-persistence"),
         ),
@@ -1083,7 +1082,6 @@ function emitProjectFromContexts(
         "spring-data-repository",
         renderProjectionRowRepository(
           proj,
-          basePkg,
           pkgFor("spring-data-repository"),
           pkgFor("infra-persistence"),
         ),

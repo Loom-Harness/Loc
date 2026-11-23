@@ -4,7 +4,7 @@
 // (`JavaOutputMap` → `finalizeJavaUnit`) spells it and derives its import.
 // ---------------------------------------------------------------------------
 
-import { javaRef } from "../_imports/java.js";
+import { javaProjectRef, javaRef } from "../_imports/java.js";
 
 export const J = {
   BigDecimal: javaRef("java.math", "BigDecimal"),
@@ -21,3 +21,16 @@ export const J = {
   Function: javaRef("java.util.function", "Function"),
   JsonNode: javaRef("tools.jackson.databind", "JsonNode"),
 } as const;
+
+/** The strong-id record of an aggregate or entity part (`<Name>Id`), as a
+ *  project reference: spelled bare, or fully qualified in a unit where the
+ *  simple name is taken (an aggregate `Embedded` derives `EmbeddedId`, which a
+ *  JPA unit's `jakarta.persistence` import binds). */
+export function javaIdRef(name: string): string {
+  return javaProjectRef(`${name}Id`, "id");
+}
+
+/** A domain event record, as a project reference. */
+export function javaEventRef(name: string): string {
+  return javaProjectRef(name, "event");
+}

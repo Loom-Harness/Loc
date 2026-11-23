@@ -69,7 +69,7 @@ import {
   type WorkflowStmtTarget,
 } from "../../_workflow/stmt-target.js";
 import { javaLocals, jsonProp, localOf, movedLocalOrUndefined } from "../java-ident.js";
-import { J } from "../java-symbols.js";
+import { J, javaEventRef } from "../java-symbols.js";
 import {
   type JavaRenderContext,
   javaValueTypeForId,
@@ -563,9 +563,9 @@ export function javaWorkflowStmtTarget(
         ? declared.fields.map((f) => rendered.get(f.name) ?? "null").join(", ")
         : [...rendered.values()].join(", ");
       return emitSink
-        ? [`${indent}${emitSink}.add(new ${s.eventName}(${args}));`]
+        ? [`${indent}${emitSink}.add(new ${javaEventRef(s.eventName)}(${args}));`]
         : [
-            `${indent}{ var __ev = new ${s.eventName}(${args}); CatalogLog.event(${javaLogEvent("eventDispatched")}, "event_type", __ev.getClass().getSimpleName()); }`,
+            `${indent}{ var __ev = new ${javaEventRef(s.eventName)}(${args}); CatalogLog.event(${javaLogEvent("eventDispatched")}, "event_type", __ev.getClass().getSimpleName()); }`,
           ];
     },
     repoRun: (s, indent) => {

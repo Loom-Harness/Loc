@@ -14,6 +14,7 @@ import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { javaLineageValue } from "./codec-spelling.js";
 import { jid } from "./java-ident.js";
+import { javaEventRef } from "./java-symbols.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "./render-expr.js";
 import { javaRuleParamsTail } from "./wire-policy-java.js";
 
@@ -157,9 +158,9 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
     emit: (s) => {
       const args = orderedEventArgs(s, ctx);
       if (traceCtx.eventSourced) {
-        return `${INDENT}{ var __ev = new ${s.eventName}(${args}); this._domainEvents.add(__ev); this._apply(__ev); }`;
+        return `${INDENT}{ var __ev = new ${javaEventRef(s.eventName)}(${args}); this._domainEvents.add(__ev); this._apply(__ev); }`;
       }
-      return `${INDENT}this._domainEvents.add(new ${s.eventName}(${args}));`;
+      return `${INDENT}this._domainEvents.add(new ${javaEventRef(s.eventName)}(${args}));`;
     },
 
     call: (s) => {
