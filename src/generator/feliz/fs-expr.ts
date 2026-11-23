@@ -409,6 +409,11 @@ export function fsNumericBinary(
 // ---------------------------------------------------------------------------
 
 export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+  "string.uncheckedInt": (recv) => `(System.Int32.Parse(${recv}))`,
+  "string.uncheckedLong": (recv) => `(System.Int64.Parse(${recv}))`,
+  "string.uncheckedDecimal": (recv) =>
+    `(System.Decimal.Parse(${recv}, System.Globalization.CultureInfo.InvariantCulture))`,
+  "string.uncheckedDate": (recv) => `(${recv})`,
   "string.trim": (recv) => `(${recv}.Trim())`,
   "string.toUpper": (recv) => `(${recv}.ToUpper())`,
   "string.toLower": (recv) => `(${recv}.ToLower())`,

@@ -3,7 +3,7 @@
 //
 // The rule is decided once and rendered per language — `src/lib/form-text.ts`
 // (React, Vue, Svelte, Angular), `module FormText` (Feliz), `lib/form_text.dart`
-// (Flutter).  A pack template or a form emitter that coerces the text itself
+// (Flutter), `<App>Web.FormText` (LiveView).  A pack template or a form emitter that coerces the text itself
 // (`Number(v) || 0`, `parseInt`, `new Decimal(text || "0")`, a `type="number"`
 // input that hands `abc` over as blank, `int.tryParse(…) ?? 0`) re-decides what
 // a typed value means and is the defect class this census closes: `abc` saved
@@ -18,7 +18,7 @@
 //   1. the rule's module is emitted;
 //   2. no form input line coerces text itself (a JS input carrying a
 //      `-input-` test id; Flutter's `lib/forms.dart`; Feliz's `Encoders` and
-//      `Validation` modules).
+//      `Validation` modules; every LiveView module under `_web/live/`).
 //
 // What this asserts is the ABSENCE of a coercion in emitted source, which no
 // compile or booted tier observes; the rule's VALUES are executed by
@@ -33,6 +33,9 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 import { applyFrontend } from "../../behavioral/frontend-fixture.mjs";
 
 const FIXTURE = readFileSync("test/behavioral/form-spec-ui.ddd", "utf8");
+/** LiveView's own UI fixture: its named operation and its workflow take a
+ *  number, the two submit arms `form-spec-ui.ddd` does not reach. */
+const HEEX_FIXTURE = readFileSync("test/behavioral/heex-ui.ddd", "utf8");
 
 /** The framework a design pack's `format` renders. */
 const FORMAT_FRAMEWORK: Record<string, string> = {
@@ -73,22 +76,29 @@ function cases(): Case[] {
 
 /** Targets whose forms do not render the rule yet, each a dated deferral.  A
  *  listed target that now passes fails as stale; a passed date fails too. */
-const PENDING: Record<string, { deferred: string; reviewUntil: string }> = {
-  phoenixLiveView: {
-    deferred:
-      "LiveView parses form params server-side through Ecto; its rendering of the rule is the next slice of #6397",
-    reviewUntil: "2026-12-06",
-  },
-};
+const PENDING: Record<string, { deferred: string; reviewUntil: string }> = {};
 
 /** Text coerced to a number, outside the rule. */
 const JS_COERCION =
   /\bNumber\(|parseInt\(|parseFloat\(|valueAsNumber|new Decimal\(|\|\| 0\b|\?\? 0\b|=== "" \? 0|type="number"|p-inputnumber|<NumberInput/;
 const FS_COERCION = /TryParse|\bint \(|\bint64 \(|\bfloat \(|\bdecimal \(|type'\.number/;
 const DART_COERCION = /int\.tryParse|double\.tryParse|int\.parse\(|double\.parse\(|num\.parse\(/;
+/** The table pager's page number: a `phx-click` value, not a form input. */
+const EX_PAGER = /Integer\.parse\(to_string\(page\)\)/;
+const EX_COERCION =
+  /Integer\.parse\(|Decimal\.parse\(|Float\.parse\(|String\.to_integer\(|String\.to_float\(|Decimal\.new\(|Decimal\.cast\(|type="number"/;
 
-/** The fixture on `c`: its frontend, and the pack as the deployable's design. */
+/** The fixture on `c`: its frontend, and the pack as the deployable's design.
+ *  A LiveView ui is hosted by the Elixir backend itself. */
 function fixtureFor(c: Case): string {
+  if (c.framework === "phoenixLiveView") {
+    return FIXTURE.replace("{ __FRAMEWORK__ }", "{ api C: CoverApi }")
+      .replace(
+        "    platform: node\n",
+        `    platform: elixir\n    ui: WebApp { C: api }\n    design: ${c.pack}\n`,
+      )
+      .replace(/ {2}deployable webApp \{[\s\S]*?\n {2}\}\n/, "");
+  }
   const src = applyFrontend(FIXTURE, c.framework);
   return c.pack ? src.replace("    ui: WebApp\n", `    ui: WebApp\n    design: ${c.pack}\n`) : src;
 }
@@ -105,6 +115,17 @@ function fsModule(app: string, name: string): string {
 function audit(c: Case, files: Map<string, string>): { module: boolean; leaks: string[] } {
   const web = [...files].filter(([p]) => p.startsWith("web_app/"));
   const leaks: string[] = [];
+  if (c.framework === "phoenixLiveView") {
+    // The LiveView pages and their submit handlers; the JSON controllers are
+    // the backend's wire decoding, not a form.
+    for (const [path, content] of files) {
+      if (!/_web\/live\//.test(path)) continue;
+      for (const line of content.split("\n")) {
+        if (EX_COERCION.test(line) && !EX_PAGER.test(line)) leaks.push(`${path}: ${line.trim()}`);
+      }
+    }
+    return { module: [...files.keys()].some((p) => p.endsWith("_web/form_text.ex")), leaks };
+  }
   if (c.framework === "feliz") {
     const app = web.find(([p]) => p.endsWith("src/App.fs"))?.[1] ?? "";
     for (const mod of ["Encoders", "Validation"]) {
@@ -135,7 +156,12 @@ describe("form text census", () => {
 
   it("covers every design pack and every self-rendered frontend", () => {
     expect(all.map((c) => c.name)).toEqual(
-      expect.arrayContaining(["react/mantine", "feliz", "flutter"]),
+      expect.arrayContaining([
+        "react/mantine",
+        "phoenixLiveView/coreComponents",
+        "feliz",
+        "flutter",
+      ]),
     );
   });
 
@@ -143,6 +169,14 @@ describe("form text census", () => {
     "%s renders typed text only through the rule",
     async (_name, c) => {
       const files = await generateSystemFiles(fixtureFor(c));
+      if (c.framework === "phoenixLiveView") {
+        const own = HEEX_FIXTURE.replace(
+          "    ui: Web { C: phoenixApp }\n",
+          `    ui: Web { C: phoenixApp }\n    design: ${c.pack}\n`,
+        );
+        for (const [p, content] of await generateSystemFiles(own))
+          files.set(`heex-ui/${p}`, content);
+      }
       const { module, leaks } = audit(c, files);
       expect(module, `${c.name}: the form text rule's module is not emitted`).toBe(true);
       expect(leaks, `${c.name}: form text coerced outside the rule`).toEqual([]);

@@ -704,6 +704,44 @@ def summary(self) -> str:
 ```
 ::: end
 
+## Parsing text
+
+`s.toInt()`, `s.toLong()`, `s.toDecimal()` and `s.toDate()` turn a `string` into a value in domain code. A parse never throws: it answers `T or ParseError`, and the caller `match`es it:
+
+```ddd
+operation read(raw: string) {
+  let q = raw.toInt()
+  match q {
+    int v => { qty := v }
+    ParseError e => { problem := string(e.expected) + ":" + string(e.reason) }
+  }
+}
+```
+
+```ts
+// node — the call goes to the context's built-in TextParser service
+const q = TextParser.toInt(raw);
+switch (q.type) { case "int": … case "ParseError": … }
+```
+
+`ParseError`, its two enums and the `TextParser` service are built in: the context that parses gets them, and declaring any of those names yourself is `loom.intrinsic-parse`.
+
+```ddd
+error ParseError { input: string  expected: ParseTarget  reason: ParseFailure }
+enum ParseTarget { Int, Long, Decimal, Date }
+enum ParseFailure { Empty, Malformed, OutOfRange }
+```
+
+The rules are one set, written once as the service's Loom operations, so every backend accepts the same text:
+
+| text | reason |
+| --- | --- |
+| `""` | `Empty` |
+| anything but the exact form — surrounding space, `+`, grouping (`1,5`), an exponent (`1e3`), `.5`, `5.`, a date not `yyyy-MM-dd` | `Malformed` |
+| int outside −2147483648…2147483647; long outside ±9007199254740991 (the largest integer every backend holds exactly); a decimal with more than 28 significant digits; a date that is no calendar day (`2026-02-29`, `2026-04-31`) or before year 1 | `OutOfRange` |
+
+Leading zeros are allowed and do not count toward a limit (`"007"` is 7), and `"-0"` is 0. A parse method on a nullable receiver needs the usual guard (`loom.nullable-receiver`); called with arguments, or outside a context (a page, an e2e body), it is `loom.intrinsic-parse`.
+
 ## Conversions
 
 The explicit, infallible widening/projection vocabulary — `string(x)`, `long(x)`, `decimal(x)`, `money(x)` (`PrimitiveConversion`). Admitted pairs: `string ← {int,long,decimal,money,bool,guid,datetime}`, `long ← int`, `decimal ← {int,long,money}`, `money ← {int,long,decimal}`. Fallible parses (`int("42")`, `datetime("…")`) are deliberately **not** in the vocabulary, and `json` / `File` are not stringifiable — neither has a canonical scalar form. `guid` and `datetime` do (UUID text, ISO-8601), so `string(…)` on either is infallible; the ISO form is the same text on every backend, not the host's default `toString` (which on node would be `"Mon Sep 22 2026 07:00:00 GMT+0000"` and on elixir a space-separated `"2026-01-01 00:00:00Z"`).

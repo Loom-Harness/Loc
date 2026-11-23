@@ -146,7 +146,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       'a `send` route\'s binding block (`{ payload: raw body, signature: header "…" }`): it ' +
       "parses and validates, but the raw body needs the `bytes` type and each backend's " +
       "raw-body plumbing, so a route that uses it is refused",
-    mission: "#6346",
+    mission: "#6367",
   },
   {
     code: "loom.route-send-workflow-unsupported",

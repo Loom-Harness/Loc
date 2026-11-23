@@ -2,6 +2,7 @@ import type { EnrichedAggregateIR, OperationIR } from "../../../ir/types/loom-ir
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { javaProjectRef } from "../../_imports/java.js";
 import { javaLocals, jid, localOf } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 
@@ -49,7 +50,7 @@ export function renderJavaExternHook(
       new Set([recv, ...(usesUser ? ["currentUser"] : [])]),
     );
     const params = [
-      `${agg.name} ${recv}`,
+      `${javaProjectRef(agg.name)} ${recv}`,
       ...op.params.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`),
       ...(usesUser ? ["User currentUser"] : []),
     ].join(", ");

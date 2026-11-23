@@ -430,6 +430,10 @@ function renderMember(recv: string, e: MemberExpr, ctx: PyRenderContext): string
 // snippet owns the host spelling (`.strip()`).  Exported so the intrinsic
 // completeness test can pin that every catalogue row has a Python arm.
 export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+  "string.uncheckedInt": (recv) => `int(${recv})`,
+  "string.uncheckedLong": (recv) => `int(${recv})`,
+  "string.uncheckedDecimal": (recv) => `float(${recv})`,
+  "string.uncheckedDate": (recv) => `${PY.datetime}.fromisoformat(${recv}).date()`,
   "string.trim": (recv) => `${recv}.strip()`,
   "string.toUpper": (recv) => `${recv}.upper()`,
   "string.toLower": (recv) => `${recv}.lower()`,

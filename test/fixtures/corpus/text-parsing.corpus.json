@@ -1,0 +1,11 @@
+{
+  "title": "parsing text in domain code — `toInt` / `toLong` / `toDecimal` / `toDate` answer the value or a built-in `ParseError` (Empty, Malformed, OutOfRange) with the same rules on every backend",
+  "doc": "stdlib",
+  "backends": "ALL",
+  "typing": {
+    "ir-differs": {
+      "n": 4,
+      "why": "the four bare `null` literals assigned to the optional parse results: the pass types each never?, the IR's untyped null literal carries the string placeholder"
+    }
+  }
+}
