@@ -33,6 +33,7 @@ import { isOfReadCall } from "../_walker/of-reads.js";
 import { isPagedQuery } from "../_walker/paged-query.js";
 import type { WalkerModel } from "../_walker/walker-model.js";
 import { flutterHttpImport } from "./api-client.js";
+import { workflowInstanceClass } from "./dart-model-emit.js";
 /** One distinct read a ui issues, projected to everything the provider emitter
  *  needs.  Deduped by `varName` across every page of the ui. */
 export interface FlutterRead {
@@ -80,6 +81,15 @@ export interface FlutterRead {
    *  shorthand form, the filtered source rows) is carried by `single: false`
    *  on the same flag. */
   projection?: boolean;
+  /** A read-only WORKFLOW-INSTANCE read (`<Wf>.instances.all` /
+   *  `<Wf>.instances.byId(id)`) — the reads the scaffolded `<Wf>InstancesList`
+   *  / `<Wf>InstanceDetail` pages issue against
+   *  `GET /workflows/<wf>/instances[/{id}]`.  Shaped exactly like an aggregate
+   *  read (a BARE-array list, or a byId `.family` with 404 → null), so it rides
+   *  those branches; `aggregate` carries the `<Wf>Instance` class.  Flagged
+   *  because no single aggregate owns the row: any write may advance an
+   *  instance, so it drops on every write. */
+  workflowInstance?: boolean;
 }
 
 /** What the read collector resolves a ui's reads against: the walker model of
@@ -129,11 +139,12 @@ function queryViewOfArgs(body: ExprIR): ExprIR[] {
 }
 
 /** Collect the reads a ui issues — deduped by `varName` across the whole ui.
- *  Aggregate-rooted reads (`<handle>.<Agg>.all` / `.byId(id)` / a named find)
- *  and query-time PROJECTION reads (`<handle>.<Proj>`, M-T1.3) project a
- *  provider; workflow-instance reads are still skipped (a follow-up), so the
- *  caller's hoist over the same detector stays consistent (an un-emitted
- *  provider would just be an unresolved var, never silent).
+ *  Aggregate-rooted reads (`<handle>.<Agg>.all` / `.byId(id)` / a named find),
+ *  query-time PROJECTION reads (`<handle>.<Proj>`) and WORKFLOW-INSTANCE reads
+ *  (`<Wf>.instances.all` / `.byId(id)`) each project a provider.  Detection
+ *  runs against the same aggregates, projections and workflows the page walk
+ *  resolves through, so every `ref.watch(<var>Provider)` a page hoists names a
+ *  provider emitted here.
  *
  *  Both PAGE and user-COMPONENT bodies are scanned: a `component X() { body:
  *  QueryView { of: Api.Order.all, … } }` hosts its read exactly as a page does
@@ -151,7 +162,10 @@ export function collectFlutterReads(ui: UiIR | undefined, scope: FlutterReadScop
   // that resolves a projection read and this collector cannot disagree about
   // which projections are readable.
   const projectionsByName = model.readableProjectionSet;
-  const detCtx = { apiParamNames, aggregatesByName, projectionsByName };
+  // The page walk arms the detector's workflow-instance patterns with every
+  // workflow the ui reaches; the collector must arm them identically.
+  const workflowsByName = model.workflows;
+  const detCtx = { apiParamNames, aggregatesByName, projectionsByName, workflowsByName };
   const pagedCtx = { ...detCtx, model };
   const out: FlutterRead[] = [];
   const seen = new Set<string>();
@@ -177,6 +191,22 @@ export function collectFlutterReads(ui: UiIR | undefined, scope: FlutterReadScop
           routePath: `/projections/${snake(detected.aggregateName)}`,
           paged: false,
           projection: true,
+        });
+        continue;
+      }
+      if (detected?.kind === "workflow-instance") {
+        const varName = readVarName(detected.aggregateName, detected.operation);
+        if (seen.has(varName)) continue;
+        seen.add(varName);
+        out.push({
+          varName,
+          aggregate: workflowInstanceClass(detected.aggregateName),
+          single: detected.operation === "byId",
+          routePath: `/workflows/${snake(detected.aggregateName)}/instances`,
+          paged: false,
+          // The instance list is the rows themselves, never the paged envelope.
+          bareList: true,
+          workflowInstance: true,
         });
         continue;
       }
@@ -468,13 +498,15 @@ export function renderReadsInvalidationOnly(): string {
  *  `invalidateReadsIn(container, 'Order')` drops that aggregate's list + by-id
  *  reads (a `.family` invalidates every key); a read that is not owned by one
  *  aggregate — a projection aggregates across them, an entity history belongs to
- *  its record — drops on every write, and no aggregate (a workflow, which may
+ *  its record, a workflow instance advances on any write — drops on every write, and no aggregate (a workflow, which may
  *  touch any of them) drops every read. */
 function renderInvalidation(reads: readonly FlutterRead[]): string {
-  const shared = reads.filter((r) => r.projection || r.history);
+  const spansAggregates = (r: FlutterRead): boolean =>
+    r.projection === true || r.history === true || r.workflowInstance === true;
+  const shared = reads.filter(spansAggregates);
   const owned = new Map<string, FlutterRead[]>();
   for (const r of reads) {
-    if (r.projection || r.history) continue;
+    if (spansAggregates(r)) continue;
     const group = owned.get(r.aggregate);
     if (group) group.push(r);
     else owned.set(r.aggregate, [r]);
