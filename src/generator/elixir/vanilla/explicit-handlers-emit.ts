@@ -621,10 +621,11 @@ end
 }
 
 /** The record a handler is dispatched through on elixir (`dispatchedRecord`,
- *  the bus entry it catches), on a handler with a body, a plain result (not
- *  `T or E`) and no `paged` carrier. */
+ *  the bus entry it catches), on a handler with a body and no `paged` carrier.
+ *  A `T or E` handler's dispatch answers the same tagged result its `run`
+ *  does. */
 function elixirDispatchRecord(h: Handler, ctx: EnrichedBoundedContextIR): string | undefined {
-  if (h.extern || entryResult(h)) return undefined;
+  if (h.extern) return undefined;
   if (h.returnType && pagedReturn(h.returnType)) return undefined;
   return dispatchedRecord(ctx, h.name)?.record;
 }
