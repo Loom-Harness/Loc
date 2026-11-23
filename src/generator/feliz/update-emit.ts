@@ -385,10 +385,7 @@ export function renderPageCmd(reads: readonly FelizRead[] = []): string {
  *  navigation.  A session cell is seeded only where the Model carries the
  *  claims (`pageGate`); otherwise it keeps its zero.  Undefined when no form
  *  has a client-prefilled cell. */
-function renderClientPrefill(
-  forms: readonly FormRecord[],
-  pageGate: boolean,
-): string | undefined {
+function renderClientPrefill(forms: readonly FormRecord[], pageGate: boolean): string | undefined {
   const ctx: FsExprCtx = { stateNames: new Set(), locals: new Set(), modelExpr: "model" };
   const updates = forms.flatMap((f) => {
     const cells = f.fields.flatMap((fld) => {
