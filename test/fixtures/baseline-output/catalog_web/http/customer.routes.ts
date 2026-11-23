@@ -1,6 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { ProblemDetails, UuidString, frameworkProblemBody, newApp, problemParams, parseIfMatch, requireJsonContentType, versionETag } from "./problem-details";
+import { ProblemDetails, UuidString, frameworkProblemBody, newApp, problemParams, parseIfMatch, requireJsonContentType, versionETag, domainFloorProblem } from "./problem-details";
 import { HTTPException } from "hono/http-exception";
 import { recordDomainFault, recordDomainOperation } from "../obs/metrics";
 import { Customer } from "../domain/customer";
@@ -10,17 +10,17 @@ import { DomainError, AggregateNotFoundError, DisallowedError, ForbiddenError, E
 
 
 const CreateCustomerRequest = z.object({
-  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { code: "field.min-length", values: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { code: "field.max-length", values: {"max":32} } }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")),
+  username: z.string().refine((s: string) => !s.includes("\u0000")),
   email: z.string().refine((s: string) => !s.includes("\u0000")),
-  age: z.number().int().openapi({ format: "int32" }).refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { code: "field.min", values: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { code: "field.max", values: {"max":150} } }).openapi({ minimum: 18, maximum: 150 }),
-}).openapi("CreateCustomerRequest").refine((data: any) => data.username !== data.email, { path: ["username"], message: "Business rule violated", params: { code: "problem.domain-floor" } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Business rule violated", params: { code: "problem.domain-floor" } });
+  age: z.number().int().min(-2147483648, "Integer out of range").max(2147483647, "Integer out of range").openapi({ format: "int32" }),
+}).openapi("CreateCustomerRequest").refine((data: any) => data.username !== data.email, { path: ["username"], message: "Username must differ from email", params: { code: "Customers.Customer.rule.usernameMustDifferFromEmail", reads: ["email","username"], pointed: true } }).refine((data: any) => [...data.username].length >= 3 && [...data.username].length <= 32, { path: ["username"], message: "Username must be three to thirty two characters", params: { code: "Customers.Customer.rule.usernameMustBeThreeToThirtyTwoCharacters", reads: ["username"], pointed: true } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Email must be valid", params: { code: "Customers.Customer.rule.emailMustBeValid", reads: ["email"], pointed: true } }).refine((data: any) => data.age >= 18 && data.age <= 150, { path: ["age"], message: "Customer must be an adult of realistic age", params: { code: "Customers.Customer.rule.customerMustBeAnAdultOfRealisticAge", reads: ["age"], pointed: true } });
 const CreateCustomerResponse = z.object({ id: z.string() }).openapi("CreateCustomerResponse");
 
 const UpdateCustomerRequest = z.object({
-  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { code: "field.min-length", values: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { code: "field.max-length", values: {"max":32} } }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")).optional(),
+  username: z.string().refine((s: string) => !s.includes("\u0000")).optional(),
   email: z.string().refine((s: string) => !s.includes("\u0000")).optional(),
-  age: z.number().int().openapi({ format: "int32" }).refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { code: "field.min", values: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { code: "field.max", values: {"max":150} } }).openapi({ minimum: 18, maximum: 150 }).optional(),
-}).openapi("UpdateCustomerRequest").refine((data: any) => data.username === undefined || data.email === undefined || (data.username !== data.email), { path: ["username"], message: "Business rule violated", params: { code: "problem.domain-floor" } }).refine((data: any) => data.email === undefined || (/^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120), { path: ["email"], message: "Business rule violated", params: { code: "problem.domain-floor" } });
+  age: z.number().int().min(-2147483648, "Integer out of range").max(2147483647, "Integer out of range").openapi({ format: "int32" }).optional(),
+}).openapi("UpdateCustomerRequest").refine((data: any) => data.username === undefined || data.email === undefined || (data.username !== data.email), { path: ["username"], message: "Username must differ from email", params: { code: "Customers.Customer.rule.usernameMustDifferFromEmail", reads: ["email","username"], pointed: true } }).refine((data: any) => data.username === undefined || ([...data.username].length >= 3 && [...data.username].length <= 32), { path: ["username"], message: "Username must be three to thirty two characters", params: { code: "Customers.Customer.rule.usernameMustBeThreeToThirtyTwoCharacters", reads: ["username"], pointed: true } }).refine((data: any) => data.email === undefined || (/^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120), { path: ["email"], message: "Email must be valid", params: { code: "Customers.Customer.rule.emailMustBeValid", reads: ["email"], pointed: true } }).refine((data: any) => data.age === undefined || (data.age >= 18 && data.age <= 150), { path: ["age"], message: "Customer must be an adult of realistic age", params: { code: "Customers.Customer.rule.customerMustBeAnAdultOfRealisticAge", reads: ["age"], pointed: true } });
 
 const AllQuery = z.object({
   page: z.coerce.number().int().min(1).max(1000000).default(1),
@@ -195,7 +195,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
     if (err instanceof DomainError) {
       c.get("log").warn({ event: "domain_error", aggregate: "Customer", message: err.message, status: 422 });
       recordDomainFault("domain_error");
-      return problem(422, "Unprocessable Entity", err.message, err.problemCode);
+      return domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message, err.problemCode);
     }
     if (err instanceof AggregateNotFoundError) {
       c.get("log").warn({ event: "not_found", aggregate: "Customer", status: 404 });

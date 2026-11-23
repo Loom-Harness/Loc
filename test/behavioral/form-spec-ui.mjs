@@ -580,3 +580,26 @@ export async function judgeTypedText(page, origin) {
   }
   return judgeBlankOptional(after);
 }
+
+/** One typeface, and no web font the app does not load: the create form's
+ *  submit button renders in the body's computed font (a component library's
+ *  own typography tokens must name the theme's font too), and the default
+ *  theme names the platform font rather than `Inter`. */
+export async function judgeOneTypeface(page, origin) {
+  await page.goto(`${origin}/policies/new`);
+  await page.locator('[data-testid="policies-new-submit"]').first().waitFor({ timeout: 20000 });
+  const fonts = await page.evaluate(() => {
+    const button = document.querySelector('[data-testid="policies-new-submit"]');
+    const label = button?.querySelector("span") ?? button;
+    return {
+      body: getComputedStyle(document.body).fontFamily,
+      button: label ? getComputedStyle(label).fontFamily : null,
+    };
+  });
+  const why = [];
+  if (fonts.button !== fonts.body) {
+    why.push(`one typeface: the submit button renders in ${JSON.stringify(fonts.button)}, the body in ${JSON.stringify(fonts.body)}`);
+  }
+  if (/\bInter\b/.test(fonts.body)) why.push(`one typeface: the default theme names Inter (${fonts.body}), which no target loads`);
+  return why;
+}

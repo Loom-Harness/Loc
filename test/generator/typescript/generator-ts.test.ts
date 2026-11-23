@@ -1603,7 +1603,7 @@ describe("typescript generator", () => {
   // -------------------------------------------------------------------
   describe("invariants on the wire (Hono Zod refines)", () => {
     it("absorbs single-field invariants on a value-object schema into idiomatic native chains", async () => {
-      const files = await generateBackendFromFile("examples/sales.ddd", "node");
+      const files = await generateBackendFromFile("test/fixtures/unnamed-rules/sales.ddd", "node");
       // sales.ddd Money: `invariant amount >= 0` + `invariant currency.length == 3`.
       const orderRoutes = files.get("http/order.routes.ts")!;
       // Strict `z.number()`, not `z.coerce.number()`: a JSON body carries a
@@ -1626,7 +1626,7 @@ describe("typescript generator", () => {
     });
 
     it("absorbs single-field op-precondition into idiomatic chain on <Op>Request", async () => {
-      const files = await generateBackendFromFile("examples/sales.ddd", "node");
+      const files = await generateBackendFromFile("test/fixtures/unnamed-rules/sales.ddd", "node");
       // sales.ddd Order.addLine: `precondition qty > 0` (with int qty).
       const orderRoutes = files.get("http/order.routes.ts")!;
       // `qty > 0` → recognised as min(1) on the int field.
@@ -1640,7 +1640,7 @@ describe("typescript generator", () => {
     });
 
     it("mirrors create wire constraints onto the crudish Update<Agg>Request (SYS-1)", async () => {
-      const files = await generateBackendFromFile("examples/sales.ddd", "node");
+      const files = await generateBackendFromFile("test/fixtures/unnamed-rules/sales.ddd", "node");
       // M-T6.8/SYS-1: sales.ddd Customer `invariant email.length > 0` now
       // constrains the UPDATE request DTO too (not just create), so an invalid
       // update is rejected at the wire boundary (422) instead of the domain floor.
@@ -1651,7 +1651,7 @@ describe("typescript generator", () => {
     });
 
     it("excludes invariants referencing aggregate state from Create<Agg>Request", async () => {
-      const files = await generateBackendFromFile("examples/sales.ddd", "node");
+      const files = await generateBackendFromFile("test/fixtures/unnamed-rules/sales.ddd", "node");
       const orderRoutes = files.get("http/order.routes.ts")!;
       // sales.ddd Order has `invariant lines.count > 0 when status == Confirmed`.
       // `lines` is a containment, not in the create-request body — the
@@ -1668,7 +1668,7 @@ describe("typescript generator", () => {
     });
 
     it("excludes preconditions referencing helper-fns / aggregate state from <Op>Request", async () => {
-      const files = await generateBackendFromFile("examples/sales.ddd", "node");
+      const files = await generateBackendFromFile("test/fixtures/unnamed-rules/sales.ddd", "node");
       const orderRoutes = files.get("http/order.routes.ts")!;
       // Order.addLine has `precondition isMutable()` — references
       // `this.status` via a helper-fn.  Must NOT appear as a refine

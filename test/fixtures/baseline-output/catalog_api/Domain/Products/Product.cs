@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using CatalogApi.Domain.Ids;
 using CatalogApi.Domain.Events;
 using CatalogApi.Domain.ValueObjects;
@@ -47,7 +48,8 @@ public sealed class Product
 
     private void AssertInvariants()
     {
-        if (!(this.Sku.EnumerateRunes().Count() > 0)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
+        if (!(this.Sku.Trim().EnumerateRunes().Count() > 0)) throw new DomainException("Sku is required", DomainErrorKind.Invariant, "Products.Product.rule.skuIsRequired", "", new System.Collections.Generic.Dictionary<string, object?> { ["sku"] = this.Sku });
+        if (!(Regex.IsMatch(this.Sku, "^[A-Z0-9][A-Z0-9-]*$") && this.Sku.EnumerateRunes().Count() <= 40)) throw new DomainException("Sku must be up to forty uppercase letters digits or dashes", DomainErrorKind.Invariant, "Products.Product.rule.skuMustBeUpToFortyUppercaseLettersDigitsOrDashes", "", new System.Collections.Generic.Dictionary<string, object?> { ["sku"] = this.Sku });
     }
 
     public sealed class __State

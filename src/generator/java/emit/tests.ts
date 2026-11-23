@@ -22,7 +22,7 @@ import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeJavaIdent, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { coerceTestValue, type TestValueTarget } from "../../_test/arg-coercion.js";
 import { type AssertionTarget, renderAssertion } from "../../_test/assertion-target.js";
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
@@ -322,7 +322,7 @@ export function javaTestLiteral(): TestValueTarget {
     datetime: (rendered) => `${J.Instant}.parse(${rendered})`,
     date: (rendered) => `${J.LocalDate}.parse(${rendered})`,
     money: (digits) => renderJavaExpr({ kind: "literal", lit: "money", value: digits }, TEST_CTX),
-    valueObject: (name, args) => `new ${name}(${args.join(", ")})`,
+    valueObject: (name, args) => `new ${javaProjectRef(name, "valueobject")}(${args.join(", ")})`,
     omitted: "null",
   };
 }
@@ -412,7 +412,7 @@ export function renderCreateCall(
     }
     return "null";
   });
-  return `${agg.name}.create(${args.join(", ")})`;
+  return `${javaProjectRef(agg.name)}.create(${args.join(", ")})`;
 }
 
 /** Java's operator for each relation. */

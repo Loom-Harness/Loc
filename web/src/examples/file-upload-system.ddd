@@ -30,7 +30,7 @@ system FileUpload {
       // hook + wire schema exist); the UI below is hand-authored, not
       // scaffolded.
       aggregate Attachment with crudish {
-        title: string
+        title: string check titleIsRequired: title.trim().length > 0
         attachment: File
         derived display: string = title
       }

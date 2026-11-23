@@ -60,6 +60,7 @@ import {
   jsxChromeText as shellChromeText,
 } from "../_frontend/shell-chrome.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
+import { resolveTheme } from "../_frontend/theme-preparer.js";
 import {
   DOM_TOAST_SOURCE,
   SVELTE_LIB_TOAST_EFFECT_PATH,
@@ -640,18 +641,17 @@ export function generateSvelteFromContract(
   return prefixed;
 }
 
-/** Theme tokens for the pack's `theme` template (CSS custom props).
- *  System-level `theme { … }` blocks override the tasteful baseline
- *  (indigo primary, medium radius, Inter) — same defaults as the
- *  react packs' renderTheme. */
+/** Theme tokens for the pack's `theme` template (CSS custom props): the
+ *  system's `theme { … }` block over the shared defaults (`resolveTheme`). */
 function themeVM(t: ThemeIR | undefined): Record<string, string> {
+  const r = resolveTheme(t);
   return {
-    primary: t?.primary ?? "#4f46e5",
-    neutral: t?.neutral ?? "#6b7280",
-    error: t?.error ?? "#dc2626",
-    radius: t?.radius ?? "md",
-    fontFamily: t?.fontFamily ?? "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
-    fontFamilyMono: t?.fontFamilyMono ?? "ui-monospace, SFMono-Regular, Menlo, monospace",
+    primary: r.primary,
+    neutral: r.neutral,
+    error: r.error,
+    radius: r.radius,
+    fontFamily: r.fontFamily,
+    fontFamilyMono: r.fontFamilyMono,
   };
 }
 

@@ -907,6 +907,10 @@ function isRefIdsProjection(e: ExprIR, ctx: RenderCtx): boolean {
 // row has an Elixir arm in each table.
 export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> =
   {
+    "string.uncheckedInt": (recv) => `String.to_integer(${recv})`,
+    "string.uncheckedLong": (recv) => `String.to_integer(${recv})`,
+    "string.uncheckedDecimal": (recv) => `Decimal.new(${recv})`,
+    "string.uncheckedDate": (recv) => `Date.from_iso8601!(${recv})`,
     "string.trim": (recv) => `String.trim(${recv})`,
     "string.toUpper": (recv) => `String.upcase(${recv})`,
     "string.toLower": (recv) => `String.downcase(${recv})`,

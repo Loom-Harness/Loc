@@ -25,25 +25,25 @@ system OrderingSystem {
     context Ordering {
 
       aggregate Order with crudish {
-        reference: string
-        quantity: int
-        unitPrice: int
-        discount: int
+        reference: string check referenceIsRequired: reference.trim().length > 0
+        quantity: int check quantityCannotBeNegative: quantity >= 0
+        unitPrice: int check unitPriceCannotBeNegative: unitPrice >= 0
+        discount: int check discountCannotBeNegative: discount >= 0
 
         // Two operations write `total`, so a capture yields two
         // distinct rule snapshots — one per write-site.
         total: int provenanced
 
         operation reprice(qty: int, price: int) {
-          precondition qty > 0
-          precondition price >= 0
+          precondition newQuantityMustBePositive: qty > 0
+          precondition newPriceCannotBeNegative: price >= 0
           quantity := qty
           unitPrice := price
           total := qty * price - discount
         }
 
         operation applyDiscount(amount: int) {
-          precondition amount >= 0
+          precondition discountAmountCannotBeNegative: amount >= 0
           discount := amount
           total := quantity * unitPrice - amount
         }

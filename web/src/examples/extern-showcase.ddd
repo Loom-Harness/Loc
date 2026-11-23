@@ -30,9 +30,9 @@ system ExternShowcase {
       aggregate Order with crudish {
         reference: string
         status: OrderStatus
-        riskScore: int
+        riskScore: int check riskScoreMustBeFromZeroToOneHundred: riskScore >= 0 && riskScore <= 100
 
-        invariant reference.length > 0
+        invariant referenceIsRequired: reference.trim().length > 0
         derived display: string = reference
 
         function isMutable(): bool = status == Draft
@@ -43,13 +43,13 @@ system ExternShowcase {
         // invariants.  An extern body is preconditions ONLY — no
         // assignment / emit / mutation in the DSL.
         operation confirm() extern {
-          precondition isMutable()
-          precondition riskScore < 80
+          precondition orderMustBeDraftToConfirm: isMutable()
+          precondition riskScoreIsTooHighToConfirm: riskScore < 80
         }
 
         // A plain operation, for contrast: pure in-model state change.
         operation cancel() {
-          precondition isMutable()
+          precondition orderMustBeDraftToCancel: isMutable()
           status := Cancelled
         }
       }

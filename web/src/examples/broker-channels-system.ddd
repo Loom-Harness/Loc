@@ -20,8 +20,8 @@ system BrokerChannels {
   subdomain Catalog {
     context Catalog {
       aggregate Product with crudish {
-        sku: string
-        name: string
+        sku: string check skuIsRequired: sku.trim().length > 0
+        name: string check nameIsRequired: name.trim().length > 0
         operation launch() {
           emit ProductAnnounced { product: id, sku: sku }
           emit ProductListed { product: id, sku: sku }
@@ -33,7 +33,7 @@ system BrokerChannels {
       aggregate Sighting with crudish {
         channel: string
         sku: string
-        invariant channel != "rabbitmq" || sku != "POISON"
+        invariant poisonSkuCannotArriveOverRabbitmq: channel != "rabbitmq" || sku != "POISON"
       }
 
       event ProductAnnounced { product: Product id, sku: string }

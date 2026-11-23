@@ -21,6 +21,7 @@ import {
   resourceHostEnvVar,
   resourceSidecarUrl,
 } from "../util/resource-env.js";
+import { RETURN_ORIGINS_ENV } from "../util/return-to.js";
 import { RUNTIME_ENV } from "../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import type { EnvContractArgs, EnvRequirement } from "./operations.js";
@@ -50,6 +51,7 @@ function oidcEnv({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
     { name: "OIDC_CLIENT_SECRET", need: "optional" },
     { name: "OIDC_REDIRECT_URI", need: "deploy" },
     { name: "OIDC_POST_LOGIN_REDIRECT", need: "optional" },
+    { name: RETURN_ORIGINS_ENV, need: "optional" },
   ];
 }
 

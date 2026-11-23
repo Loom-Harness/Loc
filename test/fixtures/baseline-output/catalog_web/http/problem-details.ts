@@ -3,24 +3,25 @@ import { z } from "zod";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context, MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { ValueObjectInvariantError } from "../domain/errors";
+import { DomainError, ValueObjectInvariantError } from "../domain/errors";
 
 /** The domain-floor answer with ONE RFC 7807 errors[] entry — the shape the
  *  wire rung gives a request member, for a refusal the wire could not see:
  *  a value object a domain BODY built (an operation, a workflow, a handler —
  *  not the request body, whose value objects the request schema already
- *  checked).  The entry carries the rule's message, the same code the wire
+ *  checked), or a NAMED invariant / check / precondition tripped at the domain
+ *  floor.  The entry carries the rule's message, the same code the wire
  *  rung carries (its identity key, or the generic key of an unnamed rule) and
  *  the values the rule read as `params`; the body's own `code` is the
  *  rule's too, since its `detail` is the rule's text.  The pointer is the
  *  rule's ("/<field>" for a single-field rule) or "" — the whole request.
  *  Anything else answers undefined and the caller's own arm runs. */
 export function domainFloorProblem(c: Context, err: unknown, status: number, title: string): Response | undefined {
-  if (!(err instanceof ValueObjectInvariantError)) return undefined;
+  if (!(err instanceof DomainError) || (!(err instanceof ValueObjectInvariantError) && err.code === undefined)) return undefined;
   const trace_id = c.get("requestId") ?? "";
   const code = err.code ?? "problem.domain-floor";
   const params = err.params;
-  const entry = { pointer: "", message: err.message, code, ...(params ? { params } : {}) };
+  const entry = { pointer: err.pointer ?? "", message: err.message, code, ...(params ? { params } : {}) };
   return c.body(
     JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, code, ...(params ? { params } : {}), errors: [entry] }),
     status as 422,

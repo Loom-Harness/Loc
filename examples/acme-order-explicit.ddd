@@ -32,7 +32,7 @@ system AcmeOrderExplicit {
             enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
 
             aggregate Order with crudish {
-                customerId: string
+                customerId: string check customerIdIsRequired: customerId.trim().length > 0
                 status:     OrderStatus
                 placedAt:   datetime
                 derived display: string = customerId
