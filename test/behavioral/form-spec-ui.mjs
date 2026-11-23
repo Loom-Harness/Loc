@@ -603,3 +603,49 @@ export async function judgeOneTypeface(page, origin) {
   if (/\bInter\b/.test(fonts.body)) why.push(`one typeface: the default theme names Inter (${fonts.body}), which no target loads`);
   return why;
 }
+
+/** `source` with a `theme {}` that names `family` as its body font, ahead of
+ *  the system's first declaration (`corpus.json` → `themeFont`). */
+export function withThemeFont(source, family) {
+  return source.replace(
+    /(\nsystem \w+ \{\n)/,
+    `$1  theme {\n    fontFamily: "${family}, system-ui, sans-serif"\n  }\n`,
+  );
+}
+
+/** The web font the theme names is bundled and loaded: once the page's fonts
+ *  settle, the browser holds a loaded face for the family (none exists when no
+ *  bundled stylesheet declares it), and a form control renders in a stack that
+ *  starts with it. */
+export async function judgeThemeFont(page, origin, family) {
+  await page.goto(`${origin}/policies/new`);
+  await page.locator('[data-testid="policies-new-submit"]').first().waitFor({ timeout: 20000 });
+  return themeFontWhy(await page.evaluate(probeThemeFont, family), family);
+}
+
+/** In the page: whether `fam` is loaded, and the first form control's font. */
+export async function probeThemeFont(fam) {
+  // `check` is true for a family no stylesheet declares, so the loaded faces
+  // are counted too; `load` requests the face whether or not text uses it yet.
+  await document.fonts.load(`16px "${fam}"`);
+  await document.fonts.ready;
+  const input = document.querySelector("input:not([type=hidden])");
+  return {
+    check: document.fonts.check(`16px "${fam}"`),
+    faces: [...document.fonts].filter((f) => f.family.replace(/["']/g, "") === fam && f.status === "loaded").length,
+    control: input ? getComputedStyle(input).fontFamily : null,
+  };
+}
+
+/** The failures `probeThemeFont`'s result shows for `family`. */
+export function themeFontWhy(got, family) {
+  const why = [];
+  if (!got.check || got.faces === 0) {
+    why.push(`theme font: "${family}" is not loaded (fonts.check ${got.check}, ${got.faces} loaded face(s))`);
+  }
+  const first = (got.control ?? "").split(",")[0]?.trim().replace(/^["']|["']$/g, "");
+  if (first !== family) {
+    why.push(`theme font: a form control renders in ${JSON.stringify(got.control)}, not "${family}" first`);
+  }
+  return why;
+}
