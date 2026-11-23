@@ -193,7 +193,8 @@
       "api": false,
       "unit": false,
       "ui": true,
-      "textProbe": "form-spec"
+      "textProbe": "form-spec",
+      "themeFont": "Lato"
     },
     {
       "name": "form-spec-ui-vue",

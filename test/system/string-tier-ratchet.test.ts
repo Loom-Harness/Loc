@@ -97,10 +97,7 @@ const CEILINGS: Record<string, number> = {
   // form, a session view, a Money cell and the problem-sentence localizer read
   // catalog keys rather than English literals assert the emitted text per
   // framework; the generated-SPA builds compile them but never read the key.
-  // 431 → 600: the theme-font bundling pins (theme-font-bundling.test.ts) that
-  // the LiveView asset build copies the bundled font files and the Dockerfile
-  // ships them; a missing copy builds and boots, painting the fallback font.
-  _frontend: 600,
+  _frontend: 431,
   _i18n: 200,
   _numeric: 200,
   _obs: 200,

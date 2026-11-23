@@ -73,27 +73,32 @@ describe("theme font bundling", () => {
       const theme = Object.fromEntries(tokens.map((t) => [t, NAMED[t]]));
       const files = uiFiles(c, await generateSystemFiles(themedFixture(c, theme)));
       const pkg = packageJson(c, files);
+      // Every claim is collected and asserted once: the list names what is missing.
+      const missing: string[] = [];
       for (const t of tokens) {
         const font = fontsourceFont(NAMED[t].split(",")[0] as string, t);
         if (!font) throw new Error(`${NAMED[t]} is not a Fontsource family`);
-        expect(pkg.dependencies[font.packageName], `${c.design}: ${font.packageName}`).toBe(
-          font.version,
-        );
+        if (pkg.dependencies[font.packageName] !== font.version) {
+          missing.push(`dependency ${font.packageName}@${font.version}`);
+        }
         for (const sheet of fontStylesheets(font)) {
-          expect(loads(files, sheet), `${c.design}: loads ${sheet}`).toBe(true);
+          if (!loads(files, sheet)) missing.push(`load of ${sheet}`);
         }
         if (c.framework === "phoenixLiveView") {
+          const copy = pkg.scripts?.["build:fonts"] ?? "";
           for (const w of font.weights) {
-            expect(pkg.scripts?.["build:fonts"], `${c.design}: copies ${w}`).toContain(
-              `node_modules/${font.packageName}/files/*-${w}-normal.woff*`,
-            );
+            const glob = `node_modules/${font.packageName}/files/*-${w}-normal.woff*`;
+            if (!copy.includes(glob)) missing.push(`build:fonts copy of ${glob}`);
           }
-          expect(pkg.scripts?.build).toMatch(/^npm run build:fonts && /);
-          expect(files.get("api/Dockerfile")).toContain(
-            "COPY --from=assets-build /priv/static/assets/files priv/static/assets/files",
-          );
+          if (!pkg.scripts?.build?.startsWith("npm run build:fonts && ")) {
+            missing.push("build running build:fonts first");
+          }
+          const ship =
+            "COPY --from=assets-build /priv/static/assets/files priv/static/assets/files";
+          if (!files.get("api/Dockerfile")?.includes(ship)) missing.push("Dockerfile font copy");
         }
       }
+      expect(missing, c.design).toEqual([]);
     },
     300_000,
   );
@@ -106,14 +111,16 @@ describe("theme font bundling", () => {
       );
       for (const theme of [{}, generic]) {
         const files = uiFiles(c, await generateSystemFiles(themedFixture(c, theme)));
-        const mentions = [...files].filter(([, s]) => s.includes("@fontsource/"));
-        expect(
-          mentions.map(([p]) => p),
-          c.design,
-        ).toEqual([]);
-        if (c.framework === "phoenixLiveView") {
-          expect(files.get("api/Dockerfile")).not.toContain("/priv/static/assets/files");
-        }
+        // Absence: no file names a Fontsource package, and the LiveView image
+        // copies no font files.
+        const leaks = [...files]
+          .filter(
+            ([p, s]) =>
+              s.includes("@fontsource/") ||
+              (p === "api/Dockerfile" && s.includes("/priv/static/assets/files")),
+          )
+          .map(([p]) => p);
+        expect(leaks, c.design).toEqual([]);
       }
     },
     300_000,

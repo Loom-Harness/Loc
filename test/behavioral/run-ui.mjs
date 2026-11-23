@@ -53,6 +53,7 @@ import {
   judgeBlankReference,
   judgeBlankRule,
   judgeOneTypeface,
+  judgeThemeFont,
   judgeEventSourcedCreate,
   judgeFormSpec,
   judgeRiderAdded,
@@ -66,6 +67,7 @@ import {
   readPolicy,
   seedCoverage,
   seedFormSpec,
+  withThemeFont,
 } from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
 import { judgeSortOrder, SORT_ORDER_ROUTE } from "./sort-order-ui.mjs";
@@ -293,9 +295,8 @@ async function staticTextProbe(origin, probe) {
  * record back (`form-spec-ui.mjs`): the other fields must survive and the
  * cleared one must be `null`.
  */
-async function formSpecProbe(origin) {
-  const name =
-    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference, a rule on a blank, and typed text sent as typed or refused";
+async function formSpecProbe(origin, themeFont) {
+  const name = `form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference, a rule on a blank, and typed text sent as typed or refused${themeFont ? `, and the theme's web font ${themeFont} loaded` : ""}`;
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
     cwd: HERE,
     stdio: "pipe",
@@ -355,6 +356,7 @@ async function formSpecProbe(origin) {
     if (why.length === 0) why.push(...(await judgeBlankRule(page, origin)));
     if (why.length === 0) why.push(...(await judgeTypedText(page, origin)));
     if (why.length === 0) why.push(...(await judgeOneTypeface(page, origin)));
+    if (why.length === 0 && themeFont) why.push(...(await judgeThemeFont(page, origin, themeFont)));
     if (why.length) {
       const text = await page.locator("body").innerText().catch(() => "");
       why.push(`page text: ${JSON.stringify(text.slice(0, 600))}`);
@@ -393,7 +395,11 @@ async function runCase(c) {
       dddPath = join(workDir, "case.ddd");
       writeFileSync(
         dddPath,
-        applyFrontend(readFileSync(join(REPO, c.ddd), "utf8"), c.frontend),
+        // `themeFont`: the theme names that web font, and the form-spec probe
+        // asserts the booted page loads it.
+        ((src) => (c.themeFont ? withThemeFont(src, c.themeFont) : src))(
+          applyFrontend(readFileSync(join(REPO, c.ddd), "utf8"), c.frontend),
+        ),
       );
       copyLocales(localesBeside(join(REPO, c.ddd)), workDir);
     }
@@ -453,7 +459,7 @@ async function runCase(c) {
       const results = [];
       if (c.textProbe === "form-spec") {
         results.push(
-          await formSpecProbe(`http://127.0.0.1:${server.port}`).catch((err) => ({
+          await formSpecProbe(`http://127.0.0.1:${server.port}`, c.themeFont).catch((err) => ({
             tier: "ui-probe",
             name: "form-spec probe",
             status: "fail",
