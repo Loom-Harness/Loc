@@ -186,6 +186,7 @@ export const exprRule: Rule = union<ExprIR>("ExprIR", {
     otherwise: expr,
     origin: drop,
   },
+  coalesce: { left: expr, fallback: expr, leftType: typeRule, origin: drop },
   convert: { target: keep, from: keep, value: expr, origin: drop },
   duration: { unit: keep, amount: expr, origin: drop },
   i18nFormat: { inner: expr, format: keep, origin: drop },

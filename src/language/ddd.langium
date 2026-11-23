@@ -1008,9 +1008,15 @@ type Targetable =
 // ---------------------------------------------------------------------------
 
 BoundedContext:
-    'context' name=ID withClause=WithClause? '{'
+    'context' name=ContextName withClause=WithClause? '{'
         members+=ContextMember*
     '}';
+
+// A context name is an `ID`; `permissions` parses too so the validator can
+// refuse it with its reason (`loom.reserved-type-name`): `<Ctx>.permissions.x`
+// is the qualified permission spelling, so a context of that name is ambiguous.
+ContextName returns string:
+    ID | 'permissions';
 
 ContextMember:
     EnumDecl | ValueObject | Aggregate | EventDecl | PayloadDecl | Repository | Workflow

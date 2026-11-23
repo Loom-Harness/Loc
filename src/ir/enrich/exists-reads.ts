@@ -245,6 +245,7 @@ function typeOf(e: ExprIR): TypeIR | undefined {
     case "modelText":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
       return undefined;
     default: {

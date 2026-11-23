@@ -274,6 +274,7 @@ function describeSeedValue(e: ExprIR): string {
     case "literal":
     case "match":
     case "paren":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":

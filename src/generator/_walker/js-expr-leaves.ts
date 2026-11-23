@@ -11,8 +11,10 @@
 // language, mirroring the backend `_expr/target.ts` design.  The strings below
 // are byte-for-byte what `emitExpr` produced inline before the extraction.
 
-import type { BinOp, ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
+import { numericOpPlan } from "../../ir/plan/numeric-op.js";
+import type { BinOp, ExprIR, LiteralKind, PrimitiveName } from "../../ir/types/loom-ir.js";
 import { FRONTEND_RENDERED_COLLECTION_OPS } from "../../ir/util/collection-op-site.js";
+import { nullishOperand } from "../_expr/coalesce.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
 import { renderJsIntrinsic } from "../_expr/js-intrinsics.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
@@ -29,6 +31,7 @@ type ExprLeaves = Pick<
   | "exprValueEquality"
   | "exprUnary"
   | "exprTernary"
+  | "exprCoalesce"
   | "exprConvert"
   | "exprList"
   | "exprObject"
@@ -79,6 +82,9 @@ export const jsExprLeaves: ExprLeaves = {
   exprUnary(op: string, operand: string): string {
     return `(${op}${operand})`;
   },
+  exprCoalesce(left: string, fallback: string): string {
+    return `(${nullishOperand(left)} ?? ${nullishOperand(fallback)})`;
+  },
   exprTernary(cond: string, then: string, otherwise: string): string {
     return `(${cond} ? ${then} : ${otherwise})`;
   },
@@ -126,14 +132,6 @@ export const jsExprLeaves: ExprLeaves = {
   renderCollectionOp: renderJsCollectionOp,
 };
 
-/** `""` for a `money` stamp, `"?"` for a `money?`, null for anything else. */
-function jsMoneyOperand(t: TypeIR | undefined): "" | "?" | null {
-  if (t?.kind === "primitive" && t.name === "money") return "";
-  if (t?.kind === "optional" && t.inner.kind === "primitive" && t.inner.name === "money")
-    return "?";
-  return null;
-}
-
 const JS_MONEY_ORDERING: Partial<Record<BinOp, string>> = {
   "<": "lt",
   "<=": "lte",
@@ -164,14 +162,19 @@ export function renderJsMoneyBinary(
   right: string,
   e: Extract<ExprIR, { kind: "binary" }>,
 ): string | null {
-  const lt = jsMoneyOperand(e.leftType);
-  const rt = jsMoneyOperand(e.rightType);
-  if (lt === null && rt === null) return null;
-  const isNull = (x: ExprIR) => x.kind === "literal" && x.lit === "null";
-  if (isNull(e.left) || isNull(e.right)) return null;
-  // The other side of a money comparison is money too (`comparable` keeps
-  // money closed); a non-money side here is an operator this arm does not own.
-  if (lt === null || rt === null) return null;
+  // A comparison between two money operands (`comparable` keeps money
+  // closed): the plan's money comparison, or its absent-side ordering /
+  // equality.  Anything else is an operator this arm does not own.
+  const plan = numericOpPlan(e);
+  if (
+    (plan.kind !== "money" && plan.kind !== "absent-ordering" && plan.kind !== "absent-equality") ||
+    plan.left.family !== "money" ||
+    plan.right.family !== "money"
+  ) {
+    return null;
+  }
+  const lt = plan.left.optional ? "?" : "";
+  const rt = plan.right.optional ? "?" : "";
   const side = (text: string, t: "" | "?") => (t === "?" ? `(${text}) ?? "NaN"` : text);
   const diff = `Decimal.sub(${side(left, lt)}, ${side(right, rt)})`;
   if (e.op === "==" || e.op === "!=") {
@@ -223,6 +226,7 @@ export const unreachableExprLeaves: ExprLeaves = {
   exprBinary: unreachedExprLeaf("exprBinary"),
   exprUnary: unreachedExprLeaf("exprUnary"),
   exprTernary: unreachedExprLeaf("exprTernary"),
+  exprCoalesce: unreachedExprLeaf("exprCoalesce"),
   exprConvert: unreachedExprLeaf("exprConvert"),
   exprList: unreachedExprLeaf("exprList"),
   exprObject: unreachedExprLeaf("exprObject"),

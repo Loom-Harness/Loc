@@ -80,6 +80,8 @@ export function firstNonUiGateNode(e: ExprIR): UiGateReject | null {
       return (
         firstNonUiGateNode(e.cond) ?? firstNonUiGateNode(e.then) ?? firstNonUiGateNode(e.otherwise)
       );
+    case "coalesce":
+      return firstNonUiGateNode(e.left) ?? firstNonUiGateNode(e.fallback);
     default:
       return { kind: "kind", text: printGateExpr(e) };
   }

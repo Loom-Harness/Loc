@@ -1,0 +1,76 @@
+// shape: `==` on value objects with an optional side (ruling 457).
+//
+// Value-object equality is BY VALUE and ABSENCE-SAFE on every backend: equal
+// when all fields are equal; both absent are equal; one absent is not.  node
+// compared a value object with an optional side by REFERENCE (`===`), so two
+// distinct instances with equal fields answered false while the other four
+// answered true.  Each row below is a different answer under reference
+// equality or under a non-absence-safe comparison.
+system ValueObjectEquality {
+  subdomain People {
+    context People {
+      valueobject Address {
+        street: string
+        zip: int
+      }
+
+      aggregate Person with crudish {
+        home: Address?
+        work: Address
+        sameAsGiven: bool
+
+        derived homeIsWork: bool = home == work
+        derived homeDiffersFromWork: bool = home != work
+
+        operation compare(given: Address?) {
+          sameAsGiven := home == given
+        }
+      }
+      repository People for Person { }
+    }
+  }
+
+  api PeopleApi from People
+  storage primary { type: postgres }
+  resource peopleState { for: People, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [People]
+    dataSources: [peopleState]
+    serves: PeopleApi
+    port: 4000
+  }
+
+  test e2e "value objects compare by value, absence-safe" against d {
+    let p = api.persons.create({ home: null, work: { street: "Main", zip: 1 }, sameAsGiven: false })
+    let absent = api.persons.getById(p)
+    expect(absent.homeIsWork).toBe(false)
+    expect(absent.homeDiffersFromWork).toBe(true)
+
+    api.persons.compare(p, { given: null })
+    let bothAbsent = api.persons.getById(p)
+    expect(bothAbsent.sameAsGiven).toBe(true)
+
+    api.persons.compare(p, { given: { street: "Main", zip: 1 } })
+    let oneAbsent = api.persons.getById(p)
+    expect(oneAbsent.sameAsGiven).toBe(false)
+
+    api.persons.update(p, { home: { street: "Main", zip: 1 }, work: { street: "Main", zip: 1 }, sameAsGiven: false })
+    let equal = api.persons.getById(p)
+    expect(equal.homeIsWork).toBe(true)
+    expect(equal.homeDiffersFromWork).toBe(false)
+
+    api.persons.compare(p, { given: { street: "Main", zip: 1 } })
+    let sameValue = api.persons.getById(p)
+    expect(sameValue.sameAsGiven).toBe(true)
+
+    api.persons.compare(p, { given: { street: "Side", zip: 1 } })
+    let otherValue = api.persons.getById(p)
+    expect(otherValue.sameAsGiven).toBe(false)
+
+    let all = api.persons.all()
+    expect(all.items.length).toBe(1)
+    let spare = api.persons.create({ home: null, work: { street: "X", zip: 2 }, sameAsGiven: false })
+    api.persons.destroy(spare)
+  }
+}

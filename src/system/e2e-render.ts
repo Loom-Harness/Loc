@@ -1,3 +1,4 @@
+import { nullishOperand } from "../generator/_expr/coalesce.js";
 import { groupedOperand, groupedOperands } from "../generator/_expr/grouping.js";
 import { isDescendingSort } from "../generator/typescript/render-expr.js";
 import { CACHE_STATUS_HEADER } from "../ir/plan/cache.js";
@@ -602,6 +603,8 @@ function renderE2EExpr(e: ExprIR, ctx: RenderCtx): string {
     }
     case "ternary":
       return `${renderE2EExpr(e.cond, ctx)} ? ${renderE2EExpr(e.then, ctx)} : ${renderE2EExpr(e.otherwise, ctx)}`;
+    case "coalesce":
+      return `${nullishOperand(renderE2EExpr(e.left, ctx))} ?? ${nullishOperand(renderE2EExpr(e.fallback, ctx))}`;
     case "lambda":
       // Lambda body is now optional (block-body lambdas were
       // added for page event handlers).  E2E tests don't currently

@@ -59,8 +59,8 @@ describe(".NET criterion runner hydrates X id[] reference collections", () => {
     const files = await generateSystemFiles(src("dotnet { persistence: dapper }"));
     const repo = files.get("d/Infrastructure/Repositories/TrainerRepository.cs")!;
     const body = runnerBody(repo);
-    expect(body).toContain("var __roots = rows.Select(Map).ToList();");
+    expect(body).toContain("var __roots = rows.Select(Create).ToList();");
     expect(body).toContain("await LoadRefsAsync(conn, __roots, cancellationToken);");
-    expect(body).not.toContain("return rows.Select(Map).ToList();");
+    expect(body).not.toContain("return rows.Select(Create).ToList();");
   });
 });

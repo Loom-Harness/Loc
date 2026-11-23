@@ -20,3 +20,157 @@
 .phx-loading {
   cursor: wait;
 }
+
+/* Semantic classes the HEEx walker and the pack's primitives emit.  They are
+   not Tailwind utilities, so each one is defined here; the class-coverage
+   census (test/generator/elixir/heex-class-coverage.test.ts) fails on an
+   emitted class that is neither a utility nor defined in this file.
+   Colours derive from `currentColor` and the theme tokens so a re-themed
+   project keeps the look. */
+@layer components {
+  .breadcrumbs {
+    @apply flex flex-wrap items-center gap-2 text-sm;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .breadcrumb-item {
+    @apply inline-flex items-center;
+  }
+  .breadcrumb-item a:hover {
+    text-decoration: underline;
+  }
+  .breadcrumb-sep {
+    opacity: 0.4;
+  }
+  .breadcrumb-current {
+    @apply font-medium;
+  }
+
+  .alert {
+    @apply rounded-md border px-4 py-3 text-sm;
+    border-color: color-mix(in srgb, currentColor 25%, transparent);
+    background: color-mix(in srgb, currentColor 6%, transparent);
+  }
+  .alert-error {
+    @apply text-red-700;
+  }
+  .alert-warning {
+    @apply text-amber-700;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
+  .badge-enum {
+    color: var(--color-primary);
+  }
+
+  .btn-danger {
+    @apply bg-red-600 text-white;
+  }
+  .btn-danger:hover {
+    @apply bg-red-700;
+  }
+
+  .empty {
+    @apply py-8 text-center text-sm text-zinc-500;
+  }
+
+  .money {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded-md;
+    min-height: 1rem;
+    background: color-mix(in srgb, currentColor 12%, transparent);
+  }
+
+  .stat {
+    @apply flex flex-col gap-1;
+  }
+  .stat-label {
+    @apply text-sm text-zinc-500;
+  }
+  .stat-value {
+    @apply text-2xl font-semibold;
+  }
+
+  .tabs {
+    display: block;
+  }
+  .tab-bar {
+    @apply flex flex-wrap gap-1 border-b;
+    border-color: color-mix(in srgb, currentColor 15%, transparent);
+  }
+  .tab {
+    @apply px-3 py-2 text-sm;
+    border-bottom: 2px solid transparent;
+    opacity: 0.7;
+  }
+  .tab-active {
+    border-bottom-color: var(--color-primary);
+    opacity: 1;
+  }
+  .tab-panel {
+    @apply pt-4;
+  }
+
+  .key-value-row {
+    @apply flex flex-wrap items-baseline gap-2 py-1;
+  }
+  .key-value-label {
+    @apply text-sm font-medium text-zinc-500;
+  }
+  .key-value-value {
+    @apply text-sm;
+  }
+
+  .app-icon {
+    @apply inline-flex items-center;
+    vertical-align: -0.125em;
+  }
+  .app-chart {
+    @apply w-full;
+    margin: 0;
+  }
+  .app-code-block {
+    @apply overflow-x-auto rounded-md p-3 text-sm;
+    background: color-mix(in srgb, currentColor 6%, transparent);
+  }
+  .app-file-upload {
+    @apply flex flex-col gap-2;
+  }
+  .app-locale-switcher {
+    @apply rounded-md border px-2 py-1 text-sm;
+    border-color: color-mix(in srgb, currentColor 25%, transparent);
+  }
+  .app-provenance {
+    @apply text-sm;
+  }
+  .app-provenance-tree {
+    @apply mt-1 space-y-1 pl-3;
+  }
+  .app-timeline {
+    @apply space-y-3;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .app-timeline-entry {
+    @apply flex flex-wrap items-baseline gap-2 border-l-2 pl-3 text-sm;
+    border-color: color-mix(in srgb, currentColor 20%, transparent);
+  }
+  .app-timeline-action {
+    @apply font-medium;
+  }
+  .app-timeline-actor {
+    @apply text-zinc-500;
+  }
+  .app-timeline-changes {
+    @apply w-full text-xs text-zinc-500;
+  }
+}

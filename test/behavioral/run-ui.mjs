@@ -52,6 +52,7 @@ import {
   judgeDetailCollections,
   judgeBlankReference,
   judgeBlankRule,
+  judgeCreatePrefill,
   judgeOneTypeface,
   judgeThemeFont,
   judgeEventSourcedCreate,
@@ -297,7 +298,7 @@ async function staticTextProbe(origin, probe) {
  * cleared one must be `null`.
  */
 async function formSpecProbe(origin, themeFont) {
-  const name = `form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference, a rule on a blank, and typed text sent as typed or refused${themeFont ? `, and the theme's web font ${themeFont} loaded` : ""}`;
+  const name = `form-spec probe: a create form pre-filled from the clock and the session stores what it showed, update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference, a rule on a blank, and typed text sent as typed or refused${themeFont ? `, and the theme's web font ${themeFont} loaded` : ""}`;
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
     cwd: HERE,
     stdio: "pipe",
@@ -310,6 +311,7 @@ async function formSpecProbe(origin, themeFont) {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+    why.push(...(await judgeCreatePrefill(browser, origin)));
     await driveUpdate(page, origin, before.id, before.lastProviderId);
     let after = before;
     for (let i = 0; i < 30; i++) {
@@ -453,7 +455,12 @@ async function runCase(c) {
         SECURE_TRANSPORT: "off",
       });
     }
-    const { startServer } = await buildServerModule(deplDir, workDir, { oidc: !!c.oidcLogin });
+    // A `devStub` case boots its `auth: required` backend on the generated dev
+    // stub, so the browser's `x-dev-claims` picks the session principal.
+    const { startServer } = await buildServerModule(deplDir, workDir, {
+      oidc: !!c.oidcLogin,
+      devStub: !!c.devStub,
+    });
     server = await startServer({ distDir, port });
     process.stdout.write(`    stack on :${server.port}\n`);
 

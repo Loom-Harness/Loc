@@ -119,6 +119,26 @@ export function renderSqlScalarExpr(e: ExprIR, ctx: SqlExprContext): string {
       const o = renderSqlScalarExpr(e.otherwise, ctx);
       return `(CASE WHEN ${c} THEN ${t} ELSE ${o} END)`;
     }
+    // A `CASE` over the null test, not `COALESCE`: this text lands in migrations
+    // that are already applied, and Flyway validates an applied script's
+    // checksum, so a backfill's SQL must not change spelling.  A column read
+    // twice in one row's `CASE` is the same value.
+    case "coalesce": {
+      const test = renderSqlScalarExpr(
+        {
+          kind: "binary",
+          op: "==",
+          left: e.left,
+          right: { kind: "literal", lit: "null", value: "null" },
+          leftType: e.leftType,
+          rightType: { kind: "primitive", name: "string" },
+          resultType: { kind: "primitive", name: "bool" },
+        },
+        ctx,
+      );
+      const fallback = renderSqlScalarExpr(e.fallback, ctx);
+      return `(CASE WHEN ${test} THEN ${fallback} ELSE ${renderSqlScalarExpr(e.left, ctx)} END)`;
+    }
     default:
       return refuseOutOfVocabulary(MODE, `expression kind '${e.kind}'`);
   }

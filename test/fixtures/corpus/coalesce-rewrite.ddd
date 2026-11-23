@@ -1,0 +1,86 @@
+// shape: a `??` that an emitter REWRITES before rendering it.
+//
+// A mutating domain-service op is inlined into the workflow that calls it
+// (Elixir rebinds the mutated aggregate in the workflow's `with` chain), and
+// inlining substitutes the op's params with the call's arguments through
+// `mapExprChildren`.  `label ?? "untagged"` is a `coalesce` node, so it is
+// carried through that rewrite as one and renders as the host's own
+// coalesce — the left operand evaluated once, on every backend.
+//
+// The `test e2e` block is the wire proof of the values: an absent label falls
+// back, a present one is kept, through the inlined path and through a plain
+// operation.  The single evaluation itself has no wire effect (the left is a
+// pure read); test/generator/_expr/coalesce-node.test.ts pins it.
+system CoalesceRewrite {
+  subdomain Notes {
+    context Notes {
+      aggregate Note with crudish {
+        text: string
+        label: string
+
+        operation relabel(l: string?) {
+          label := l ?? "untagged"
+        }
+
+        operation tag(l: string) {
+          label := l
+        }
+      }
+      repository Notes for Note { }
+
+      // The mutating tier: the op's `label` param is substituted by the
+      // workflow's argument wherever the op is inlined.
+      domainService Tagging {
+        operation markNote(n: Note, value: string?) {
+          n.tag(value ?? "untagged")
+        }
+      }
+
+      workflow TagNote transactional {
+        create(note: Note id, label: string?) {
+          let n = Notes.get(note)
+          Tagging.markNote(n, label)
+        }
+      }
+    }
+  }
+
+  api NotesApi from Notes
+  storage primary { type: postgres }
+  resource notesState { for: Notes, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Notes]
+    dataSources: [notesState]
+    serves: NotesApi
+    port: 4000
+  }
+
+  test e2e "a coalesce keeps its value through every emitter's rewrite" against d {
+    let n = api.notes.create({ text: "hello", label: "" })
+
+    api.notes.relabel(n, { l: null })
+    let fell = api.notes.getById(n)
+    expect(fell.label).toBe("untagged")
+    api.notes.relabel(n, { l: "kept" })
+    let kept = api.notes.getById(n)
+    expect(kept.label).toBe("kept")
+
+    api.tagNote.run({ note: n.id, label: null })
+    let inlinedFell = api.notes.getById(n)
+    expect(inlinedFell.label).toBe("untagged")
+    api.tagNote.run({ note: n.id, label: "inlined" })
+    let inlinedKept = api.notes.getById(n)
+    expect(inlinedKept.label).toBe("inlined")
+
+    api.notes.tag(n, { l: "direct" })
+    let direct = api.notes.getById(n)
+    expect(direct.label).toBe("direct")
+
+    let all = api.notes.all()
+    expect(all.items.length).toBe(1)
+    api.notes.update(n, { text: "bye", label: "x" })
+    let spare = api.notes.create({ text: "spare", label: "" })
+    api.notes.destroy(spare)
+  }
+}

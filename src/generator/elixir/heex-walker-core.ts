@@ -202,6 +202,11 @@ export interface ActionBinding {
 export interface FormBinding {
   /** Which kind of source the form is bound to. */
   kind: "aggregate" | "workflow" | "operation";
+  /** kind:"aggregate" only — the create fields the form computes when it opens
+   *  (`FormPrefill.client`, D-FORM-PREFILL): each schema field (snake) and the
+   *  Elixir value `mount/3` seeds it with — the server's clock, or a
+   *  `currentUser` expression over `socket.assigns.current_user`. */
+  prefill?: readonly { field: string; value: string }[];
   /** Source name in PascalCase (e.g. "Customer", "PlaceOrder"; for
    *  an operation form, the owning aggregate). */
   name: string;

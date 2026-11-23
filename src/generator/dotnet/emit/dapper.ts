@@ -86,7 +86,7 @@ import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js"
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, DOTNET_RUNTIME } from "../../_symbols/plan.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { csIdSqlType, csJsonSqlType, csSqlType } from "../codec-spelling.js";
@@ -2241,7 +2241,7 @@ export function renderDapperRepository(
                 : []),
             ]
           : [
-              `        var ${L("items")} = ${L("rows")}.Select(Map).ToList();`,
+              `        var ${L("items")} = ${L("rows")}.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`,
               ...(hasAssoc
                 ? [`        await LoadRefsAsync(${L("conn")}, ${L("items")}, ${ct});`]
                 : []),
@@ -2266,11 +2266,11 @@ export function renderDapperRepository(
             : [`        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${ct});`]
           : hasAssoc
             ? [
-                `        var ${L("__roots")} = ${L("rows")}.Select(Map).ToList();`,
+                `        var ${L("__roots")} = ${L("rows")}.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`,
                 `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, ${ct});`,
                 `        return ${L("__roots")};`,
               ]
-            : [`        return ${L("rows")}.Select(Map).ToList();`]),
+            : [`        return ${L("rows")}.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`]),
         `    }`,
       );
     }
@@ -2314,11 +2314,13 @@ export function renderDapperRepository(
         : hasAssoc
           ? [
               absentGuard,
-              `        var ${L("__one")} = new List<${agg.name}> { Map(${L("r")}) };`,
+              `        var ${L("__one")} = new List<${agg.name}> { ${DOTNET_RUNTIME.rowMapper}(${L("r")}) };`,
               `        await LoadRefsAsync(${L("conn")}, ${L("__one")}, ${ct});`,
               `        return ${L("__one")}[0];`,
             ]
-          : [`        return ${L("r")} is null ? ${absent} : Map(${L("r")});`]),
+          : [
+              `        return ${L("r")} is null ? ${absent} : ${DOTNET_RUNTIME.rowMapper}(${L("r")});`,
+            ]),
       `    }`,
     );
   });
@@ -2409,11 +2411,11 @@ export function renderDapperRepository(
           : [`        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${own.ct});`]
         : hasAssoc
           ? [
-              `        var ${L("__roots")} = ${L("rows")}.Select(Map).ToList();`,
+              `        var ${L("__roots")} = ${L("rows")}.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`,
               `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, ${own.ct});`,
               `        return ${L("__roots")};`,
             ]
-          : [`        return ${L("rows")}.Select(Map).ToList();`]),
+          : [`        return ${L("rows")}.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`]),
       `    }`,
     );
   });
@@ -2503,7 +2505,7 @@ export function renderDapperRepository(
       ...(hasContains
         ? []
         : [
-            `    private static ${agg.name} Map(Row r) =>`,
+            `    private static ${agg.name} ${DOTNET_RUNTIME.rowMapper}(Row r) =>`,
             `        ${agg.name}._Create(new ${csStateHolderOf(agg.name)}`,
             "        {",
             ...mapBody,
@@ -2526,11 +2528,11 @@ export function renderDapperRepository(
         : hasAssoc
           ? [
               "        if (r is null) return null;",
-              "        var __one = new List<" + agg.name + "> { Map(r) };",
+              `        var __one = new List<${agg.name}> { ${DOTNET_RUNTIME.rowMapper}(r) };`,
               "        await LoadRefsAsync(conn, __one, cancellationToken);",
               "        return __one[0];",
             ]
-          : ["        return r is null ? null : Map(r);"]),
+          : [`        return r is null ? null : ${DOTNET_RUNTIME.rowMapper}(r);`]),
       "    }",
       "",
       ...writeScopeMethod,
@@ -2549,11 +2551,11 @@ export function renderDapperRepository(
           : ["        return await HydrateAsync(conn, rows.ToList(), cancellationToken);"]
         : hasAssoc
           ? [
-              "        var __roots = rows.Select(Map).ToList();",
+              `        var __roots = rows.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`,
               "        await LoadRefsAsync(conn, __roots, cancellationToken);",
               "        return __roots;",
             ]
-          : ["        return rows.Select(Map).ToList();"]),
+          : [`        return rows.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`]),
       "    }",
       "",
       ...handleSaveOverloadLines(agg, bclTask),

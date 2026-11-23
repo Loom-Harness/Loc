@@ -269,6 +269,13 @@ async function main() {
     const projDir = join(genDir, "phoenix_app");
     const e2eDir = join(projDir, "e2e");
     if (!existsSync(join(projDir, "mix.exs"))) throw new Error("no phoenix deployable generated");
+    // Mutation-proof seam, as in run-ui.mjs: a module named by LOOM_UI_MUTATE
+    // receives the GENERATED tree before anything is built, so a proof can seed
+    // a defect into the emitted app itself.  Never set in CI.
+    if (process.env.LOOM_UI_MUTATE) {
+      const mutate = await import(pathToFileURL(resolve(process.env.LOOM_UI_MUTATE)).href);
+      await mutate.default({ genDir, frontendDir: projDir, caseName: CASE });
+    }
     const emittedSpec = join(e2eDir, "HeexUiSystem.ui.spec.ts");
     // A missing emitted spec is the WHOLE point of the leg — never skip past it.
     // (The i18n case has no `test e2e` block: its spec is the hand-written one.)

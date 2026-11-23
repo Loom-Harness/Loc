@@ -1,0 +1,11 @@
+{
+  "title": "`??` through an emitter's rewrite — a mutating domain-service op inlined into its workflow, plus a plain operation",
+  "doc": "domain-services",
+  "backends": "ALL",
+  "note": "the witness that `a ?? b` is a `coalesce` IR node, not a ternary whose null test and else-branch share one object.  Inlining a mutating domain-service op substitutes its params through `mapExprChildren`, which rebuilt the two children separately and so lost the shared identity: the left operand rendered twice.  The double read of a pure value has no wire effect, so this fixture pins the VALUES through every path (absent → fallback, present → kept) on every backend, and `test/generator/_expr/coalesce-node.test.ts` pins the single evaluation on every ExprTarget",
+  "apiCaller": {
+    "unattributed": [
+      "api.tagNote.run (no such aggregate)"
+    ]
+  }
+}

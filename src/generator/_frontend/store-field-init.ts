@@ -19,6 +19,7 @@
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { ExprIR, StateFieldIR } from "../../ir/types/loom-ir.js";
 import { storeInitNonConstant } from "../../ir/util/store-init.js";
+import { nullishOperand } from "../_expr/coalesce.js";
 import { defaultInitForJs } from "../_walker/js-target-helpers.js";
 
 /** Render a store-field `= <init>` as JS.  The admitted set is exactly
@@ -51,6 +52,8 @@ function renderStoreInit(e: ExprIR, field: string): string {
     }
     case "ternary":
       return `(${r(e.cond)} ? ${r(e.then)} : ${r(e.otherwise)})`;
+    case "coalesce":
+      return `(${nullishOperand(r(e.left))} ?? ${nullishOperand(r(e.fallback))})`;
     case "ref":
       // An enum is a string union on the wire.
       if (e.refKind === "enum-value") return JSON.stringify(e.name);
