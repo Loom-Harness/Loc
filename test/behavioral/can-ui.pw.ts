@@ -23,6 +23,15 @@ async function createTicket(page: import("@playwright/test").Page): Promise<stri
   return (await res.json()).id as string;
 }
 
+/** Submit the open Reassign form and answer the status its request got. */
+async function submitStatus(page: import("@playwright/test").Page): Promise<number> {
+  const [res] = await Promise.all([
+    page.waitForResponse((r) => /\/reassign$/.test(r.url()) && r.request().method() === "POST"),
+    page.getByTestId("tickets-op-reassign-submit").click(),
+  ]);
+  return res.status();
+}
+
 test("an operation with a permission query is disabled while its gate refuses", async ({
   page,
 }) => {
@@ -53,8 +62,7 @@ test("an operation without a permission query stays enabled and its submit answe
   // The `requires` reads the argument: reassigning to the owner is refused.
   await reassign.click();
   await page.getByTestId("tickets-op-reassign-input-to").fill("ann");
-  await page.getByTestId("tickets-op-reassign-submit").click();
-  await expect(page.getByText(/Forbidden/).first()).toBeVisible();
+  expect(await submitStatus(page)).toBe(403);
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("tickets-detail-owner")).toContainText("ann");
 
@@ -66,8 +74,7 @@ test("an operation without a permission query stays enabled and its submit answe
   await expect(reassign).toBeEnabled();
   await reassign.click();
   await page.getByTestId("tickets-op-reassign-input-to").fill("bob");
-  await page.getByTestId("tickets-op-reassign-submit").click();
-  await expect(page.getByText(/not allowed/i).first()).toBeVisible();
+  expect(await submitStatus(page)).toBe(409);
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("tickets-detail-owner")).toContainText("ann");
 
