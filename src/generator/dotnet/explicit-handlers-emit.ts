@@ -36,6 +36,7 @@
 // (single or `.Select(...).ToList()`) at the boundary.
 // ---------------------------------------------------------------------------
 
+import { dispatchedRecord } from "../../ir/plan/command-bus.js";
 import {
   handlerNeedsCurrentUser,
   handlerRunsInTransaction,
@@ -264,6 +265,30 @@ using ${ns}.Domain.Enums;${retUsing}
 namespace ${handlerHome(ns, agg, kind).ns};
 
 public sealed record ${recName}(${params}) : ${iface};
+${recordBinding(h, ctx, kind, recName, retCs)}`;
+}
+
+/** The compile-time half of the bus entry a request record is: the record's
+ *  handler class exists and handles it, or this does not compile (Mediator
+ *  itself reports a record with no handler only when it is sent).  Empty for
+ *  a handler no record is dispatched through. */
+function recordBinding(
+  h: Handler,
+  ctx: EnrichedBoundedContextIR,
+  kind: "Command" | "Query",
+  recName: string,
+  retCs: string | undefined,
+): string {
+  if (!dispatchedRecord(ctx, h.name)) return "";
+  const handlerName = `${DOMAIN_NAMES.csharp.type(h.name)}Handler`;
+  const iface = kind === "Command" ? "ICommandHandler" : "IQueryHandler";
+  return `
+file static class ${recName}Binding
+{
+    private static void Handler<THandler>() where THandler : ${iface}<${recName}, ${retCs ?? "Unit"}> { }
+
+    private static void Check() => Handler<${handlerName}>();
+}
 `;
 }
 

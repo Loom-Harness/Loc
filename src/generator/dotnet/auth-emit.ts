@@ -1439,7 +1439,7 @@ function renderMiddleware(
     private static async Task MalformedDevClaimsAsync(HttpContext ctx, string detail)
     {
         ctx.Response.StatusCode = 400;
-        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        await ctx.Response.WriteAsJsonAsync(new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = "Bad Request",
@@ -1547,7 +1547,7 @@ function renderMiddleware(
     private static async Task OrgContextForbiddenAsync(HttpContext ctx)
     {
         ctx.Response.StatusCode = 403;
-        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        await ctx.Response.WriteAsJsonAsync(new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = "Forbidden",
@@ -1668,7 +1668,7 @@ ${malformedCatch}        catch
         var detail = $"no valid credentials for {ctx.Request.Method} {ctx.Request.Path}";
         ctx.Response.StatusCode = 401;
         ctx.Response.Headers.WWWAuthenticate = "Bearer realm=\\"api\\", error=\\"invalid_token\\"";
-        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        await ctx.Response.WriteAsJsonAsync(new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = "Unauthorized",

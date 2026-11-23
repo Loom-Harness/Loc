@@ -8,7 +8,7 @@
 //     `IReadOnlyList<T>` (CA1829), and a domain service's single-result
 //     criterion `find` took `FirstOrDefault()` over the run method's
 //     `IReadOnlyList<T>` (CA1826);
-//   - `aggregate Module` names a Visual Basic keyword (CA1716);
+//   - `aggregate Property` names a Visual Basic keyword (CA1716);
 //   - a read param spelled `cancellationToken` / `bypass` duplicated the
 //     repository method's own trailing parameter (CS0100).
 //
@@ -36,7 +36,7 @@ system Repro {
           tags := ts
         }
       }
-      aggregate Module with crudish {
+      aggregate Property with crudish {
         title: string
       }
       criterion FewTags of Item = this.tags.count() < 10
@@ -44,7 +44,7 @@ system Repro {
       criterion Tok(cancellationToken: string, bypass: string) of Item = name == cancellationToken || name == bypass
       retrieval ByToken(cancellationToken: string) of Item { where: NameIs(cancellationToken) }
       repository Items for Item
-      repository Modules for Module { }
+      repository Properties for Property { }
       domainService Lookup {
         operation anyTok(a: string): bool {
           return Items.find(Tok(a, a)) != null
@@ -133,10 +133,10 @@ describe.each(ADAPTERS)("%s: .NET residual /warnaserror failures", (adapter, pla
     expect(svc).not.toContain("FirstOrDefault()");
   });
 
-  it("aggregate Module: CA1716 is in the API project's NoWarn", async () => {
+  it("aggregate Property: CA1716 is in the API project's NoWarn", async () => {
     const csproj = await file(platform, "api/Api.csproj");
     expect(csproj).toMatch(/<NoWarn>[^<]*\bCA1716\b[^<]*<\/NoWarn>/);
-    expect(await file(platform, "Domain/Modules/Module.cs")).toContain("class Module");
+    expect(await file(platform, "Domain/Properties/Property.cs")).toContain("class Property");
   });
 
   it("a read param named cancellationToken / bypass keeps its name; the method's own param yields", async () => {

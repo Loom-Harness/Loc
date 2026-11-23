@@ -258,6 +258,64 @@ describe("finalizePyModule — framework names alias, model names stay bare", ()
     expect(finalizePyModule(src)).toBe(src);
   });
 
+  // Wiring no booted tier names: the collision only exists for an event named
+  // like a framework member, which no corpus fixture declares.
+  it("keeps an event from the events module bare: it is the model's", () => {
+    const out = finalizePyModule(
+      [
+        doc,
+        "",
+        PY_IMPORTS,
+        "",
+        `d: ${pyRef("datetime", "date", "CalendarDate")}`,
+        `e = ${pyRef("app.domain.events", "CalendarDate")}`,
+      ].join("\n"),
+    );
+    expect(out).toContain("from datetime import date as _datetime_CalendarDate");
+    expect(out).toContain("from app.domain.events import CalendarDate");
+    expect(out).toContain("d: _datetime_CalendarDate");
+    expect(out).toContain("e = CalendarDate");
+  });
+
+  it("keeps the events module's own runtime names framework-side", () => {
+    const out = finalizePyModule(
+      [
+        doc,
+        "",
+        PY_IMPORTS,
+        "",
+        `a: ${pyRef("app.domain.events", "DomainEventDispatcher")}`,
+        `b: ${pyRef("app.domain.value_objects", "DomainEventDispatcher")}`,
+      ].join("\n"),
+    );
+    expect(out).toContain(
+      "from app.domain.events import DomainEventDispatcher as _app_domain_events_DomainEventDispatcher",
+    );
+    expect(out).toContain("b: DomainEventDispatcher");
+  });
+
+  it("does not rename the module's own class where it is spelled as a marker", () => {
+    const out = finalizePyModule(
+      [
+        doc,
+        "",
+        PY_IMPORTS,
+        "",
+        "",
+        "class Callable:",
+        "    pass",
+        "",
+        "",
+        `DomainEvent = ${pyRef("app.domain.events", "Callable")}`,
+        `hook: ${pyRef("collections.abc", "Callable")}[[], None]`,
+      ].join("\n"),
+      { path: "app/domain/events.py" },
+    );
+    expect(out).toContain("from collections.abc import Callable as _collections_abc_Callable");
+    expect(out).toContain("DomainEvent = Callable");
+    expect(out).toContain("hook: _collections_abc_Callable[[], None]");
+  });
+
   it("still refuses two model-side imports (neither may move)", () => {
     expect(() =>
       finalizePyModule(

@@ -1003,7 +1003,9 @@ export function drizzleClientSortColumns(
       return `${JSON.stringify(f)}: ${codePoint.has(f) ? `sql\`\${${col}} collate "C"\`` : col}`;
     })
     .join(", ");
-  const type = `Record<string, ${collated.length > 0 ? `${TT.AnyPgColumn} | ReturnType<typeof sql>` : TT.AnyPgColumn}>`;
+  // drizzle's `SQL` by name, not `ReturnType<typeof sql>`: the TS global
+  // `ReturnType` is shadowed by a domain type of that name, an import is not.
+  const type = `Record<string, ${collated.length > 0 ? `${TT.AnyPgColumn} | ${TT.SQL}` : TT.AnyPgColumn}>`;
   return { entries, type };
 }
 

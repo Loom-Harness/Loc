@@ -10,11 +10,11 @@ import { walkStmtsDeep } from "../../ir/util/walk.js";
 import { escapeJavaIdent } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { floorRuleText } from "../_i18n/rule-text.js";
+import { javaProjectRef } from "../_imports/java.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { javaLineageValue } from "./codec-spelling.js";
 import { jid } from "./java-ident.js";
-import { javaEventRef } from "./java-symbols.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "./render-expr.js";
 import { javaRuleParamsTail } from "./wire-policy-java.js";
 
@@ -157,10 +157,13 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
 
     emit: (s) => {
       const args = orderedEventArgs(s, ctx);
+      // The event is the project's type: a bare name would read as the
+      // platform's where an event shares one (`event Instant`).
+      const event = javaProjectRef(s.eventName, "event");
       if (traceCtx.eventSourced) {
-        return `${INDENT}{ var __ev = new ${javaEventRef(s.eventName)}(${args}); this._domainEvents.add(__ev); this._apply(__ev); }`;
+        return `${INDENT}{ var __ev = new ${event}(${args}); this._domainEvents.add(__ev); this._apply(__ev); }`;
       }
-      return `${INDENT}this._domainEvents.add(new ${javaEventRef(s.eventName)}(${args}));`;
+      return `${INDENT}this._domainEvents.add(new ${event}(${args}));`;
     },
 
     call: (s) => {

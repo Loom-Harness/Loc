@@ -69,8 +69,8 @@ const DOMAIN_KIND_PACKAGE = {
  *  its simple name.  The finalizer finds its package in the project's type
  *  index and spells it bare with a single-type import — or fully qualified
  *  where the symbol plan says the simple name is taken in that unit.  `kind`
- *  names the domain package an enum or value object lives in, for a simple
- *  name more than one package declares. */
+ *  names the domain package an enum, event or value object lives in, for a
+ *  simple name more than one package declares. */
 export function javaProjectRef(name: string, kind?: keyof typeof DOMAIN_KIND_PACKAGE): string {
   const module =
     kind === undefined ? PROJECT_MODULE : `${PROJECT_MODULE}.${DOMAIN_KIND_PACKAGE[kind]}`;
