@@ -843,6 +843,10 @@ export function renderVuePage(input: VuePageShellInput): string {
       `import LocaleSwitcher from "${adjustDepth("../components/LocaleSwitcher.vue", input)}";`,
     );
   }
+  // The gateway's apps — same marker discipline (`vue/apps.ts`).
+  if (result.tsx.includes("<Apps ")) {
+    script.push(`import Apps from "${adjustDepth("../components/Apps.vue", input)}";`);
+  }
   for (const line of storeWiring.imports) script.push(line);
   script.push("");
   if (needsRoute) {
@@ -1583,6 +1587,9 @@ export function renderVueComponentFile(
   }
   if (result.tsx.includes("<LocaleSwitcher")) {
     script.push(`import LocaleSwitcher from "./LocaleSwitcher.vue";`);
+  }
+  if (result.tsx.includes("<Apps ")) {
+    script.push(`import Apps from "./Apps.vue";`);
   }
   if (usesFormToast) {
     script.push(`import { pushToast } from "../lib/toast";`);

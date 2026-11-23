@@ -17,7 +17,7 @@ import {
   renderRawInstantHelper,
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
-import { T as TS, TT } from "../../../generator/typescript/ts-symbols.js";
+import { refsTsSymbol, T as TS, TT } from "../../../generator/typescript/ts-symbols.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
   type FoldTenancy,
@@ -246,7 +246,7 @@ export function buildProjectionsFile(
       // decimal.js only when a money column is actually folded through
       // `Decimal` arithmetic — an unused import is an error under the
       // generated-project Biome config.
-      /\bnew Decimal\(/.test(bodyText) ? 'import Decimal from "decimal.js";' : null,
+      refsTsSymbol(bodyText, "Decimal") ? 'import Decimal from "decimal.js";' : null,
       enumValueImportLine,
       "",
       ...(enumSchemaDecls.length > 0 ? [...enumSchemaDecls, ""] : []),
@@ -595,7 +595,7 @@ function accumulate(t: TypeIR | undefined, field: string, op: "+" | "-", value: 
   const cur = `state.${field}`;
   if (p?.kind === "primitive" && p.name === "money") {
     const verb = op === "+" ? "plus" : "minus";
-    return `new Decimal(${cur} ?? 0).${verb}(${value}).toString()`;
+    return `new ${TS.Decimal}(${cur} ?? 0).${verb}(${value}).toString()`;
   }
   if (p?.kind === "primitive" && p.name === "decimal") {
     return `String(Number(${cur} ?? 0) ${op} ${value})`;

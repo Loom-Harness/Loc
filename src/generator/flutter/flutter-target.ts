@@ -1018,6 +1018,8 @@ export const flutterTarget: WalkerTarget = {
   // the shipped locales.  It listens to `localeNotifier` itself and switching
   // rebuilds the whole tree (`setLocale`), so the call site needs no state.
   renderLocaleSwitcher: () => "const LocaleSwitcher()",
+  // The generated `lib/apps.dart` widget; the page imports it off this call.
+  renderApps: () => "const Apps()",
 
   // `Timeline(of: <entries>)` — the entity audit trail (docs/audit.md), the
   // whole-primitive Dart fork of the shared JSX renderers

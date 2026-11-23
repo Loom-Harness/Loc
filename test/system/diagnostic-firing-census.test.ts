@@ -2018,6 +2018,21 @@ system P {
 
   // The `gateway` platform's `gathers:` clause (test/language/gateway-deployable.test.ts
   // drives every arm).  `topology` hosts `api`; these add the gathered parts.
+  "loom.gateway-app-duplicate": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "/" ] apps { app web label "A" app web label "B" } }`,
+    { ui: true },
+  ),
+  "loom.gateway-app-not-gathered": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable web2 { platform: web targets: api ui: WebApp port: 3002 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "/" ] apps { app web2 label "Two" } }`,
+    { ui: true },
+  ),
+  "loom.gateway-apps-misplaced": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 apps { app web label "Web" } }`,
+    { ui: true },
+  ),
   "loom.gateway-clause-invalid": topology(
     `deployable web { platform: web targets: api ui: WebApp port: 3001 }
   deployable site { platform: gateway port: 8080 contexts: [Orders] gathers: [ web at "/" ] }`,

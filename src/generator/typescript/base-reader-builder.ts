@@ -42,6 +42,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { spellMarkers } from "../_imports/symbol.js";
+import { tsImportSlot } from "../_imports/ts.js";
 import { camelId, DOMAIN_NAMES, opGetById, opList, SCHEMA_NAMES } from "../_symbols/plan.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";
@@ -94,13 +95,12 @@ function hydratesFromRow(agg: EnrichedAggregateIR): boolean {
 }
 
 /** One module a generated file may import from: the names it offers, each a
- *  value (`import { X }`) or type-only; or a whole-module / default import. */
+ *  value (`import { X }`) or type-only; or a whole-module import. */
 interface ImportSpec {
   from: string;
   values?: readonly string[];
   types?: readonly string[];
   namespace?: string;
-  defaultName?: string;
 }
 
 /** The import block DERIVED from the rendered body: a module is imported iff a
@@ -116,9 +116,6 @@ function derivedImports(body: string, specs: readonly ImportSpec[]): string[] {
 function renderImport(spec: ImportSpec, used: (n: string) => boolean): string[] {
   if (spec.namespace) {
     return used(spec.namespace) ? [`import * as ${spec.namespace} from "${spec.from}";`] : [];
-  }
-  if (spec.defaultName) {
-    return used(spec.defaultName) ? [`import ${spec.defaultName} from "${spec.from}";`] : [];
   }
   const values = (spec.values ?? []).filter(used);
   const types = (spec.types ?? []).filter(used);
@@ -227,10 +224,8 @@ export function buildBaseReaderFile(
   const fullBody = lines(`type Db = ${TT.NodePgDatabase}<typeof schema>;`, "", body);
   return lines(
     "// Auto-generated.  Do not edit by hand.",
-    ...derivedImports(fullBody, [
-      { from: "decimal.js", defaultName: "Decimal" },
-      { from: "drizzle-orm/node-postgres", types: ["NodePgDatabase"] },
-    ]),
+    tsImportSlot("decimal.js"),
+    ...derivedImports(fullBody, [{ from: "drizzle-orm/node-postgres", types: ["NodePgDatabase"] }]),
     drizzleImportLine(body),
     ...derivedImports(fullBody, [
       { from: "../schema", namespace: "schema" },
@@ -451,8 +446,8 @@ export function buildMikroBaseReaderFile(
   const isValueUsed = (n: string): boolean => new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(scan);
   return lines(
     "// Auto-generated.  Do not edit by hand.",
+    tsImportSlot("decimal.js"),
     ...derivedImports(body, [
-      { from: "decimal.js", defaultName: "Decimal" },
       { from: "@mikro-orm/postgresql", values: ["EntityManager"] },
       {
         from: "../entities",

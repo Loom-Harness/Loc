@@ -523,6 +523,11 @@ function printDeployable(node: Deployable): string {
     const parts = node.gathers.map((g) => `${g.deployable.$refText} at ${quote(g.path)}`);
     items.push(`gathers: [${parts.join(", ")}]`);
   }
+  if (node.apps.length > 0) {
+    items.push(
+      block("apps", () => node.apps.map((a) => `app ${a.part.$refText} label ${quote(a.label)}`)),
+    );
+  }
   if (node.targets) items.push(`targets: ${node.targets.$refText}`);
   if (node.hosts.length > 0) {
     items.push(`hosts: [${node.hosts.map((h) => h.$refText).join(", ")}]`);

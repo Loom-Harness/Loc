@@ -7,7 +7,7 @@ import {
   eventToDataFn,
   rowToEventFn,
 } from "../../../generator/typescript/repository-eventsourced-builder.js";
-import { TT } from "../../../generator/typescript/ts-symbols.js";
+import { T, TT } from "../../../generator/typescript/ts-symbols.js";
 import {
   eventSourcedWorkflows,
   foldedEventNames,
@@ -64,7 +64,7 @@ function initialValueFor(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
     case "decimal":
       return "0";
     case "money":
-      return "new Decimal(0)";
+      return `new ${T.Decimal}(0)`;
     case "bool":
       return "false";
     case "datetime":

@@ -145,8 +145,8 @@ export const messages = {
     `Gateway '${p.name}' serves a part at '${p.path}', which ends in '/'.  Only the root path '/' ends in a slash; drop the trailing one.`,
   "loom.gateway-path-invalid#segment": (p: { name: unknown; path: unknown; segment: unknown }) =>
     `Gateway '${p.name}' serves a part at '${p.path}', whose segment '${p.segment}' is not a plain path segment.  A segment is letters, digits, '-', '_', '.' or '~', and is neither empty, '.' nor '..'.`,
-  "loom.gateway-path-invalid#api": (p: { name: unknown; path: unknown }) =>
-    `Gateway '${p.name}' serves a part at '${p.path}', under '/api', where the gateway routes its parts' backend.  Pick another path.`,
+  "loom.gateway-path-invalid#reserved": (p: { name: unknown; path: unknown; prefix: unknown }) =>
+    `Gateway '${p.name}' serves a part at '${p.path}', under '${p.prefix}', which the gateway keeps for itself: '/api' routes to its parts' backend and '/_gateway' is its own probe and apps list.  Pick another path.`,
   "loom.gateway-path-duplicate": (p: {
     name: unknown;
     path: unknown;
@@ -156,6 +156,12 @@ export const messages = {
     `Gateway '${p.name}' serves both '${p.first}' and '${p.second}' at '${p.path}'.  Give each part its own path.`,
   "loom.gateway-part-duplicate": (p: { name: unknown; part: unknown }) =>
     `Gateway '${p.name}' lists '${p.part}' more than once in 'gathers:'.  A deployable is served under one path.`,
+  "loom.gateway-apps-misplaced": (p: { name: unknown; platform: unknown; gateways: unknown }) =>
+    `'apps { … }' on deployable '${p.name}' (platform '${p.platform}') is only valid on a gateway deployable (${p.gateways}): the list of apps belongs to the front door that serves them.`,
+  "loom.gateway-app-not-gathered": (p: { name: unknown; part: unknown }) =>
+    `Gateway '${p.name}' lists app '${p.part}', which its 'gathers:' does not serve.  Gather it ('${p.part} at "/…"') or drop it from 'apps'.`,
+  "loom.gateway-app-duplicate": (p: { name: unknown; part: unknown }) =>
+    `Gateway '${p.name}' lists app '${p.part}' more than once in 'apps'.  List each app once.`,
   "loom.gateway-part-not-web": (p: {
     name: unknown;
     part: unknown;

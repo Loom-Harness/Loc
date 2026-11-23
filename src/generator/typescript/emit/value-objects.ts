@@ -6,7 +6,7 @@ import { tsImportSlot } from "../../_imports/ts.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
-import { T } from "../ts-symbols.js";
+import { refsTsSymbol, T } from "../ts-symbols.js";
 import { tsRuleParams } from "../wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
   const scan = body.join("\n").replace(/"(?:\\.|[^"\\])*"/g, '""');
   const usage: TsTypeUsage = { usesMoney: false };
   for (const v of ctx.valueObjects) for (const t of renderedTypes(v)) visitTsTypeUsage(t, usage);
-  const usesMoney = usage.usesMoney || /\bDecimal\b/.test(scan);
+  const usesMoney = usage.usesMoney || refsTsSymbol(scan, "Decimal");
   return (
     lines(
       "// Auto-generated.",

@@ -33,7 +33,7 @@ import { type AssertionTarget, renderAssertion } from "../../_test/assertion-tar
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
 import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { renderTsExpr, type TsRenderContext } from "../render-expr.js";
-import { T } from "../ts-symbols.js";
+import { refsTsSymbol, T } from "../ts-symbols.js";
 
 /** TypeScript leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  `Ids.<X>Id(…)` is the brand constructor the
@@ -178,7 +178,7 @@ export function testBodyValueImports(
   }
   domain.push(tsImportSlot("~/domain/ids"));
   domain.push(tsImportSlot("~/domain/services"));
-  const decimal = /\bnew Decimal\(/.test(bodyStr) ? [`import Decimal from "decimal.js";`] : [];
+  const decimal = refsTsSymbol(bodyStr, "Decimal") ? [`import Decimal from "decimal.js";`] : [];
   return { decimal, domain };
 }
 
@@ -511,8 +511,8 @@ const VITEST_ASSERTIONS: AssertionTarget = {
       `  expect(${actual}).${vitestTail(negate, VITEST_RELATION[relation])}(${expected});`,
     decimal: ({ relation, negate, actual, expected }) =>
       relation === "eq"
-        ? `  expect(String(${actual})).${vitestTail(negate, "toBe")}(new Decimal(${expected}).toString());`
-        : `  expect(new Decimal(${actual}).comparedTo(${expected})).${vitestTail(negate, VITEST_RELATION[relation])}(0);`,
+        ? `  expect(String(${actual})).${vitestTail(negate, "toBe")}(new ${T.Decimal}(${expected}).toString());`
+        : `  expect(new ${T.Decimal}(${actual}).comparedTo(${expected})).${vitestTail(negate, VITEST_RELATION[relation])}(0);`,
     // A coerced ISO literal is already a `Date`; any other expected value is
     // wrapped, which also accepts an ISO string.
     instant: ({ relation, negate, actual, expected }) =>

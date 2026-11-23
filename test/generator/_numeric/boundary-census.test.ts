@@ -85,54 +85,41 @@ const BACKENDS: BackendCensus[] = [
     codecBasenames: ["numeric-codec.ts"],
     signatures: [
       { pattern: /\.toFixed\(/, label: "bare .toFixed( money-scale format" },
-      { pattern: /new Decimal\(/, label: "bare new Decimal( construction" },
+      // The class is spelled bare or through its import symbol (`T.Decimal`).
+      {
+        pattern: /new (?:Decimal|\$\{\w+\.Decimal\})\(/,
+        label: "bare new Decimal( construction",
+      },
     ],
     waivers: [
       {
         file: "src/generator/typescript/render-expr.ts",
-        contains: "return `new Decimal(${v})`;",
+        contains: "return `new ${T.Decimal}(${v})`;",
         reason:
-          "ExprTarget money-literal constructor (_expr/target.ts's leaf domain), not a read boundary. The same line is the body of `toDecimal`, the operand widening the money mirror arm and the RS-37 exact-`decimal` arms share (it replaced the money arm's own inline `new Decimal(${left})`)",
-      },
-      {
-        file: "src/generator/typescript/render-expr.ts",
-        contains: 'if (lit === "money") return `new Decimal(${JSON.stringify(value)})`;',
-        reason: "ExprTarget money-literal constructor, not a read boundary",
-      },
-      {
-        file: "src/generator/_expr/js-collection-ops.ts",
-        contains: "acc.plus((${args[0]})(x)), new Decimal(0))",
-        reason:
-          "ExprTarget sum-fold zero seed, not a read boundary — the JS collection-op\n           leaves moved here from typescript/render-expr.ts when the shared JS\n           collection-op table was extracted; same code, new home",
-      },
-      {
-        file: "src/generator/_expr/js-collection-ops.ts",
-        contains: "acc.plus(x), new Decimal(0))",
-        reason:
-          "ExprTarget sum-fold zero seed, not a read boundary — the JS collection-op\n           leaves moved here from typescript/render-expr.ts when the shared JS\n           collection-op table was extracted; same code, new home",
+          "ExprTarget money-literal constructor (_expr/target.ts's leaf domain), not a read boundary. The line is the body of `toDecimal`, the operand widening the money literal, the money conversion, the money mirror arm and the RS-37 exact-`decimal` arms share",
       },
       {
         file: "src/generator/typescript/emit/tests.ts",
         contains:
-          '? `  expect(String(${actual})).${vitestTail(negate, "toBe")}(new Decimal(${expected}).toString());`',
+          '? `  expect(String(${actual})).${vitestTail(negate, "toBe")}(new ${T.Decimal}(${expected}).toString());`',
         reason:
           "unit-test money `toBe` (banking eval B-01): canonicalises the EXPECTED operand of a generated vitest assertion, not a read boundary — no wire or storage value passes through it",
       },
       {
         file: "src/generator/typescript/emit/tests.ts",
         contains:
-          ": `  expect(new Decimal(${actual}).comparedTo(${expected})).${vitestTail(negate, VITEST_RELATION[relation])}(0);`,",
+          ": `  expect(new ${T.Decimal}(${actual}).comparedTo(${expected})).${vitestTail(negate, VITEST_RELATION[relation])}(0);`,",
         reason:
           "unit-test money ordering matcher (banking eval B-01): lifts an in-memory domain value into decimal.js for a generated vitest comparison, not a read boundary",
       },
       {
         file: "src/platform/hono/shared/workflow-eventsourced-builder.ts",
-        contains: 'return "new Decimal(0)";',
+        contains: "return `new ${T.Decimal}(0)`;",
         reason: "workflow saga-state zero-default construction, not a read boundary",
       },
       {
         file: "src/platform/hono/shared/projection-builder.ts",
-        contains: "new Decimal(${cur} ?? 0).${verb}(${value}).toString()",
+        contains: "new ${TS.Decimal}(${cur} ?? 0).${verb}(${value}).toString()",
         reason:
           "projection-state ACCUMULATE (read-modify-WRITE of persisted state) — not one of the five read boundaries; handed off, see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-2-numeric-codec.md",
       },

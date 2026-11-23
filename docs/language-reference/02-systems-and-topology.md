@@ -456,15 +456,20 @@ A mismatch (a `framework: phoenixLiveView` ui on a `web` host, say) is rejected 
 
 ```
 GatheredPart: deployable=[Deployable] 'at' path=STRING;
+GatewayApp:   'app' part=[Deployable] 'label' label=STRING;
 ```
 
-A `gateway` deployable is one front door over several web deployables: its `gathers:` clause lists each one with the base path it is served under.
+A `gateway` deployable is one front door over several web deployables: its `gathers:` clause lists each one with the base path it is served under. Its optional `apps { … }` block is the list of apps it offers, written by hand: each entry names a gathered part and its label, in the order shown.
 
 ```ddd
 deployable site {
   platform: gateway
   port: 8080
   gathers: [ backoffice at "/", ops at "/ops" ]
+  apps {
+    app ops label "Operations"
+    app backoffice label "Back office"
+  }
 }
 ```
 
@@ -475,10 +480,13 @@ A gateway hosts nothing of its own — no context, ui, api or database. The vali
 | `gathers:` appears only on a `gateway` deployable | `loom.gateway-gathers-misplaced` |
 | a gateway gathers at least one deployable | `loom.gateway-gathers-missing` |
 | a gateway declares no `contexts:`, `dataSources:`, `channels:`, `serves:`, `ui:` or `hosts:` | `loom.gateway-clause-invalid` |
-| a path starts with `/`, ends in `/` only when it is the root `/`, is made of plain segments (letters, digits, `-`, `_`, `.`, `~`; never empty, `.` or `..`), and stays out of `/api`, where the gateway routes the backend | `loom.gateway-path-invalid` |
+| a path starts with `/`, ends in `/` only when it is the root `/`, is made of plain segments (letters, digits, `-`, `_`, `.`, `~`; never empty, `.` or `..`), and stays out of `/api` and `/_gateway`, which the gateway keeps for the backend and for itself | `loom.gateway-path-invalid` |
 | no two parts share a path (`/` and `/ops` coexist: only an exact duplicate is refused) | `loom.gateway-path-duplicate` |
 | no part is listed twice | `loom.gateway-part-duplicate` |
 | every part is a frontend (`web`, `feliz` or `flutter`) | `loom.gateway-part-not-web` |
+| `apps { … }` appears only on a `gateway` deployable | `loom.gateway-apps-misplaced` |
+| every listed app is a part the gateway gathers (a gathered part may go unlisted) | `loom.gateway-app-not-gathered` |
+| no app is listed twice | `loom.gateway-app-duplicate` |
 | every part `targets:` the same backend, so one session and one `/api` serve them all | `loom.gateway-targets-mixed` |
 | no deployable sits behind two gateways | `loom.gateway-part-shared` |
 
@@ -487,8 +495,9 @@ A part with no `targets:` is the frontend's own `loom.frontend-targets-missing`.
 What it generates:
 
 - **Each part is built under its path.** A part at `/ops` builds with that base (vite's `base`, the router basename, Angular's `baseHref`, SvelteKit's `paths.base`, Flutter's `--base-href`; Feliz's router matches and navigates beneath it), and its own server answers beneath it, so it also works on its own port at `http://localhost:<port>/ops/`. A part at `/` builds as it would without a gateway. Its compose healthcheck and chart probes reach it under the path.
-- **Compose:** a `<gateway>/` project (an nginx `Dockerfile` and `nginx.conf`) and a service on the gateway's port. It routes `/api` to the backend the parts target (unbuffered, so the realtime stream flows) and each path to its part, unchanged; it answers its own probe at `/healthz` and starts once the parts and the backend are healthy.
-- **Kubernetes:** no gateway workload. Its Ingress is the front door: `/api` to the backend's Service, each path to its part's Service, the longer paths first. The chart renders it on by default (`<gateway>.ingress.enabled`, with `ingress.host` and `ingress.className` as for any Ingress); the raw `k8s/` manifests carry it host-less.
+- **Compose:** a `<gateway>/` project (an nginx `Dockerfile` and `nginx.conf`, plus `apps.json` when it lists apps) and a service on the gateway's port. It routes `/api` to the backend the parts target (unbuffered, so the realtime stream flows) and each path to its part, unchanged. Everything under `/_gateway/` is its own: its probe at `/_gateway/health`, its list of apps at `/_gateway/apps` when it declares `apps { … }`, and a 404 for any other path there. It starts once the parts and the backend are healthy.
+- **The apps list:** `/_gateway/apps` answers `[{ "path", "label", "labels"? }]` in the block's order. `label` is the source-language text; the labels are catalog entries (`<gateway>.apps.<part>.<hash>`, filed under the gateway's name by `ddd i18n`), and `labels` carries each locale a translation exists for. A ui shows the list only where it renders the `Apps {}` primitive, which fetches it at run time and picks the label for the page's language. No ui names another, so changing the list or the parts regenerates the gateway and nothing else; without the block there is no list, and `Apps {}` renders nothing.
+- **Kubernetes:** the Ingress is the front door: `/api` to the backend's Service, each path to its part's Service, the longer paths first; with an apps list, `/_gateway` to the gateway's own small workload (stock nginx serving its probe and the list from a ConfigMap). The chart renders it on by default (`<gateway>.ingress.enabled`, with `ingress.host` and `ingress.className` as for any Ingress); the raw `k8s/` manifests carry it host-less.
 
 ## Design packs
 

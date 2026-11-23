@@ -105,13 +105,17 @@ export function joinCatalog(files: ReadonlyMap<string, Catalog>): Catalog {
   return out;
 }
 
-/** The namespace names a system contributes: its bounded contexts and uis. */
+/** The namespace names a system contributes: its bounded contexts, its uis,
+ *  and each gateway that lists apps. */
 export function namespaceNamesOf(system: {
   subdomains: readonly { contexts: readonly { name: string }[] }[];
   uis: readonly { name: string }[];
+  deployables?: readonly { name: string; apps?: readonly unknown[] }[];
 }): Set<string> {
   const names = new Set<string>();
   for (const sub of system.subdomains) for (const ctx of sub.contexts) names.add(ctx.name);
   for (const ui of system.uis) names.add(ui.name);
+  // A gateway that lists apps files their labels under its own name.
+  for (const d of system.deployables ?? []) if (d.apps !== undefined) names.add(d.name);
   return names;
 }

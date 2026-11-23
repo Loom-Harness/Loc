@@ -6,9 +6,10 @@
 // only as good as its completeness, so it is checked against what the emitters
 // can write, not typed from memory:
 //
-//   - the single-type imports, `from m import N`, `import { N } from "m"` and
-//     `alias M.N` lines the emitters spell, and the names their typed import
-//     symbols (`javaRef` / `pyRef` / `tsNamed` …) carry;
+//   - the single-type imports, `from m import N`, `import { N } from "m"`,
+//     `import N from "m"` and `alias M.N` lines the emitters spell, and the
+//     names their typed import symbols (`javaRef` / `pyRef` / `tsNamed` /
+//     `tsDefault` …) carry;
 //   - the Java annotations the emitters write (`@Entity`, `@GetMapping`), and
 //     every member of a package an emitter writes as an on-demand import (the
 //     finalizer turns it into single-type imports of the members a unit names);
@@ -322,6 +323,15 @@ export function deriveBoundNames(): Record<BoundTarget, BoundNames> {
       }
       for (const m of text.matchAll(/\btsNamed\(\s*"([^"]+)",\s*"(\w+)"(?:,\s*"(\w+)")?/g)) {
         addTo(out.node, m[3] ?? m[2]!, `${m[1]}#${m[2]}`);
+      }
+      // Default imports, hand-written and as typed symbols (`tsDefault`).
+      for (const m of text.matchAll(
+        /[`"']import\s+(?:type\s+)?([A-Za-z_$][\w$]*)\s*(?:,\s*\{[^}]*\}\s*)?from\s*["']([^"']+)["']/g,
+      )) {
+        addTo(out.node, m[1]!, `${modulePath(m[2]!)}#default`);
+      }
+      for (const m of text.matchAll(/\btsDefault\(\s*"([^"]+)",\s*"(\w+)"/g)) {
+        addTo(out.node, m[2]!, `${m[1]}#default`);
       }
       if (
         file.includes("/generator/typescript/") ||

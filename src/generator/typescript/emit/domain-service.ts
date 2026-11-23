@@ -50,6 +50,7 @@ import { DOMAIN_NAMES, tsServiceOpFn, tsServiceSiblingScope } from "../../_symbo
 import { renderTsType, type TsRenderContext } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 import { PORT_POOL_DOMAIN_SPEC, repoPortName } from "../repository-port-builder.js";
+import { refsTsSymbol } from "../ts-symbols.js";
 import { renderOperationReturnType } from "./aggregate.js";
 
 /** Emit the `domain/services.ts` file for a context's domain services, or
@@ -86,7 +87,7 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
 
   const usedVoOrEnum = [...voNames, ...enumNames].filter(referenced).sort();
   const usedAggs = [...aggNames].filter(referenced).sort();
-  const usesMoney = /\bDecimal\b/.test(scanBody) || /money/.test([...sigTypeNames].join(" "));
+  const usesMoney = refsTsSymbol(scanBody, "Decimal") || /money/.test([...sigTypeNames].join(" "));
   // Domain-error classes the rendered bodies throw.  A `precondition` in a
   // domain-service operation renders `throw new DomainError(...)` exactly as an
   // aggregate operation does, but this file derives its imports from the body

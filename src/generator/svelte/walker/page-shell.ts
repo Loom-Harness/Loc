@@ -123,9 +123,11 @@ export function navigate(to: string, opts?: Parameters<typeof goto>[1]): ReturnT
 `;
 
 export function localeSwitcherImport(markup: string): string {
-  return markup.includes("<LocaleSwitcher")
-    ? `  import LocaleSwitcher from "$lib/components/LocaleSwitcher.svelte";\n`
-    : "";
+  return `${
+    markup.includes("<LocaleSwitcher")
+      ? `  import LocaleSwitcher from "$lib/components/LocaleSwitcher.svelte";\n`
+      : ""
+  }${markup.includes("<Apps ") ? `  import Apps from "$lib/components/Apps.svelte";\n` : ""}`;
 }
 
 /** Map each aggregate-typed param to its aggregate name (mirrors the

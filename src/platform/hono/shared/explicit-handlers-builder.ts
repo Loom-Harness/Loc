@@ -594,7 +594,35 @@ function emitRouteHandler(
   );
   const repoVarByAgg = new Map(repos.map((r) => [r.aggName, DOMAIN_NAMES.ts.stem(r.repoName)]));
   if (er) {
-    out.push(...entryHandlerBody(h, er, ctx, paramExprs, repos, usingMikro));
+    const onlyParam = materialised.length === 1 ? materialised[0] : undefined;
+    const recordParam = onlyParam?.kind === "record" ? h.params[0]!.type : undefined;
+    if (
+      onlyParam?.kind === "record" &&
+      recordParam?.kind === "entity" &&
+      dispatchedRecord(ctx, h.name)
+    ) {
+      // The dispatch runs the body and answers the tagged result; the route
+      // answers each error arm and the success body.
+      const body = entryHandlerBody(h, er, ctx, paramExprs, repos, usingMikro, "dispatch");
+      dispatchSink.push(
+        dispatchFunction(ctx.name, recordParam.name, onlyParam, body, usingMikro, ENTRY_RESULT_TS),
+      );
+      const usesUser = body.some((l) => /\bcurrentUser\b|__maskUser/.test(l));
+      const userArg = usesUser
+        ? `, (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser")`
+        : "";
+      const successName =
+        h.returnType?.kind === "union"
+          ? opUnionResponses(h.returnType.variants, ctx).successName
+          : "";
+      out.push(
+        `    const handlerResult = await ${dispatchName(recordParam.name)}(db, events, ${DOMAIN_NAMES.ts.binding(onlyParam.name)}${userArg});`,
+        ...entryErrorAnswer(er, ctx, "    ", "handlerResult"),
+        `    return httpCtx.json(handlerResult as unknown as z.infer<typeof ${successName}>, 200);`,
+      );
+    } else {
+      out.push(...entryHandlerBody(h, er, ctx, paramExprs, repos, usingMikro));
+    }
     out.push(`  },`);
     out.push(`);`);
     return out;
@@ -740,6 +768,9 @@ function emitRouteHandler(
  *  saves, events and result) with the HTTP edge left to the caller.  The
  *  route binds the record and answers the result; a later caller (the
  *  command bus, a workflow `send`) calls the same function. */
+/** The tagged value an expected-failure handler's dispatch answers. */
+const ENTRY_RESULT_TS = "{ type: string } & Record<string, unknown>";
+
 function dispatchName(record: string): string {
   return `dispatch${record}`;
 }
@@ -768,6 +799,8 @@ function dispatchFunction(
   param: { name: string; fields: { field: string; type: TypeIR }[] },
   routeBody: readonly string[],
   usingMikro: boolean,
+  /** The dispatch's result type; `unknown` unless the body answers a typed value. */
+  resultType = "unknown",
 ): DispatchBlock {
   const body = routeBody.map((l) => {
     const unindented = l.startsWith("  ") ? l.slice(2) : l;
@@ -799,7 +832,7 @@ function dispatchFunction(
     usesUser,
     recordDecl,
     lines: [
-      `export async function ${dispatchName(record)}(${params.join(", ")}): Promise<unknown> {`,
+      `export async function ${dispatchName(record)}(${params.join(", ")}): Promise<${resultType}> {`,
       ...body,
       `}`,
     ],
@@ -819,6 +852,9 @@ function entryHandlerBody(
   paramExprs: Map<string, string>,
   repos: readonly { aggName: string; repoName: string }[],
   usingMikro: boolean,
+  /** `dispatch` answers the tagged result and leaves the HTTP answer to the
+   *  caller; `route` (the default) answers it here. */
+  mode: "route" | "dispatch" = "route",
 ): string[] {
   const out: string[] = [];
   const all = [...repos];
@@ -872,6 +908,15 @@ function entryHandlerBody(
   out.push(`    } catch (err) {`);
   out.push(`      if (err !== __rollback) throw err;`);
   out.push(`    }`);
+  if (mode === "dispatch") {
+    // An error answer rolled the command back: nothing is announced.
+    out.push(`    if (!(${errorTest})) {`);
+    out.push(`      await __deferred.flush();`);
+    if (hasEmit) out.push(`      for (const ev of workflowEvents) await events.dispatch(ev);`);
+    out.push(`    }`);
+    out.push(`    return handlerResult;`);
+    return out;
+  }
   out.push(...entryErrorAnswer(er, ctx, "    ", "handlerResult"));
   out.push(`    await __deferred.flush();`);
   if (hasEmit) out.push(`    for (const ev of workflowEvents) await events.dispatch(ev);`);
@@ -1265,7 +1310,6 @@ function dispatchedHandlers(ctx: EnrichedBoundedContextIR): Handler[] {
     (h) =>
       !h.extern &&
       !(h.returnType && pagedReturn(h.returnType)) &&
-      !entryResult(h) &&
       dispatchedRecord(ctx, h.name) !== undefined,
   );
 }

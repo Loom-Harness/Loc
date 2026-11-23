@@ -138,7 +138,7 @@
   "test/fixtures/corpus/tph-crossings.ddd :: ir-differs": 1,
   "test/fixtures/corpus/vo-field-default.ddd :: ir-differs": 2,
   "test/fixtures/corpus/workflow-loop-carried.ddd :: unknown{no-rule}": 2,
-  "test/fixtures/heex-showcase.ddd :: ir-differs": 100,
+  "test/fixtures/heex-showcase.ddd :: ir-differs": 101,
   "test/fixtures/walker-give-up-shapes.ddd :: ir-differs": 6,
   "test/generator/_frontend/page-identity.test.ts#ada09e83f5 :: ir-differs": 3,
   "test/generator/_frontend/server-error-acl-parity.test.ts#315b4f4695 :: ir-differs": 1,
