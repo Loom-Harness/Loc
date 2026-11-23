@@ -1,3 +1,4 @@
+import { numericOpPlan } from "../../ir/plan/numeric-op.js";
 import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
@@ -783,64 +784,55 @@ function renderNew(
 }
 
 function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "binary" }>): string {
-  // `x == null` / `x != null` → Python identity `x is None` / `x is not None`.
-  // A native `== None` is valid Python but trips ruff's E711 (a default-scope
-  // rule).  Parity with the union-find `absenceCheck` (`is not None`); the
-  // subject is whichever operand isn't the null literal.
-  if (e.op === "==" || e.op === "!=") {
-    const leftNull = isNullLiteral(e.left);
-    const rightNull = isNullLiteral(e.right);
-    if (leftNull || rightNull) {
-      const subject = leftNull ? right : left;
-      return `${subject} is ${e.op === "!=" ? "not " : ""}None`;
+  // Which numeric operation this is was decided once (`numericOpPlan`); this
+  // backend only spells it.  `money` is a `decimal.Decimal` here and `decimal`
+  // a `float` (the representation rule on `PY_TYPE_TARGET`).
+  const plan = numericOpPlan(e);
+  switch (plan.kind) {
+    // `x == null` / `x != null` → Python identity `x is None` / `x is not
+    // None`.  A native `== None` is valid Python but trips ruff's E711 (a
+    // default-scope rule).  Parity with the union-find `absenceCheck`.
+    case "null-test":
+      return `${plan.subject === "left" ? left : right} is ${e.op === "!=" ? "not " : ""}None`;
+    // Python raises `TypeError` on `None > Decimal(...)`, so an ordering where
+    // a side may be absent routes through the emitted `present_order` helper
+    // (`emit/numeric.ts`): each operand is evaluated once, and the `None`
+    // test runs before the operator.
+    case "absent-ordering":
+      return `${numericHelper("present_order")}(${left}, ${JSON.stringify(e.op)}, ${right})`;
+    case "decimal-arithmetic":
+      return renderDecimalArithmetic(left, right, e);
+    // `Decimal` overloads the arithmetic operators precisely — but only
+    // against `int` and `Decimal`, and a Loom `decimal` is a `float` here, so
+    // `money * decimal` raised `TypeError` the moment the decimal came off the
+    // WIRE rather than off an ORM column.  The lifted `decimal` side goes
+    // through `Decimal(str(…))` — the shortest-repr route, a no-op by value
+    // for an operand that already IS a `Decimal` — and an exact decimal chain
+    // hands over its un-narrowed `Decimal` (RS-37).  An `int`/`long` side
+    // mixes with `Decimal` natively.
+    case "money":
+      if (plan.lift === "right" && plan.right.family === "decimal") {
+        return `${left} ${pyBinOp(e.op)} ${decimalChainOperand(right, e.right) ?? `${PY.Decimal}(str(${right}))`}`;
+      }
+      if (plan.lift === "left" && plan.left.family === "decimal") {
+        return `${decimalChainOperand(left, e.left) ?? `${PY.Decimal}(str(${left}))`} ${pyBinOp(e.op)} ${right}`;
+      }
+      break;
+    case "absent-equality":
+    case "decimal-comparison":
+    case "native":
+      break;
+    default: {
+      const _exhaustive: never = plan;
+      return _exhaustive;
     }
   }
-  const absentOrdering = renderNullableDecimalOrdering(left, right, e);
-  if (absentOrdering !== null) return absentOrdering;
   // Python's `%` is a FLOORED modulo — the result takes the sign of the
   // DIVISOR (`-5 % 3 == 1`).  Every other Loom backend truncates towards
-  // zero, so the result takes the sign of the DIVIDEND (`-5 % 3 == -2` on
-  // JS/TS, C#, Java, and Elixir's deliberate `rem/2`).  Python is the sole
-  // outlier, so `%` routes through the emitted `trunc_mod` helper
-  // (`app/domain/numeric.py`) to keep the cross-backend answer identical.
-  //
-  // Safe to apply unconditionally: the type system rejects `%` on money
-  // and on the temporal types (the typing pass's `arithmetic` in
-  // `src/language/typing/elaborate.ts`), so both operands are always
-  // int / long / decimal — exactly `trunc_mod`'s `int | float` domain.
-  // SQL-side `%` never reaches here: `find-predicate.ts` lowers binaries
-  // itself and only calls back for value-side leaves (Postgres `%` already
-  // truncates, so the emitted query needs no adjustment).
-  //
-  // `decimal` ARITHMETIC is EXACT (D-DECIMAL-EXACT-MOMENT, RS-37) — and it is
-  // checked BEFORE the `%` detour: a `decimal` `%` computes on `Decimal`,
-  // whose remainder already truncates (sign of the dividend), so it needs no
-  // `trunc_mod`.  See `renderDecimalArithmetic`.
-  if (isDecimalArithmetic(e)) return renderDecimalArithmetic(left, right, e);
+  // zero, so `%` routes through the emitted `trunc_mod` helper
+  // (`app/domain/numeric.py`).  A `decimal` `%` never reaches here: it is
+  // decimal arithmetic above, whose `Decimal` remainder already truncates.
   if (e.op === "%") return `${numericHelper("trunc_mod")}(${left}, ${right})`;
-  // A5 temporal — Python's datetime/timedelta overload the native
-  // operators (`datetime ± timedelta`, `datetime - datetime → timedelta`,
-  // timedelta algebra/scaling) directly, so no dedicated arm is needed.
-  //
-  // Money scaling is the ONE arm that needs a detour (F8 / M-T6.45).  Python's
-  // `Decimal` overloads the arithmetic operators precisely — but only against
-  // `int` and `Decimal`.  This backend's representation rule (see
-  // `PY_TYPE_TARGET`) holds Loom `money` as `decimal.Decimal` and Loom
-  // `decimal` as `float`, so a mixed `money * decimal` would emit
-  // `self._price * rate` and raise `TypeError: unsupported operand type(s)`
-  // the moment the decimal came off the WIRE rather than off an ORM column.
-  // Coerce the `decimal` side through `Decimal(str(…))` — the shortest-repr
-  // route, and a no-op-by-value when the operand happens to already BE a
-  // `Decimal` (the column case), so both provenances land on one type.
-  const coerce = moneyScalarCoercionSide(e);
-  // An exact decimal chain on the scalar side hands over its un-narrowed
-  // `Decimal` (RS-37) rather than round-tripping through `float`.
-  if (coerce === "right") {
-    return `${left} ${pyBinOp(e.op)} ${decimalChainOperand(right, e.right) ?? `${PY.Decimal}(str(${right}))`}`;
-  }
-  if (coerce === "left") {
-    return `${decimalChainOperand(left, e.left) ?? `${PY.Decimal}(str(${left}))`} ${pyBinOp(e.op)} ${right}`;
-  }
   // Same bargain as the money lift above, for the other operand pair Python
   // refuses to combine: `str + datetime`.
   //
@@ -875,32 +867,6 @@ function pyCheckedInt(expr: string, kind: IntegralKind | null): string {
   return `${PY.check_int}(${expr}, ${min}, ${max})`;
 }
 
-/** An ORDERING with a nullable `money?`/`decimal?` side — or a nullable
- *  integral against a money/decimal — answers false when either side is absent
- *  (SQL's UNKNOWN, .NET's lifted operators).  Python raises `TypeError` on
- *  `None > Decimal(...)`, so the ordering routes through the emitted
- *  `present_order` helper (`emit/numeric.ts`): each operand is evaluated once,
- *  and the `None` test runs before the operator.
- *  Null for every other pair. */
-function renderNullableDecimalOrdering(
-  left: string,
-  right: string,
-  e: Extract<ExprIR, { kind: "binary" }>,
-): string | null {
-  if (e.op !== "<" && e.op !== "<=" && e.op !== ">" && e.op !== ">=") return null;
-  if (e.leftType?.kind !== "optional" && e.rightType?.kind !== "optional") return null;
-  const prim = (t: TypeIR | undefined): string | undefined => {
-    const inner = t?.kind === "optional" ? t.inner : t;
-    return inner?.kind === "primitive" ? inner.name : undefined;
-  };
-  const decimalLike = (n: string | undefined) => n === "money" || n === "decimal";
-  const numeric = (n: string | undefined) => decimalLike(n) || n === "int" || n === "long";
-  const l = prim(e.leftType);
-  const r = prim(e.rightType);
-  if (!numeric(l) || !numeric(r) || (!decimalLike(l) && !decimalLike(r))) return null;
-  return `${numericHelper("present_order")}(${left}, ${JSON.stringify(e.op)}, ${right})`;
-}
-
 /**
  * Which operand of a string concatenation is a `datetime` that Python cannot
  * concatenate — or `undefined` when neither is.  Deliberately narrow: only
@@ -921,47 +887,16 @@ function datetimeConcatSide(e: Extract<ExprIR, { kind: "binary" }>): "left" | "r
   return undefined;
 }
 
-/**
- * Which operand of a money-scaling binary is the `float`-represented `decimal`
- * that must be lifted to `Decimal` — or `undefined` when no lift is needed.
- *
- * The typing pass's `arithmetic` (`src/language/typing/elaborate.ts`) admits exactly three mixed
- * money/decimal shapes: `money * decimal`, `decimal * money` (scaling is
- * commutative) and `money / decimal` (`decimal / money` is rejected).  `+`/`-`
- * are money-on-both-sides only, and `%` never reaches here, so `*` and `/` are
- * the whole domain.  The other scalars need nothing: `int`/`long` are Python
- * `int`, which `Decimal` mixes with natively.
- *
- * An `int / int` operand is covered by the same test without a special case —
- * it WIDENS to `decimal` (`isIntDivWidenedToDecimal`), and Python's true
- * division hands back a `float`, exactly the representation this lifts.
- */
 function isPrim(t: TypeIR | undefined, name: string): boolean {
   return t?.kind === "primitive" && t.name === name;
 }
-
-function moneyScalarCoercionSide(
-  e: Extract<ExprIR, { kind: "binary" }>,
-): "left" | "right" | undefined {
-  if (e.op !== "*" && e.op !== "/") return undefined;
-  if (isPrim(e.leftType, "money") && isPrim(e.rightType, "decimal")) return "right";
-  if (isPrim(e.leftType, "decimal") && isPrim(e.rightType, "money")) return "left";
-  return undefined;
-}
-
-function isNullLiteral(e: ExprIR): boolean {
-  return e.kind === "literal" && e.lit === "null";
-}
-
-const DECIMAL_ARITH_OPS: ReadonlySet<BinOp> = new Set<BinOp>(["+", "-", "*", "/", "%"]);
 
 /** True iff a binary is `decimal` ARITHMETIC: an arithmetic operator whose
  *  result types as `decimal` — `decimal ∘ decimal`, the widened `int ∘ decimal`
  *  mixes, and the `int / int` division the type system widens to `decimal`
  *  (D-DECIMAL-EXACT-MOMENT, RS-37). */
 export function isDecimalArithmetic(e: ExprIR): boolean {
-  if (e.kind !== "binary" || !DECIMAL_ARITH_OPS.has(e.op)) return false;
-  return e.resultType?.kind === "primitive" && e.resultType.name === "decimal";
+  return e.kind === "binary" && numericOpPlan(e).kind === "decimal-arithmetic";
 }
 
 /** `decimal` arithmetic, computed EXACTLY (RS-37).  A Loom `decimal` is a

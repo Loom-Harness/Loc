@@ -35,6 +35,7 @@ const STANDING: Record<string, string> = {
     "a kind table / type probe; rendering rides renderExprWith",
   "src/generator/elixir/render-expr.ts": "a type probe; rendering rides renderExprWith",
   "src/generator/python/render-expr.ts": "a shape probe; rendering rides renderExprWith",
+  "src/generator/typescript/render-expr.ts": "a shape probe; rendering rides renderExprWith",
   "src/generator/elixir/vanilla/denial.ts": "a shape probe; renders nothing",
   "src/generator/elixir/vanilla/provenance-emit.ts":
     "checks leaves and collects params; renders nothing",
