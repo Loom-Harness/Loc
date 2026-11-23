@@ -44,7 +44,7 @@ import {
   movedLocalOrUndefined,
   requestParam,
 } from "../java-ident.js";
-import { J } from "../java-symbols.js";
+import { J, javaIdRef } from "../java-symbols.js";
 import { JAVA_NUMERIC, javaMoneyProjectionKeyEncode } from "../numeric-codec.js";
 import { renderJavaExpr, renderJavaType } from "../render-expr.js";
 import {
@@ -440,7 +440,7 @@ export function renderJavaQueryProjections(
     // arrives as its raw uuid and is wrapped in its id record, the type the
     // entity's embedded id column (and the synthesised JPA find) carries.
     const domainArg = (p: ProjectionQueryParam, local: string): string =>
-      p.type.kind === "id" ? `new ${p.type.targetName}Id(${local})` : local;
+      p.type.kind === "id" ? `new ${javaIdRef(p.type.targetName)}(${local})` : local;
     // Each layer's params are locals of a method that spells names of its own
     // — the service read: the injected repository fields it dereferences and
     // its `a` / `x` / `r` lambda params and `rows` / join-map locals; the
@@ -1052,7 +1052,7 @@ function groupKeyCoerce(t: TypeIR, read: string, basePkg: string, viaFunction = 
   if (t.kind === "id") {
     // The wire carries the id's bare value (`wireJavaType` → uuid/int/long/
     // string), so unwrap the embedded record exactly like `domainToWire`.
-    return `((${t.targetName}Id) ${read}).value()`;
+    return `((${javaIdRef(t.targetName)}) ${read}).value()`;
   }
   if (t.kind === "primitive") {
     switch (t.name) {

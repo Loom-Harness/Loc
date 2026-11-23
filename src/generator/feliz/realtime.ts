@@ -216,6 +216,7 @@ function exprReadsBinding(e: ExprIR, bind: string): boolean {
     case "method-call":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":
@@ -262,6 +263,7 @@ function felizNeedsToastField(ui: UiIR): boolean {
       case "new":
       case "object":
       case "ref":
+      case "coalesce":
       case "ternary":
       case "this":
       case "unary":

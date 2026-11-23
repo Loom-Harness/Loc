@@ -1,3 +1,5 @@
+import { listEqualityPlan } from "../../ir/plan/list-equality.js";
+import { numericOpPlan } from "../../ir/plan/numeric-op.js";
 import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
@@ -18,7 +20,6 @@ import {
   type BinaryExpr,
   type CallExpr,
   type ExprTarget,
-  isIntDivWidenedToDecimal,
   type MemberExpr,
   type MethodCallExpr,
   type NewExpr,
@@ -249,6 +250,7 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
     case "object":
     case "paren":
     case "ref":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":
@@ -603,7 +605,21 @@ function renderCsBinary(
   }
   // Integer division widened to decimal (`int / int` → decimal): C# `int / int`
   // truncates, so cast the numerator to `decimal` to force fractional division.
-  if (isIntDivWidenedToDecimal(e)) {
+  // `==` / `!=` between two lists, element by element (ruling 456): a
+  // `List<T>` `==` compares references.  `SequenceEqual` uses each element's
+  // own equality, which is already by value for a C# `decimal` (scale-agnostic),
+  // a `DateTime`, a string and a value-object record.
+  const list = listEqualityPlan(e);
+  if (list) {
+    const eq = `System.Linq.Enumerable.SequenceEqual(${left}, ${right})`;
+    const guarded =
+      list.leftOptional || list.rightOptional
+        ? `(${left} == null || ${right} == null ? ${left} == ${right} : ${eq})`
+        : eq;
+    return e.op === "!=" ? `!${guarded}` : guarded;
+  }
+  const plan = numericOpPlan(e);
+  if (plan.kind === "decimal-arithmetic" && plan.intDivWidened) {
     return `(decimal)(${left}) / ${right}`;
   }
   if (!efQuery && checkedBinaryKind(e) !== null) return `checked(${left} ${e.op} ${right})`;

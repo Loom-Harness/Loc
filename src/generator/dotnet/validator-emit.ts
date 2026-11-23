@@ -20,6 +20,7 @@ import { isMergePatchUpdate, ruleMembers } from "../../ir/util/merge-patch.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/util/wire-policy.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
+import { nullishOperand } from "../_expr/coalesce.js";
 import { csCodePointLength } from "../_expr/code-point.js";
 import { groupedOperand, groupedOperands } from "../_expr/grouping.js";
 import { ruleCode, ruleText } from "../_i18n/rule-text.js";
@@ -601,6 +602,8 @@ function renderFluentPredicate(e: ExprIR): string {
     }
     case "ternary":
       return `${renderFluentPredicate(e.cond)} ? ${renderFluentPredicate(e.then)} : ${renderFluentPredicate(e.otherwise)}`;
+    case "coalesce":
+      return `${nullishOperand(renderFluentPredicate(e.left))} ?? ${nullishOperand(renderFluentPredicate(e.fallback))}`;
     case "lambda":
       // Lambda body is now optional.  Wire-boundary refines
       // never see block-body lambdas (`classifyForWire` only admits

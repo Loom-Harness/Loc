@@ -44,6 +44,7 @@ const MOCKED = [
   "test/language/validation/validator-fault-isolation.test.ts",
   "test/platform/pack-render-reachability.test.ts",
   "test/playground/expr-hints-cache.test.ts",
+  "test/system/java-project-ref-census.test.ts",
 ];
 
 /** Whole-corpus censuses (>30 s each) — their own CI job. */

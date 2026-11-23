@@ -834,6 +834,33 @@ system P {
     repository Things for Thing
   } }
 }`,
+  // A permission query that leaves out an argument a gate reads.
+  "loom.can-args": `
+system S {
+  subdomain D { context Orders {
+    aggregate Order with crudish { total: int  operation close(n: int) requires n > 0 { total := n } }
+    repository Orders for Order
+    queryHandler Q(id: Order id): bool { let o = Orders.get(id)  return can o.close() }
+  } }
+}`,
+  // A permission query naming an operation the aggregate does not declare.
+  "loom.can-operation": `
+system S {
+  subdomain D { context Orders {
+    aggregate Order with crudish { total: int  operation close(n: int) { total := n } }
+    repository Orders for Order
+    queryHandler Q(id: Order id): bool { let o = Orders.get(id)  return can o.open(1) }
+  } }
+}`,
+  // A permission query on a value that is not an aggregate.
+  "loom.can-receiver": `
+system S {
+  subdomain D { context Orders {
+    aggregate Order with crudish { total: int  operation close(n: int) { total := n } }
+    repository Orders for Order
+    queryHandler Q(id: Order id): bool { let o = Orders.get(id)  let k = 1  return can k.close(1) }
+  } }
+}`,
   "loom.capability-host-invalid": uiWith("auditable"),
   // An OPTIONAL reference collection: the schema has no optional form of a
   // join-table set, and JPA crashed demanding an association for it.

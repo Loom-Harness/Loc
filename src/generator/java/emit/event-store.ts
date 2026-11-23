@@ -9,7 +9,7 @@ import { javaLogEvent } from "../../_obs/render-java.js";
 import type { FilterBypass } from "../capability-filter.js";
 import { javaJsonSqlType } from "../codec-spelling.js";
 import { javaLocals, localOf } from "../java-ident.js";
-import { J } from "../java-symbols.js";
+import { J, javaEventRef } from "../java-symbols.js";
 import { javaValueTypeForId, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
@@ -388,7 +388,9 @@ export function renderJavaEventSourcedRepositoryImpl(
     `    private static DomainEvent rowToEvent(String type, String data) {`,
     `        try {`,
     `            return switch (type) {`,
-    ...eventNames.map((e) => `                case "${e}" -> JSON.readValue(data, ${e}.class);`),
+    ...eventNames.map(
+      (e) => `                case "${e}" -> JSON.readValue(data, ${javaEventRef(e)}.class);`,
+    ),
     `                default -> throw new IllegalStateException("unknown event type: " + type);`,
     `            };`,
     `        } catch (tools.jackson.core.JacksonException e) {`,

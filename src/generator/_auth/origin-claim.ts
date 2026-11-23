@@ -15,6 +15,7 @@
 // tenant-owned row (fail-closed).
 
 import type { TypeIR } from "../../ir/types/loom-ir.js";
+import { javaProjectRef } from "../_imports/java.js";
 
 export type OriginClaimLang = "csharp" | "java" | "python" | "elixir";
 
@@ -26,8 +27,10 @@ export function claimFromOriginString(t: TypeIR, s: string, lang: OriginClaimLan
     const inner = scalarFrom("guid", s, lang);
     switch (lang) {
       case "csharp":
-      case "java":
         return `new ${cls}(${inner})`;
+      // A project reference, so the Java finalizer can qualify a shadowed name.
+      case "java":
+        return `new ${javaProjectRef(cls, "id")}(${inner})`;
       // python ids are `NewType("<T>Id", str)`.
       case "python":
         return `${cls}(${s})`;

@@ -1,0 +1,59 @@
+// A permission query: `can o.ship(c)` answers whether `ship(c)` would pass its
+// own gates on the loaded order for this caller, without running it.  Its
+// `requires` reads the argument and the row, and its `when` reads the row, so
+// the answer changes with both.
+system CanPermissionQuery {
+  subdomain Sales {
+    context Ordering {
+      aggregate Order with crudish {
+        code: string
+        carrier: string immutable = ""
+        shipped: bool immutable = false
+        operation ship(c: string) requires c != code when !shipped {
+          carrier := c
+          shipped := true
+        }
+      }
+      repository Orders for Order { }
+
+      query CanShipOrder { id: Order id  carrier: string }
+      queryHandler CanShipOrderHandler(q: CanShipOrder): bool {
+        let o = Orders.get(q.id)
+        return can o.ship(q.carrier)
+      }
+    }
+  }
+
+  api SalesApi from Sales {
+    route GET "/orders/{id}/can-ship" send Ordering.CanShipOrder
+  }
+  storage pg { type: postgres }
+  resource st { for: Ordering, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ordering]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+
+  test e2e "a permission query answers what the operation's gates would" against d {
+    let o = api.orders.create({ code: "A-1" })
+    expect(api.ordering.canShipOrderHandler({ id: o.id, carrier: "DHL" })).toBe(true)
+    // The `requires` reads the argument against the row: a carrier equal to
+    // the code is refused.
+    expect(api.ordering.canShipOrderHandler({ id: o.id, carrier: "A-1" })).toBe(false)
+    // The operation itself refuses exactly what the query answered false for.
+    expect(api.orders.ship(o, { c: "A-1" })).toThrow(403)
+    api.orders.ship(o, { c: "DHL" })
+    // Once shipped, the `when` refuses whatever the carrier.
+    expect(api.ordering.canShipOrderHandler({ id: o.id, carrier: "UPS" })).toBe(false)
+    expect(api.orders.getById(o).carrier).toBe("DHL")
+    api.orders.update(o, { code: "A-2" })
+    expect(api.ordering.canShipOrderHandler({ id: o.id, carrier: "UPS" })).toBe(false)
+    expect(api.orders.all().total).toBe(1)
+    api.orders.destroy(o)
+    expect(api.orders.all().total).toBe(0)
+  }
+}

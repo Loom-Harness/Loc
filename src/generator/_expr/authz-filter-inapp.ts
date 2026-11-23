@@ -89,6 +89,7 @@ export function desugarAuthzFilterInApp(e: ExprIR, aggName: string): ExprIR {
     case "new":
     case "object":
     case "ref":
+    case "coalesce":
     case "ternary":
     case "this":
       return e;
@@ -134,6 +135,7 @@ export function hasAuthzFilter(e: ExprIR): boolean {
     case "new":
     case "object":
     case "ref":
+    case "coalesce":
     case "ternary":
     case "this":
       return false;

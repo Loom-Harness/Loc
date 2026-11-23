@@ -72,6 +72,7 @@ import {
   canProbeProviderName,
   createFormWidgetName,
   destroyFormWidgetName,
+  flutterCreateFormSessionPrefills,
   operationFormWidgetName,
   opFormTakesRecord,
   workflowFormWidgetName,
@@ -700,11 +701,16 @@ export const flutterTarget: WalkerTarget = {
   // Dart), matching how Feliz's seams bail.
 
   // `CreateForm(of: <Agg>)` → `const CreateAggForm()` (a create form takes no
-  // route id, so the widget reference is const-constructible).
+  // route id, so the widget reference is const-constructible).  A create form
+  // that opens pre-filled from the session (D-FORM-PREFILL) is handed each
+  // value, rendered against the `currentUser` the page shell binds.
   renderCreateForm: (call, ctx) => {
     const agg = formOfAggregate(call, ctx);
     if (!agg) return null;
-    return `const ${createFormWidgetName(agg.name)}()`;
+    const prefills = ctx.authUi ? flutterCreateFormSessionPrefills(agg.name, ctx.model) : [];
+    if (prefills.length === 0) return `const ${createFormWidgetName(agg.name)}()`;
+    const args = prefills.map((p) => `${p.param}: ${emitExpr(p.expr, ctx)}`).join(", ");
+    return `${createFormWidgetName(agg.name)}(${args})`;
   },
   // `OperationForm(of: <Agg>, op: <op>)` → `OpAggForm(id: id)` (the op is
   // instance-qualified — it POSTs to `/<coll>/$id/<op>`, so it carries the
@@ -1277,6 +1283,7 @@ export const flutterTarget: WalkerTarget = {
   exprBinary: (left, right, op) => DART_LEAVES.binary(left, right, op),
   exprUnary: (op, operand) => DART_LEAVES.unary(op, operand),
   exprTernary: (cond, then, otherwise) => DART_LEAVES.ternary(cond, then, otherwise),
+  exprCoalesce: (left, fallback) => DART_LEAVES.coalesce(left, fallback),
   exprConvert: (value, target, from) => DART_LEAVES.convert(value, target, from),
   exprList: (elements) => DART_LEAVES.list(elements),
   exprObject: (fields) => DART_LEAVES.object(fields),

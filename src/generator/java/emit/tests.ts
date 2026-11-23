@@ -28,7 +28,7 @@ import { type AssertionTarget, renderAssertion } from "../../_test/assertion-tar
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
 import { JAVA_REJECTION_CLASSES, javaThrowKind, rejectionClasses } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
-import { J } from "../java-symbols.js";
+import { J, javaIdRef } from "../java-symbols.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "../render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ export function javaPrincipal(basePkg: string): PrincipalTarget {
   return {
     text: (v) => JSON.stringify(v),
     guid: uuid,
-    id: (targetName, v) => `new ${targetName}Id(${uuid(v)})`,
+    id: (targetName, v) => `new ${javaIdRef(targetName)}(${uuid(v)})`,
     int: "0",
     decimal: () => `${J.BigDecimal}.ZERO`,
     bool: "false",
@@ -318,7 +318,7 @@ export function testBodyRenderContext(
  *  emitted `UUID` / `Instant` brings its import with it. */
 export function javaTestLiteral(): TestValueTarget {
   return {
-    id: (rendered, targetName) => `new ${targetName}Id(${J.UUID}.fromString(${rendered}))`,
+    id: (rendered, targetName) => `new ${javaIdRef(targetName)}(${J.UUID}.fromString(${rendered}))`,
     datetime: (rendered) => `${J.Instant}.parse(${rendered})`,
     date: (rendered) => `${J.LocalDate}.parse(${rendered})`,
     money: (digits) => renderJavaExpr({ kind: "literal", lit: "money", value: digits }, TEST_CTX),

@@ -110,6 +110,7 @@ const SHIPPED: Record<string, string[] | null> = {
     "storeName",
     "type",
   ],
+  "ExprIR.coalesce": ["fallback", "left", "leftType"],
   "ExprIR.ternary": ["cond", "otherwise", "then"],
   "ExprIR.this": [],
   "ExprIR.unary": ["op", "operand"],

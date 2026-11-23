@@ -82,6 +82,10 @@ const SUPPRESSION_BASELINE: Record<string, number> = {
   // A member that does not exist on a nullable receiver: the member and
   // intrinsic checks report the name, which outranks its nullability.
   "src/language/validators/nullable-receiver.ts": 1,
+  // A permission query whose receiver name did not resolve: the name is
+  // reported where it is written, so the aggregate / operation checks stand
+  // down.
+  "src/language/validators/can-expr.ts": 1,
 };
 
 /** The band the measured `unknown` share must stay inside.  Measured at

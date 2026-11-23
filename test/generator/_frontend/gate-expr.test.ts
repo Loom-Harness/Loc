@@ -108,6 +108,15 @@ const PROBES: Record<ExprIR["kind"], { expr: ExprIR; supported: boolean }> = {
     expr: tern(claim("active"), str("a"), str("b")),
     supported: true,
   },
+  coalesce: {
+    expr: {
+      kind: "coalesce",
+      left: claim("nick"),
+      fallback: str("anon"),
+      leftType: { kind: "optional", inner: { kind: "primitive", name: "string" } },
+    },
+    supported: true,
+  },
 
   // --- outside the subset: every one must be NULL, never a partial string ---
   this: { expr: { kind: "this" }, supported: false },

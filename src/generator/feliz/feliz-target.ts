@@ -42,6 +42,7 @@ import {
   FELIZ_DISPATCH_PARAM,
   FELIZ_MODEL_PARAM,
   FS_LEAVES,
+  fsCurrentUserRead,
   fsMoneyBinary,
   fsNumericBinary,
   fsString,
@@ -569,7 +570,7 @@ export const felizTarget: WalkerTarget = {
   // this pulls in the claims machinery (from-contract.ts's `uiBodyUsesCurrentUser` joins
   // `pageGate`), so `model.CurrentUser` is always in scope here.
   renderCurrentUserAccess: (field: string, memberType: TypeIR) =>
-    `(match model.CurrentUser with Some currentUser -> currentUser.${upperFirst(field)} | None -> ${fsZeroValue(memberType)})`,
+    fsCurrentUserRead(field, memberType),
   // The view never writes state directly (effects live in `update`); the
   // shell's emitStmt over action bodies still reaches this, but the Feliz
   // named-handler ignores the emitted body (it dispatches a Msg instead), so a
@@ -1602,6 +1603,7 @@ export const felizTarget: WalkerTarget = {
   exprBinary: (left, right, op) => FS_LEAVES.binary(left, right, op as never),
   exprUnary: (op, operand) => FS_LEAVES.unary(op as "-" | "!", operand),
   exprTernary: (cond, then, otherwise) => FS_LEAVES.ternary(cond, then, otherwise),
+  exprCoalesce: (left, fallback) => FS_LEAVES.coalesce(left, fallback),
   exprConvert: (value, target, from) => FS_LEAVES.convert(value, target as never, from as never),
   exprList: (elements) => FS_LEAVES.list(elements),
   exprObject: (fields) => FS_LEAVES.object([...fields]),

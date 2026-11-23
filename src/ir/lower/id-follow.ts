@@ -78,6 +78,10 @@ export function collectIdFollows(
       collectIdFollows(expr.then, out);
       collectIdFollows(expr.otherwise, out);
       return;
+    case "coalesce":
+      collectIdFollows(expr.left, out);
+      collectIdFollows(expr.fallback, out);
+      return;
     case "paren":
       collectIdFollows(expr.inner, out);
       return;

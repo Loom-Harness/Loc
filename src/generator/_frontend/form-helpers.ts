@@ -147,13 +147,20 @@ export function initialValuesTs(
   fields: { name: string; type: TypeIR; optional: boolean; default?: ExprIR }[],
   ctx: AnyTypeScope,
   seedCtx: DefaultSeedCtx = {},
+  /** The seeds of the fields the form computes when it opens (a create form's
+   *  `FormPrefill.client` fields), by name: each takes the field's zero, its
+   *  value when there is nothing to compute. */
+  clientSeeds: ReadonlyMap<string, (zero: string) => string> = new Map(),
 ): string {
   const entries = fields.map((f) => {
+    const zero = initialValueTs(f.type, ctx, f.optional);
+    const atOpen = clientSeeds.get(f.name);
+    if (atOpen) return `${f.name}: ${atOpen(zero)}`;
     // A declared default (`field: T = <expr>`) seeds the input when the
     // frontend can evaluate it client-side; otherwise fall back to the
     // type-zero placeholder (RHF still needs a controlled value).
     const seed = f.default ? renderDefaultSeed(f.default, seedCtx) : null;
-    return `${f.name}: ${seed ?? initialValueTs(f.type, ctx, f.optional)}`;
+    return `${f.name}: ${seed ?? zero}`;
   });
   return `{ ${entries.join(", ")} }`;
 }

@@ -51,6 +51,7 @@
 //   - `isWalkableLayoutBody(body)` — predicate the page emitter
 //     uses to decide whether to dispatch to the walker.
 
+import { listEqualityPlan } from "../../ir/plan/list-equality.js";
 import { PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
@@ -371,6 +372,8 @@ export function isWalkableLayoutBody(
     case "ternary":
       // `body: loading ? Empty("…") : Stack(…)` — walkable when either branch is.
       return walkable(body.then) || walkable(body.otherwise);
+    case "coalesce":
+      return walkable(body.left) || walkable(body.fallback);
     case "match":
       // The documented wizard pattern (page-metamodel.md §7/§12): walkable when
       // any arm is, in either the predicate form (`arms`) or the variant form
@@ -1161,6 +1164,10 @@ export function walk(
       const elseS = walk(expr.otherwise, ctx, depth + 1, "value");
       return ctx.target.renderConditionalChild(cond, thenS, elseS, depth);
     }
+    case "coalesce":
+      // A VALUE in markup-child position (`o => o.nickname ?? "—"` as a cell
+      // accessor body): interpolated like `member` below.
+      return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
     case "member":
       // Member access in markup-child position (e.g. an
       // accessor lambda body `o => o.id` walks `o.id` as the body
@@ -1811,7 +1818,9 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // and the host operator on the page-side representation compares
       // references on most targets.  Only VO-typed comparisons reach the seam;
       // a target that omits it, and every scalar `==`, render as before.
-      if (isValueObjectEquality(expr)) {
+      // A list `==` (ruling 456) is the same structural question: element by
+      // element, each element by its own value.
+      if (isValueObjectEquality(expr) || listEqualityPlan(expr) !== undefined) {
         const valueEq = ctx.target.exprValueEquality?.(left, right, expr);
         if (valueEq !== undefined && valueEq !== null) return valueEq;
       }
@@ -1871,6 +1880,8 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       }
       return ctx.target.exprTernary(cond, then, otherwise);
     }
+    case "coalesce":
+      return ctx.target.exprCoalesce(emitExpr(expr.left, ctx), emitExpr(expr.fallback, ctx));
     case "match": {
       // `match` in EXPRESSION position — a VALUE, not markup: a Text /
       // Heading / Button label, a `Field error:`, the RHS of `state := …`, an

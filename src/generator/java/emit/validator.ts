@@ -690,11 +690,12 @@ function chainDepth(e: ExprIR, spec: CommandSpec): number | null {
   return param?.nullable ? depth : null;
 }
 
-/** True when the expression contains a `null` literal anywhere. */
+/** True when the expression asks about absence anywhere: a `null` literal,
+ *  or a `??` (which answers its fallback for an absent left). */
 function mentionsNullLiteral(expr: ExprIR): boolean {
   let found = false;
   walkExprDeep(expr, (e) => {
-    if (e.kind === "literal" && e.lit === "null") found = true;
+    if ((e.kind === "literal" && e.lit === "null") || e.kind === "coalesce") found = true;
   });
   return found;
 }

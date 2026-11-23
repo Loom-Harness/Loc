@@ -9,10 +9,15 @@ import { expectReach } from "../_helpers/census-reach.js";
 // ---------------------------------------------------------------------------
 // Gate-ladder census: the order in which a route refuses — which `requires`
 // gates run before the row load, which after it, which a `can_<op>` probe
-// cannot decide — is decided once, in `src/ir/plan/gate-ladder.ts`
-// (`operationLadder` / `canOpLadder` / `destroyLadder` /
-// `mergePatchUpdateLadder` / `readLadder`), and every backend renders the
-// rungs it is handed (`ladderGates`, `probeUndecided`, `readLadderGates`).
+// cannot decide — is decided once.  The classifiers and the rung split
+// (`gateReadsRow`, `gateReadsParam`, `gateRungs`) are defined in
+// `src/ir/util/op-gates.ts` and read by exactly two places: the plan's
+// ladders in `src/ir/plan/` (`operationLadder` / `canOpLadder` /
+// `destroyLadder` / `mergePatchUpdateLadder` / `readLadder`), which every
+// backend renders through (`ladderGates`, `probeUndecided`, `readLadderGates`),
+// and the lowering of a permission query `can o.op(args)`
+// (`src/ir/lower/lower-expr.ts`), which runs an operation's gates in the same
+// order its route does.
 //
 // A backend that classifies a gate itself is a sixth copy of the decision: a
 // classifier fix in the plan does not reach it, and its routes refuse in a
@@ -30,12 +35,24 @@ import { expectReach } from "../_helpers/census-reach.js";
 //                   bound to one in the same file.
 //                   → take the rung's gates from the ladder (`ladderGates`).
 //
-// SCOPE.  Every `.ts` under `src/` except the plan itself (`src/ir/plan/`).
+// SCOPE.  Every `.ts` under `src/` except the plan (`src/ir/plan/`), the
+// definition site (`src/ir/util/op-gates.ts`) and the permission-query
+// lowering (`src/ir/lower/lower-expr.ts`, which reads `gateRungs` only).
 // ---------------------------------------------------------------------------
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PLAN_DIR = path.join(repoRoot, "src", "ir", "plan");
-const CLASSIFIERS = new Set(["gateReadsRow", "gateReadsParam", "polymorphicReadGates"]);
+/** The definition site and the one reader outside the plan. */
+const SANCTIONED = new Set([
+  path.join(repoRoot, "src", "ir", "util", "op-gates.ts"),
+  path.join(repoRoot, "src", "ir", "lower", "lower-expr.ts"),
+]);
+const CLASSIFIERS = new Set([
+  "gateReadsRow",
+  "gateReadsParam",
+  "gateRungs",
+  "polymorphicReadGates",
+]);
 const GATE_LISTS = new Set(["operationGates", "lifecycleGates"]);
 
 /** Sites that are not a ladder decision, each with the reason it stays. */
@@ -56,7 +73,8 @@ function tsFiles(dir: string): string[] {
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) {
       if (full !== PLAN_DIR && ent.name !== "generated") out.push(...tsFiles(full));
-    } else if (ent.name.endsWith(".ts") && !ent.name.endsWith(".d.ts")) out.push(full);
+    } else if (ent.name.endsWith(".ts") && !ent.name.endsWith(".d.ts") && !SANCTIONED.has(full))
+      out.push(full);
   }
   return out;
 }

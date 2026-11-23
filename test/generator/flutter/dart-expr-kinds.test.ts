@@ -340,6 +340,18 @@ const PINS: Record<ExprIR["kind"], Pin[]> = {
       dart: "(true ? 'a' : 'b')",
     },
   ],
+  coalesce: [
+    {
+      name: "Dart if-null",
+      expr: {
+        kind: "coalesce",
+        left: lit("string", "a"),
+        fallback: lit("string", "b"),
+        leftType: { kind: "optional", inner: { kind: "primitive", name: "string" } },
+      },
+      dart: "('a' ?? 'b')",
+    },
+  ],
   convert: [
     {
       name: "int → string",

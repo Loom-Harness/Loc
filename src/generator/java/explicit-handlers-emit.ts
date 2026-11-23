@@ -120,6 +120,7 @@ import {
 } from "./emit/workflow.js";
 import { JAVA_INSTANCE_READS_FIELD, javaInstanceReadsClass } from "./emit/workflow-instances.js";
 import { isMangled, javaLocals, localOf, movedLocalOrUndefined } from "./java-ident.js";
+import { javaIdRef } from "./java-symbols.js";
 import { type JavaRenderContext, renderJavaExpr, renderJavaType } from "./render-expr.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
@@ -1019,7 +1020,7 @@ function wireActionParam(
     const wire = javaIdValueType();
     return {
       actionParam: `${annot} ${wire} ${local}`,
-      callArg: `new ${t.targetName}Id(${local})`,
+      callArg: `new ${javaIdRef(t.targetName)}(${local})`,
     };
   }
   return { actionParam: `${annot} ${renderJavaType(t)} ${local}`, callArg: local };
@@ -1039,7 +1040,7 @@ function wireQueryParam(
     const wire = javaIdValueType();
     return {
       actionParam: `${annot} ${wire} ${local}`,
-      callArg: `new ${t.targetName}Id(${local})`,
+      callArg: `new ${javaIdRef(t.targetName)}(${local})`,
     };
   }
   return { actionParam: `${annot} ${renderJavaType(t)} ${local}`, callArg: local };

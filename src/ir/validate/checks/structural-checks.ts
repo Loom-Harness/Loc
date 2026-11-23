@@ -1497,6 +1497,7 @@ function lifecycleGuardIllegalReads(
       case "new":
       case "object":
       case "paren":
+      case "coalesce":
       case "ternary":
       case "unary":
         return;

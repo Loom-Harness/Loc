@@ -16,6 +16,7 @@ export {
 export { checkBypassPlacement } from "./bypass-placement.js";
 export { checkCallableBodies } from "./callable-bodies.js";
 export { checkCallableSites } from "./callable-sites.js";
+export { checkCanExprs } from "./can-expr.js";
 export { checkChannels } from "./channel.js";
 export { checkProjectSingletons, checkTopLevelDomainComposition } from "./composition.js";
 export { checkCreateArgs } from "./create-args.js";

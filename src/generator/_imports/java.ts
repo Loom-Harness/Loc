@@ -60,8 +60,9 @@ const PROJECT_MODULE = "loom.project";
  *  runtime type shares (a value object `DomainException`). */
 const DOMAIN_KIND_PACKAGE = {
   enum: "domain.enums",
-  event: "domain.events",
   valueobject: "domain.valueobjects",
+  event: "domain.events",
+  id: "domain.ids",
 } as const;
 
 /** A reference to a type the generated project declares (a domain type), by
