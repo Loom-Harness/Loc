@@ -14,6 +14,7 @@ import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { csProjectType } from "./bcl-collision.js";
 import { csLineageValue } from "./codec-spelling.js";
+import { CS_NAME } from "./cs-symbols.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { addCsExprUsing, renderCsExpr } from "./render-expr.js";
 import { csVoListCopy } from "./vo-collection-copy.js";
@@ -121,7 +122,7 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
     requires: (s) =>
       // Authorization gate — surfaces as 403 (handled by
       // DomainExceptionFilter mapping ForbiddenException → 403).
-      `${INDENT}if (!(${renderCsExpr(s.expr, ctx)})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${s.source}`)});`,
+      `${INDENT}if (!(${renderCsExpr(s.expr, ctx)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(`Forbidden: ${s.source}`)});`,
 
     let: (s) =>
       // `let`-names may collide with a C# keyword (`let base = …` → `var
@@ -300,8 +301,8 @@ function precondition(
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
   const params = code ? csRuleParams({ expr }, (e) => renderCsExpr(e, ctx)) : undefined;
   const thrown = code
-    ? `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
-    : `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition)`;
+    ? `throw new ${CS_NAME.DomainException}(${JSON.stringify(detail)}, DomainErrorKind.Precondition, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
+    : `throw new ${CS_NAME.DomainException}(${JSON.stringify(detail)}, DomainErrorKind.Precondition)`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderCsExpr(expr, ctx)})) ${thrown};`;
   }

@@ -677,7 +677,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
 function tsCheckedInt(expr: string, kind: IntegralKind | null): string {
   if (kind === null) return expr;
   const { min, max } = NODE_INT_RANGE[kind];
-  return `((__v: number): number => { if (__v < ${min} || __v > ${max}) throw DomainError.arithmeticOverflow(); return __v; })(${expr})`;
+  return `((__v: number): number => { if (__v < ${min} || __v > ${max}) throw ${T.DomainError}.arithmeticOverflow(); return __v; })(${expr})`;
 }
 
 /** `datetime ==/!= datetime` by instant (B-13), or null to fall through.

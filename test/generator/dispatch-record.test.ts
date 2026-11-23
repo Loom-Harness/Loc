@@ -99,7 +99,7 @@ describe("java <Ctx>Dispatch (wiring)", () => {
     const files = await generateSystemFiles(SOURCE.replace("platform: node", "platform: java"));
     const get = (suffix: string) => [...files.entries()].find(([p]) => p.endsWith(suffix))?.[1];
     expect(get("/ShipOrder.java")).toContain(
-      "public record ShipOrder(OrderId id, String carrier) {}",
+      "public record ShipOrder(OrderId id, String carrier) implements OrderingRequest {}",
     );
     const bean = get("/OrderingDispatch.java");
     expect(bean, "no OrderingDispatch.java emitted").toBeDefined();

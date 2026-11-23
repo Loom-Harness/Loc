@@ -17,6 +17,7 @@
 
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
+import { CS_NAME } from "../cs-symbols.js";
 
 /** The parameters after the aggregate on the repository's one real `SaveAsync`
  *  — the version-taking overload for a guarded aggregate. */
@@ -50,4 +51,4 @@ export function saveInterfaceLines(agg: AggregateIR, bclTask: string): string[] 
 
 /** The C# expression an `if-match` operation handler passes as the save's
  *  expected version: the client's `If-Match`, parsed once at the HTTP edge. */
-export const IF_MATCH_EXPECTED_VERSION_CS = "RequestContext.Current?.ExpectedVersion";
+export const IF_MATCH_EXPECTED_VERSION_CS = `${CS_NAME.RequestContext}.Current?.ExpectedVersion`;

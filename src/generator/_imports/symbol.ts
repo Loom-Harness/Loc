@@ -15,7 +15,9 @@
 //
 // Spelling is context-free (`alias ?? name`, or `alias ?? module` for a
 // whole-module import), fixed on the handle — this seam never allocates or
-// renames.  A collision is a thrown error, fixed by declaring an alias.
+// renames.  A collision between two symbols is a thrown error, fixed by
+// declaring an alias; the one allocation is the TypeScript finalizer's: it
+// aliases a symbol whose name the module binds another way (`ts.ts`).
 // ---------------------------------------------------------------------------
 
 /** A language tag — one finalizer per tag. */

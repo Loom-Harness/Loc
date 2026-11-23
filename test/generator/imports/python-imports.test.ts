@@ -148,6 +148,131 @@ describe("finalizePyModule — derivation", () => {
   });
 });
 
+// A user's type name is never refused for how a backend spells its imports:
+// the framework side of a collision takes a deterministic alias.
+describe("finalizePyModule — framework names alias, model names stay bare", () => {
+  const model = pyRef("app.domain.value_objects", "Request");
+
+  it("aliases a hand-written framework import and its bare uses", () => {
+    const out = finalizePyModule(
+      [
+        doc,
+        "",
+        "from fastapi import APIRouter, Request",
+        "",
+        "",
+        "def handler(req: Request, m: " + `${model}) -> None:`,
+        '    """Request docs: Request."""',
+        "    req.Request = Request.state",
+        "    f(Request=1)",
+      ].join("\n"),
+    );
+    expect(out).toContain("from fastapi import APIRouter");
+    expect(out).toContain("from fastapi import Request as _fastapi_Request");
+    expect(out).toContain("from app.domain.value_objects import Request");
+    expect(out).toContain("def handler(req: _fastapi_Request, m: Request) -> None:");
+    // docstring, attribute access and keyword names are not references
+    expect(out).toContain('"""Request docs: Request."""');
+    expect(out).toContain("req.Request = _fastapi_Request.state");
+    expect(out).toContain("f(Request=1)");
+  });
+
+  it("aliases a framework marker and keeps the model marker bare", () => {
+    const out = finalizePyModule(
+      [
+        doc,
+        "",
+        PY_IMPORTS,
+        "",
+        `a: ${pyRef("decimal", "Decimal")}`,
+        `b: ${pyRef("app.domain.value_objects", "Decimal")}`,
+      ].join("\n"),
+    );
+    expect(out).toContain("from decimal import Decimal as _decimal_Decimal");
+    expect(out).toContain("a: _decimal_Decimal");
+    expect(out).toContain("b: Decimal");
+  });
+
+  it("aliases a framework import whose name the module defines itself", () => {
+    const out = finalizePyModule(
+      [
+        doc,
+        "",
+        "from pydantic import BaseModel",
+        "",
+        "",
+        "class BaseModel(BaseModel):",
+        "    pass",
+      ].join("\n"),
+    );
+    expect(out).toContain("from pydantic import BaseModel as _pydantic_BaseModel");
+    expect(out).toContain("class BaseModel(_pydantic_BaseModel):");
+  });
+
+  it("re-aliases an already aliased framework member by its binding", () => {
+    const out = finalizePyModule(
+      [
+        doc,
+        "",
+        "from datetime import date as CalendarDate",
+        "",
+        "",
+        "class CalendarDate:",
+        "    d: CalendarDate",
+      ].join("\n"),
+    );
+    expect(out).toContain("from datetime import date as _datetime_CalendarDate");
+    expect(out).toContain("class CalendarDate:");
+    expect(out).toContain("d: _datetime_CalendarDate");
+  });
+
+  it("spells a shadowed builtin through the builtins module", () => {
+    const out = finalizePyModule(
+      [
+        doc,
+        "",
+        PY_IMPORTS,
+        "",
+        "def f():",
+        "    raise ValueError('x')",
+        "",
+        "",
+        `class Holder:\n    v: ${pyRef("app.domain.value_objects", "ValueError")}`,
+      ].join("\n"),
+    );
+    expect(out).toContain("import builtins");
+    expect(out).toContain("raise builtins.ValueError('x')");
+    expect(out).toContain("v: ValueError");
+  });
+
+  it("leaves a module without a collision untouched", () => {
+    const src = [
+      doc,
+      "",
+      "from fastapi import Request",
+      "",
+      "",
+      "def f(r: Request): pass",
+      "",
+    ].join("\n");
+    expect(finalizePyModule(src)).toBe(src);
+  });
+
+  it("still refuses two model-side imports (neither may move)", () => {
+    expect(() =>
+      finalizePyModule(
+        [
+          doc,
+          "",
+          PY_IMPORTS,
+          "",
+          `${pyRef("app.domain.a", "Money")} ${pyRef("app.domain.b", "Money")}`,
+        ].join("\n"),
+      ),
+    ).toThrow(/two imports bind 'Money'/);
+  });
+});
+
 describe("finalizePyModule — canonical order (ruff isort defaults)", () => {
   const block = (...imports: string[]): string[] =>
     finalizePyModule([doc, "", ...imports, "", "x = 1", ""].join("\n"))

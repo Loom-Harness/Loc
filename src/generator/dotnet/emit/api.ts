@@ -36,7 +36,7 @@ import {
   opOperation,
 } from "../../_symbols/plan.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
-import { sortedCsUsings } from "../cs-symbols.js";
+import { CS_NAME, sortedCsUsings } from "../cs-symbols.js";
 import { csLocalNamer } from "../local-names.js";
 import {
   csAggregateTypeParamsMembers,
@@ -505,7 +505,7 @@ export function renderController(
               { name: "aggregate", valueExpr: `"${agg.name}"` },
               { name: "id", valueExpr: "id.Value" },
             ])}`,
-            `        HttpMetrics.RecordDomainOperation("${agg.name}", "create");`,
+            `        ${CS_NAME.HttpMetrics}.RecordDomainOperation("${agg.name}", "create");`,
             // Location points at the read; when an explicit route serves that
             // slot there is no derived action to name, so the path is spelled.
             shape.getByIdApiOp.claimedByExplicitRoute
@@ -650,7 +650,7 @@ export function renderOperationActionBlock(
     ? op.paramNames.length === 0
       ? [
           `        ${renderDotnetLogCall("wireIn", [
-            { name: "keys", valueExpr: "Array.Empty<string>()" },
+            { name: "keys", valueExpr: `${CS_NAME.Array}.Empty<string>()` },
           ])}`,
         ]
       : [
@@ -784,7 +784,7 @@ export function renderOperationActionBlock(
       { name: "op", valueExpr: `"${op.name}"` },
       { name: "id", valueExpr: "id" },
     ])}`,
-    `        HttpMetrics.RecordDomainOperation("${agg.name}", "${op.name}");`,
+    `        ${CS_NAME.HttpMetrics}.RecordDomainOperation("${agg.name}", "${op.name}");`,
     `        var cmd = new ${upperFirst(op.name)}Command(`,
     ...cmdBody,
     "        );",
@@ -1027,7 +1027,7 @@ export function renderExceptionFilter(
   // plain domain-floor arm below, unchanged.
   const domainFloorCodeArm = options?.domainFloorCodes
     ? domainFloorErrorsArm(
-        "context.Exception is DomainException dfe && dfe.RuleCode != null",
+        `context.Exception is ${CS_NAME.DomainException} dfe && dfe.RuleCode != null`,
         "dfe",
         "dfe.RuleCode",
         'dfe.RulePointer ?? ""',
@@ -1259,7 +1259,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         // downstream of the parse) nor a domain rule.  Same 422 + errors[]
         // envelope as both, so a price of "12,50" reads identically on .NET
         // and on Hono's zod moneySchema hook.
-        if (context.Exception is WireFormatException wfe)
+        if (context.Exception is ${CS_NAME.WireFormatException} wfe)
         {
             ${csFieldInvalidProblem("context.HttpContext.Request.Path", "            ", "wireProblem")}
             // Anonymous type rather than Dictionary<,>: this arm is emitted
@@ -1283,7 +1283,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
-        if (context.Exception is ForbiddenException fe)
+        if (context.Exception is ${CS_NAME.ForbiddenException} fe)
         {
             ${renderDotnetLogCall("forbidden", [
               { name: "message", valueExpr: "fe.Message" },
@@ -1294,7 +1294,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
-        if (context.Exception is DisallowedException dx)
+        if (context.Exception is ${CS_NAME.DisallowedException} dx)
         {
             ${renderDotnetLogCall("disallowed", [
               { name: "message", valueExpr: "dx.Message" },
@@ -1308,7 +1308,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         // A domain-floor rejection (precondition / invariant) is 422 —
         // the request is well-formed, the domain refuses it on semantic
         // grounds.  400 stays for a malformed request.
-        if (context.Exception is DomainException de)
+        if (context.Exception is ${CS_NAME.DomainException} de)
         {
             ${renderDotnetLogCall("domainError", [
               { name: "message", valueExpr: "de.Message" },
@@ -1331,7 +1331,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
-        if (context.Exception is AggregateNotFoundException nf)
+        if (context.Exception is ${CS_NAME.AggregateNotFoundException} nf)
         {
             ${renderDotnetLogCall("notFound", [{ name: "status", valueExpr: `${notFoundStatus}` }])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("not_found");
@@ -1659,7 +1659,7 @@ public static class ValidationProblem
 
         var missingRequired = context.ModelState
             .SelectMany(entry => entry.Value is null
-                ? Array.Empty<ModelError>()
+                ? ${CS_NAME.Array}.Empty<ModelError>()
                 : entry.Value.Errors.Where(IsMissingRequired))
             .ToArray();
         if (missingRequired.Length > 0)
@@ -1780,7 +1780,7 @@ public static class ValidationProblem
         ${csFieldInvalidProblem("context.HttpContext.Request.Path", "        ", "problem")}
         problem.Extensions["errors"] = context.ModelState
             .SelectMany(entry => entry.Value is null
-                ? Array.Empty<Dictionary<string, object>>()
+                ? ${CS_NAME.Array}.Empty<Dictionary<string, object>>()
                 : entry.Value.Errors.Select(error =>
                 {
                     // The Guid binder's own sentence for a route / query uuid it
@@ -2013,7 +2013,7 @@ function csQueryMismatchMessageFn(): string {
     ["integer", ["int", "long"]],
     ["decimal", ["decimal", "double"]],
     ["bool", ["bool"]],
-    ["datetime", ["DateTime", "DateTimeOffset"]],
+    ["datetime", [CS_NAME.DateTime, "DateTimeOffset"]],
     ["date", ["DateOnly"]],
   ];
   const arms = kinds.flatMap(([kind, types]) =>

@@ -6,6 +6,7 @@
 // so every repository the body saves through enlists in it.
 
 import { inboxClaimSql, inboxPurgeSql } from "../../../ir/plan/index.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { outboxRetentionMembers } from "./outbox.js";
 
 /** `Domain/Common/IConsumerInbox.cs`. */
@@ -169,7 +170,7 @@ ${outboxRetentionMembers(purge)}
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // A start prunes at once, so a restart never waits a whole interval.
-        _lastPurge = DateTime.MinValue;
+        _lastPurge = ${CS_NAME.DateTime}.MinValue;
         while (!stoppingToken.IsCancellationRequested)
         {
             try

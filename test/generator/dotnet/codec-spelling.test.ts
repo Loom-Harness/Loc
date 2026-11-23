@@ -3,6 +3,7 @@
 // owner rulings on #3527 / #3593 (lineage and channel envelope are wire).
 
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import {
   csCalendarDateParseExact,
   csCalendarDateWire,
@@ -96,7 +97,7 @@ describe("lineage — every scalar is its wire encoding", () => {
   });
 
   it("emits the helper from the same wire encoders the DTO mapper uses", () => {
-    const cls = csProvWireClass();
+    const cls = spellMarkers(csProvWireClass());
     expect(cls).toContain(`public static class ${CS_PROV_WIRE}`);
     expect(cls).toContain(`Money(decimal? v) => v is null ? null : v.Value.ToString("F4"`);
     expect(cls).toContain("Decimal(decimal? v) => v is null ? null : double.Parse(");

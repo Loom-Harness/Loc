@@ -12,6 +12,8 @@
 // generated `Domain/<Agg>/<Agg>.cs` stays free of any DomainLog
 // reference, matching the byte-identical-when-off contract.
 
+import { CS_NAME } from "../cs-symbols.js";
+
 export function renderDomainLog(ns: string): string {
   return `// Auto-generated.
 using Microsoft.Extensions.Logging;
@@ -31,7 +33,7 @@ namespace ${ns}.Domain.Common;
 /// </summary>
 public static class DomainLog
 {
-    public static ILogger? Current => RequestContext.Current?.Logger;
+    public static ILogger? Current => ${CS_NAME.RequestContext}.Current?.Logger;
 
     /// <summary>
     /// Emit a Trace-level structured log line through the request-scoped
@@ -99,14 +101,14 @@ public sealed class ExecutionContextBehavior<TMessage, TResponse> : IPipelineBeh
         MessageHandlerDelegate<TMessage, TResponse> next,
         CancellationToken cancellationToken)
     {
-        var parent = RequestContext.Current;
+        var parent = ${CS_NAME.RequestContext}.Current;
         // A child frame under the caller, or a fresh root for a non-HTTP
         // entrypoint where no middleware opened one.
         var frame = parent is null
-            ? RequestContext.OpenRoot(Guid.NewGuid().ToString(), "en", DateTimeOffset.UtcNow)
-            : RequestContext.OpenChild(parent);
+            ? ${CS_NAME.RequestContext}.OpenRoot(Guid.NewGuid().ToString(), "en", DateTimeOffset.UtcNow)
+            : ${CS_NAME.RequestContext}.OpenChild(parent);
         frame.Logger = _log;
-        using (RequestContext.Enter(frame))
+        using (${CS_NAME.RequestContext}.Enter(frame))
         using (_log.BeginScope(new Dictionary<string, object?>
         {
             ["correlationId"] = frame.CorrelationId,
@@ -157,13 +159,13 @@ public sealed class ExecutionContextBehavior<TMessage, TResponse> : IPipelineBeh
         MessageHandlerDelegate<TMessage, TResponse> next,
         CancellationToken cancellationToken)
     {
-        var parent = RequestContext.Current;
+        var parent = ${CS_NAME.RequestContext}.Current;
         // A child frame under the caller, or a fresh root for a non-HTTP
         // entrypoint where no middleware opened one.
         var frame = parent is null
-            ? RequestContext.OpenRoot(Guid.NewGuid().ToString(), "en", DateTimeOffset.UtcNow)
-            : RequestContext.OpenChild(parent);
-        using (RequestContext.Enter(frame))
+            ? ${CS_NAME.RequestContext}.OpenRoot(Guid.NewGuid().ToString(), "en", DateTimeOffset.UtcNow)
+            : ${CS_NAME.RequestContext}.OpenChild(parent);
+        using (${CS_NAME.RequestContext}.Enter(frame))
         {
             return await next(message, cancellationToken);
         }

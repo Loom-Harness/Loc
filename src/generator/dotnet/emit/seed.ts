@@ -39,7 +39,7 @@ import {
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
 import { csCalendarDateParseExact } from "../codec-spelling.js";
-import { CS, CS_PERSISTENCE_USINGS } from "../cs-symbols.js";
+import { CS, CS_NAME, CS_PERSISTENCE_USINGS } from "../cs-symbols.js";
 import { renderCsExpr } from "../render-expr.js";
 
 export function emitDotnetSeeds(
@@ -171,7 +171,7 @@ function renderArgs(row: SeedRowIR, agg: SeederAggregate): string {
 function coerceSeedValue(type: TypeIR, rendered: string): string {
   const leaf = type.kind === "optional" ? type.inner : type;
   if (leaf.kind === "primitive" && leaf.name === "datetime") {
-    return `DateTime.Parse(${rendered}, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal)`;
+    return `${CS_NAME.DateTime}.Parse(${rendered}, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal)`;
   }
   if (leaf.kind === "primitive" && leaf.name === "date") {
     return csCalendarDateParseExact(rendered);

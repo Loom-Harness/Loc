@@ -19,7 +19,7 @@ import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/lo
 import { wireStatus } from "../../ir/util/wire-policy.js";
 import { snake } from "../../util/naming.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
-import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
+import { CS, CS_NAME, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 import { csIdValueClrType, dtoParam, projectToResponse, wireType } from "./dto-mapping.js";
 import { dotnetNotFoundThrow } from "./emit/common.js";
 import { sqlIdent, stateInits } from "./emit/dapper.js";
@@ -482,7 +482,7 @@ function renderProjectionsController(
     }
     const gateLines = gate
       ? (exprUsesCurrentUser(gate) ? `        var currentUser = _currentUser.User;\n` : "") +
-        `        if (!(${renderCsExpr(gate)})) throw new ForbiddenException(${JSON.stringify(
+        `        if (!(${renderCsExpr(gate)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
           `Forbidden: projection ${proj.name}`,
         )});\n`
       : "";
