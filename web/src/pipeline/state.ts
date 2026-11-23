@@ -28,6 +28,7 @@ import type {
   BundleResult,
 } from "../bundle/protocol.js";
 import type { BackendBundle, FrontendBundle } from "../engine/runtime-engine.js";
+import { type BootableBackend, bootableBackends } from "../build/boot-plan.js";
 import type {
   BlockingMigrationState,
   BootFailAt,
@@ -233,16 +234,8 @@ export function honoBundleOk(s: PipelineState): BundleOk | null {
 }
 
 /** Every backend's bundle, when all of them bundled — what a boot starts. */
-export function backendBundlesOk(
-  s: PipelineState,
-): Array<{ slug: string; entry: string; bundle: BundleOk }> | null {
-  if (s.bundle.kind !== "result" || s.bundle.backends.length === 0) return null;
-  const out: Array<{ slug: string; entry: string; bundle: BundleOk }> = [];
-  for (const b of s.bundle.backends) {
-    if (!b.bundle.ok) return null;
-    out.push({ slug: b.slug, entry: b.entry, bundle: b.bundle });
-  }
-  return out;
+export function backendBundlesOk(s: PipelineState): BootableBackend[] | null {
+  return s.bundle.kind === "result" ? bootableBackends(s.bundle.backends) : null;
 }
 
 /** The bundle result of the frontend `slug` — or of the first frontend when

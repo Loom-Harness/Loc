@@ -193,7 +193,7 @@ const externImplModule = (name: string): string =>
 /** Path-param zod for a wire-coerced route segment.  An id is a guid — a
  *  uuid string, the same `UuidString` the workflow-instance `{id}` param uses;
  *  scalars split numeric/textual. */
-function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
+export function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   // An optional (query) param is the inner type's parse, absent allowed — the
   // binding's `== null ? null : …` then hands the handler `T | null`.
   if (t.kind === "optional") return `${pathParamZod(t.inner, ctx)}.optional()`;
@@ -356,7 +356,7 @@ function emitPagedRunHandler(
  *  guard is emitted, 422 wherever a request part is zod-validated through the
  *  `defaultHook`), each a ProblemDetails body.  The not-found rung is titled
  *  as its runtime arm titles it. */
-function routedProblemResponseLines(
+export function routedProblemResponseLines(
   route: RouteIR,
   h: Handler,
   ctx: EnrichedBoundedContextIR,

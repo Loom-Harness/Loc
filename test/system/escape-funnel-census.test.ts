@@ -10,7 +10,7 @@
 // DESTINATION, following the Wave 1 hand-off's own taxonomy —
 //
 //   1. JS/TS-FAMILY position (typescript/, react/, vue/, svelte/, angular/,
-//      _frontend/, _obs/, _payload/, _channels/, _packs/, any `js-*.ts` leaf,
+//      mock/, _frontend/, _obs/, _payload/, _channels/, _packs/, any `js-*.ts` leaf,
 //      zod-refine.ts, and the two feliz/flutter files that emit real JS/JSON
 //      config despite their directory) — `JSON.stringify` genuinely IS this
 //      backend's `escapeStringLiteral` (ExprTarget) / the JS string-literal
@@ -125,6 +125,8 @@ const JS_FAMILY_DIR_PREFIXES = [
   "src/generator/_payload/",
   "src/generator/_channels/",
   "src/generator/_packs/",
+  // The mock target emits a plain-JavaScript Node server.
+  "src/generator/mock/",
 ];
 
 /** Files that live under a non-JS backend/frontend directory but genuinely

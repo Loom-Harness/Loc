@@ -101,7 +101,7 @@ function PreviewPaneView({ ctx }: Props): JSX.Element {
                         ? "The bundle failed, so there is nothing to preview. Open Output → Bundler for the error."
                         : reactBundleStatus.kind === "pending"
                           ? `${nextStepMid("bundle", isDesktop)} to compile the frontend and backend (~10 s on first run)${isDesktop ? `, then ${STAGE.boot}` : ""}.`
-                          : !ddl
+                          : ddl === null
                             ? `Bundled. ${isDesktop ? `Click ${STAGE.boot}` : nextStepMid("boot", false)} to start the in-browser backend and database.`
                             : "Loading…"}
           </Text>

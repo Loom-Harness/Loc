@@ -1,7 +1,8 @@
 // Which generated deployables the playground can run, read off the generated
 // file tree.
 //
-// The browser runtime boots every Hono backend (one worker each) and previews
+// The browser runtime boots every Hono backend (one worker each; a `mock`
+// backend is one too, and is listed as a mock so the UI can say so) and previews
 // every React, Vue, SvelteKit and Angular frontend, one at a time, each against the backend its `targets:`
 // names.  Everything else in the tree is files-only, and is
 // listed so the UI can say so by name: .NET (`Program.cs`), Phoenix LiveView
@@ -44,7 +45,14 @@ export interface DeployableAnalysis {
   frontends: PreviewFrontend[];
   /** Deployables the browser does not bundle/boot, sorted by slug. */
   unsupported: UnsupportedDeployable[];
+  /** The booted backends that are mocks — their project carries the mock
+   *  runtime (`http/mock-runtime.ts`): they answer the api from generated rows
+   *  and simulate no rules.  Sorted by slug. */
+  mocks: string[];
 }
+
+/** The module only a mock backend's project has: its in-memory row store. */
+const MOCK_RUNTIME = /^([^/]+)\/http\/mock-runtime\.ts$/;
 
 const HONO_ENTRY = /^([^/]+)\/http\/index\.ts$/;
 const REACT_ENTRY = /^([^/]+)\/src\/main\.tsx$/;
@@ -116,7 +124,7 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
   // Legacy single-context mode puts Hono at the root with no slug, and emits
   // nothing else.
   if (files.some((f) => f.path === "http/index.ts")) {
-    return { backends: ["http/index.ts"], frontends: [], unsupported: [] };
+    return { backends: ["http/index.ts"], frontends: [], unsupported: [], mocks: [] };
   }
   const honoSlugs: string[] = [];
   const frontendEntries: { entry: string; framework: PreviewFramework }[] = [];
@@ -124,7 +132,10 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
   let compose: string | null = null;
   const platformBySlug = new Map<string, UnsupportedPlatform>();
   const angularSlugs = new Set<string>();
+  const mockSlugs = new Set<string>();
   for (const f of files) {
+    const mock = f.path.match(MOCK_RUNTIME);
+    if (mock?.[1]) mockSlugs.add(mock[1]);
     const hono = f.path.match(HONO_ENTRY);
     if (hono?.[1] && !honoSlugs.includes(hono[1])) honoSlugs.push(hono[1]);
     if (REACT_ENTRY.test(f.path)) frontendEntries.push({ entry: f.path, framework: "react" });
@@ -180,7 +191,14 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
   const unsupported: UnsupportedDeployable[] = [...platformBySlug]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([slug, platform]) => ({ slug, platform }));
-  return { backends: ordered.map((slug) => `${slug}/http/index.ts`), frontends, unsupported };
+  const mocks = [...mockSlugs].filter((slug) => honoSlugs.includes(slug)).sort();
+  return { backends: ordered.map((slug) => `${slug}/http/index.ts`), frontends, unsupported, mocks };
+}
+
+/** Whether the deployable a `.ddd` source names is a mock backend — looked up
+ *  by its generated folder, as `unsupportedPlatformOf` does. */
+export function isMockDeployable(mocks: readonly string[], deployableName: string): boolean {
+  return mocks.includes(serviceSlug(deployableName));
 }
 
 /** The files-only platform of the deployable a `.ddd` source names, or null

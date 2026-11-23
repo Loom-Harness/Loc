@@ -312,6 +312,8 @@ const ON_DEMAND_SCRIPTS: Readonly<Record<string, string>> = {
     "measures URLs of apps the caller already booted (docs/testing.md: local / on-demand)",
   "test:format-dotnet": "dotnet-format conformance of a generated tree, run locally on demand",
   "test:fuzz-deep": "long-running deep pipeline fuzz, run locally on demand",
+  "test:mock-runtime":
+    "installs the mock and node projects from the registry and runs both; run locally on demand",
   "test:reserved-names-proof":
     "the reserved type-name mutation proof: compiles one model per table entry on four toolchains; run when the table or an emitter's imports change (D-RESERVED-GENERATED-NAMES)",
 };

@@ -55,7 +55,7 @@ function BackendHeaderView({ ctx }: Props): JSX.Element {
   const { isDesktop, pipeline, ddl, bootPending, honoBundle, runBoot } = ctx;
   return (
     <Group gap="xs" wrap="wrap" justify="flex-end">
-      {ddl ? (
+      {ddl !== null ? (
         <Badge size="xs" color="green" variant="light" data-testid="backend-status">
           {RUNTIME_STATUS.booted}
         </Badge>
@@ -77,7 +77,7 @@ function BackendHeaderView({ ctx }: Props): JSX.Element {
           variant="default"
           data-testid="btn-boot"
         >
-          {ddl ? "Reboot" : STAGE.boot}
+          {ddl !== null ? "Reboot" : STAGE.boot}
         </Button>
       )}
     </Group>
@@ -153,7 +153,7 @@ function BackendBodyView({ ctx }: Props): JSX.Element {
         ]
       : [];
 
-  const rows = deployableRows(bundledDeployables, bootedDeployables, bootFailAt);
+  const rows = deployableRows(bundledDeployables, bootedDeployables, bootFailAt, ctx.mockDeployables);
   const reqSlug = reqTarget && bootedBackends.includes(reqTarget) ? reqTarget : (bootedBackends[0] ?? null);
   const reqStorage = bootedDeployables.find((d) => d.slug === reqSlug)?.storage ?? null;
 
@@ -201,7 +201,7 @@ function BackendBodyView({ ctx }: Props): JSX.Element {
           )}
         </Stack>
       )}
-      {rows.length > 1 && (
+      {(rows.length > 1 || rows.some((r) => r.mock)) && (
         <Box mb="xs">
           <DeploymentStatus rows={rows} />
         </Box>
@@ -244,7 +244,7 @@ function BackendBodyView({ ctx }: Props): JSX.Element {
           )}
         </Stack>
       )}
-      {ddl ? (
+      {ddl !== null ? (
         <Stack gap={8}>
           <SegmentedControl
             size="xs"

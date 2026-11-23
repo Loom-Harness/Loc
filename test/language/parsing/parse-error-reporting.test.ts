@@ -168,9 +168,9 @@ describe("F6 — an alternation names what was meant, not every path", () => {
       pageWith(`Text { "x" }`).replace("platform: web", "platform: fluttre"),
     );
     expect(errors[0]).not.toMatch(/possible Token sequences/);
-    // One line, and a bounded sample of the closed set rather than all ten.
+    // One line, and a bounded sample of the closed set rather than all eleven.
     expect(errors[0]).not.toContain("\n");
-    expect(errors[0]).toMatch(/\(\+5 more\)/);
+    expect(errors[0]).toMatch(/\(\+6 more\)/);
   });
 
   it("offers no did-you-mean for a punctuation token", async () => {

@@ -137,7 +137,12 @@ const IMMEDIATE_SHIM = `if (typeof setImmediate === "undefined") {
 }
 `;
 
-export function postProcessNpmBundle(code: string): string {
+/** Prepare a bundle for the runtime worker.  `pglite: false` is the bundle
+ *  of a backend with no database layer: it carries no PGlite, so only the
+ *  Node-global shims apply and the PGlite rewrites (and their assertions
+ *  that the PGlite build shape is the expected one) are skipped. */
+export function postProcessNpmBundle(code: string, opts: { pglite?: boolean } = {}): string {
+  if (opts.pglite === false) return PROCESS_SHIM + IMMEDIATE_SHIM + code;
   const urlHits = (code.match(/import\.meta\.url/g) ?? []).length;
   if (urlHits === 0) {
     throw new Error(

@@ -81,6 +81,15 @@ export function platformOwnsBackend(platform: string | undefined): boolean {
   return platform != null && parseBuiltinPlatformRef(platform) !== null;
 }
 
+/** True iff a deployable on this platform serves an api surface: a backend
+ *  that owns one, or a contract-class backend (`facts.servesContractOnly`)
+ *  that answers the api's routes with no domain logic or persistence.  The
+ *  api-surface and routing checks (`serves:`, `targets:`) read this; the
+ *  persistence, tenancy and broker checks read `platformOwnsBackend`. */
+export function platformServesApi(platform: string | undefined): boolean {
+  return platformOwnsBackend(platform) || factsFor(platform)?.servesContractOnly === true;
+}
+
 /** Saving shapes (D-DOCUMENT-AXIS `shape: …`) the given platform can
  *  emit today — the capability tier of the saving-shape validator.
  *  Resolves a `family@version` pin to its family first.  `undefined` for

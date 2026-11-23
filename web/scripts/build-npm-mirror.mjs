@@ -35,6 +35,8 @@ const EXAMPLES = [
   "web/src/examples/sales-system.ddd",
   "web/src/examples/banking-system.ddd",
   "web/src/examples/inventory-system.ddd",
+  // The mock backend's row generators (zocker, @faker-js/faker).
+  "web/src/examples/mock-system.ddd",
   "web/src/examples/storybook-mantine.ddd",
   "web/src/examples/storybook-mantine-v9.ddd",
   "web/src/examples/storybook-shadcn.ddd",

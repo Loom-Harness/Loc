@@ -146,6 +146,31 @@ frontend, whose Fable and Flutter SDK builds do not run in the browser — gener
 those as "run outside the playground" rather than booting them. The
 playground surfaces this explicitly instead of failing silently.
 
+#### A mock backend
+
+A `platform: mock` deployable is a Hono backend too, so it bundles and boots in
+a worker like any other, and a frontend that `targets:` it previews against it
+(the Mock backend example). Its project has no database layer (no
+`db/schema.ts`), and the playground goes by that, not by the platform name:
+
+- The bundle entry re-exports `bootApp` and `createApp` only — no schema, no
+  drizzle, no PGlite (`makeEntryStdin`, `schemaEntryFor`) — and the bundle gets
+  the Node-global shims without the PGlite rewrites (`postProcessNpmBundle`).
+- The boot plan binds it to no storage (`bootPlan`): no storage is opened,
+  migrated or attached for it, and a system whose only backend is a mock
+  starts no PGlite at all. The worker starts it with no storage port and calls
+  `bootApp(undefined, …)`; the mock's in-memory store is its state, generated
+  afresh, identically, on every boot.
+- It is labelled **mock: rules not simulated** wherever deployables are listed:
+  the status bar, the Runtime tab's deployable rows and the Targets drawer. A
+  backend is known as a mock by the module only its project carries,
+  `http/mock-runtime.ts` (`analyzeDeployables` → `mocks`).
+- The Tests tab lists the system's API e2e suite but does not run it while
+  the suite's target (the default request target) is a mock: its answers come
+  from generated rows with no rules applied, so the tab says so in one line
+  instead of reporting failures that are not the model's. UI suites run as
+  usual.
+
 ### The backend's start-up sequence in the preview
 
 The runtime worker boots the generated backend through its own start-up

@@ -226,7 +226,9 @@ export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
     // backends (Java's Swagger UI / Python's /docs+/redoc).  The machine
     // /openapi.json spec stays available; compose leaves it ON for the inner
     // loop.  Override per deployable via the chart's `env:` overlay.
-    if (!platform.isFrontend) {
+    // A contract-class backend serves no OpenAPI UI, metrics or traces.
+    const runsBackendRuntime = !platform.isFrontend && !platform.facts.servesContractOnly;
+    if (runsBackendRuntime) {
       configEnv.push({ name: RUNTIME_ENV.openapiUi, value: "false" });
       // OpenTelemetry (M-T7.1): `OTEL_SERVICE_NAME` groups this backend's
       // spans; the OTLP endpoint is an overridable placeholder (empty =
@@ -267,7 +269,7 @@ export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
       exposesUi: exposesUi(d),
       // Backends expose Prometheus metrics at /metrics (M-T7.1); pure static
       // frontends do not.  Drives the pod's prometheus.io scrape annotations.
-      emitsMetrics: !platform.isFrontend,
+      emitsMetrics: runsBackendRuntime,
       apiBackend,
       configEnv,
       dbEnv,

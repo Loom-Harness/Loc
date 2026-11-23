@@ -1,6 +1,7 @@
 // What one Boot brings up: the storages of the system's Node deployables and
-// every deployable on the storage it binds.  Pure — the root vitest suite
-// imports it.
+// every deployable on the storage it binds.  A deployable whose project has
+// no database layer binds no storage, and a storage only it would bind is not
+// opened.  Pure — the root vitest suite imports it.
 
 import type { BundleOk } from "../bundle/protocol.js";
 import type { BackendBundle } from "../engine/runtime-engine.js";
@@ -12,6 +13,8 @@ export interface BootableBackend {
   slug: string;
   entry: string;
   bundle: BundleOk;
+  /** False for a deployable with no database layer. */
+  database?: false;
 }
 
 /** Every backend's bundle, when all of them bundled — a system boots whole or
@@ -21,7 +24,7 @@ export function bootableBackends(backends: readonly BackendBundle[]): BootableBa
   const out: BootableBackend[] = [];
   for (const b of backends) {
     if (!b.bundle.ok) return null;
-    out.push({ slug: b.slug, entry: b.entry, bundle: b.bundle });
+    out.push({ slug: b.slug, entry: b.entry, bundle: b.bundle, ...(b.database === false ? { database: false } : {}) });
   }
   return out;
 }
@@ -52,8 +55,9 @@ export function bootPlan(
       : [{ key: DEFAULT_STORAGE, deployables: backends.map((b) => b.slug), plan }];
   const storageOf = (slug: string): string =>
     groups.find((g) => g.deployables.includes(slug))?.key ?? groups[0]?.key ?? DEFAULT_STORAGE;
+  const withDatabase = backends.filter((b) => b.database !== false);
   // Only the storages some bundled backend binds are opened.
-  const bound = new Set(backends.map((b) => storageOf(b.slug)));
+  const bound = new Set(withDatabase.map((b) => storageOf(b.slug)));
   const islands: string[] = [];
   const out: BootPlan = {
     ...(restSpecs.length > 0 ? { restSpecs } : {}),
@@ -70,7 +74,7 @@ export function bootPlan(
       return {
         slug: b.slug,
         bundleCode: b.bundle.code,
-        storage: storageOf(b.slug),
+        ...(b.database === false ? {} : { storage: storageOf(b.slug) }),
         ...(env ? { env } : {}),
         ...(oidc && env?.OIDC_ISSUER ? { verifier: "configured" as const } : {}),
       };

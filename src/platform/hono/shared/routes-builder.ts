@@ -413,7 +413,7 @@ function historyInsertCall(
 
 /** A derived operation's router-relative path in Hono's spelling — the
  *  collection root is `"/"`, params keep their `{id}` braces. */
-function honoPath(entry: ApiOperationIR): string {
+export function honoPath(entry: ApiOperationIR): string {
   const rel = relativeOpPath(entry);
   return rel === "" ? "/" : rel;
 }
@@ -425,7 +425,7 @@ function honoPath(entry: ApiOperationIR): string {
  *  numbers come from `deriveAggregateOperations`; only the line idiom
  *  (description text via `reasonPhrase`, ProblemDetails content) is
  *  Hono's. */
-function problemResponseLines(
+export function problemResponseLines(
   entry: ApiOperationIR,
   pad: string,
   /** An operation-return union's split (M-FT.24): a status one of its error
@@ -2695,7 +2695,7 @@ function emitFindRoute(
 // Response DTO schema emission — the declared response record's rows.
 // ---------------------------------------------------------------------------
 
-function emitResponseDtoSchema(
+export function emitResponseDtoSchema(
   ent: EnrichedAggregateIR | EnrichedEntityPartIR,
   ctx: BoundedContextIR,
 ): string[] {
@@ -3085,7 +3085,7 @@ export function zodForResponseInner(t: TypeIR): string {
  *  defined").  Emitting the value name as a string literal is both
  *  in-scope and wire-correct.  Every non-enum default renders as its
  *  ordinary TS expression. */
-function wireDefaultLiteral(type: TypeIR, d: ExprIR): string {
+export function wireDefaultLiteral(type: TypeIR, d: ExprIR): string {
   const inner = peelNullable(peelCollection(type));
   if (inner.kind === "enum" && d.kind === "ref" && d.refKind === "enum-value") {
     return JSON.stringify(d.name);
@@ -3110,7 +3110,7 @@ function wireDefaultLiteral(type: TypeIR, d: ExprIR): string {
   return renderTsExpr(d);
 }
 
-function collectUsedValueObjects(
+export function collectUsedValueObjects(
   agg: AggregateIR,
   repo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
@@ -3125,7 +3125,7 @@ function collectUsedValueObjects(
   return orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name)));
 }
 
-function collectUsedEnums(
+export function collectUsedEnums(
   agg: AggregateIR,
   repo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
@@ -3272,7 +3272,7 @@ export function emitWireSchema(
 /** Lift each `precondition` statement on an operation to an
  *  `InvariantIR` so the same classification + refine pipeline
  *  handles wire-translatable preconditions for `<Op>Request`. */
-function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
+export function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
   const out: InvariantIR[] = [];
   for (const s of op.statements) {
     if (s.kind === "precondition") {

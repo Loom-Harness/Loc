@@ -56,6 +56,8 @@ const examples = [
   // entry with NO fast-suite gate at all, despite the header above claiming
   // the three files gate the whole picker.
   "web/src/examples/dashboard-system.ddd",
+  // The one picker entry on a `mock` backend.
+  "web/src/examples/mock-system.ddd",
 ];
 
 async function loadExample(file: string) {

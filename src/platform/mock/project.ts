@@ -1,0 +1,241 @@
+// ---------------------------------------------------------------------------
+// The mock project's shell: package.json, Dockerfile, tsconfig, the
+// `index.ts` server entry, `boot.ts` and the `http/index.ts` app factory.
+//
+// The project runs on the node backend's toolchain (tsx in development, tsup
+// for the image) with the node backend's pins for hono, @hono/zod-openapi,
+// zod and @hono/node-server.  `http/` and `boot.ts` import nothing Node-only,
+// so the app bundles for a browser; only `index.ts` opens a socket.
+// ---------------------------------------------------------------------------
+
+import type { DeployableIR } from "../../ir/types/loom-ir.js";
+import { API_BASE_PATH, AUTH_BASE_PATH } from "../../util/api-base.js";
+import { lines } from "../../util/code-builder.js";
+import { NODE_RUNTIME_IMAGE } from "../../util/node-image.js";
+import { serviceSlug } from "../../util/service-slug.js";
+import { DECIMAL_JS_VERSION, projectTsconfigJson, TSUP_CONFIG } from "../hono/shared/emit.js";
+import type { BACKEND_PINS } from "../hono/v5/pins.js";
+import { MOCK_HEADER, MOCK_HEADER_VALUE, MOCK_NOTICE } from "./runtime.js";
+
+/** The port the mock listens on inside its container when `PORT` is unset. */
+export const MOCK_LISTEN_PORT = 3000;
+
+/** The probe path the server answers with `200`. */
+export const MOCK_HEALTH_PATH = "/health";
+
+/** The mock's own dependencies: the row generator and the faker instance it
+ *  draws from (whose reference date the runtime pins). */
+const MOCK_DEPENDENCIES: Record<string, string> = {
+  zocker: "3.0.0",
+  "@faker-js/faker": "10.6.0",
+};
+
+/** The node backend's pin set, whose entries the mock shares by name. */
+export type NodePins = typeof BACKEND_PINS;
+
+export function renderPackageJson(
+  deployable: DeployableIR,
+  pins: NodePins,
+  withDecimal: boolean,
+): string {
+  const pkg = {
+    name: serviceSlug(deployable.name),
+    version: "0.0.0",
+    type: "module",
+    private: true,
+    scripts: {
+      dev: "tsx index.ts",
+      start: "tsx index.ts",
+      build: "tsup",
+      typecheck: "tsc --noEmit",
+    },
+    dependencies: {
+      hono: pins.dependencies.hono,
+      "@hono/node-server": pins.dependencies["@hono/node-server"],
+      "@hono/zod-openapi": pins.dependencies["@hono/zod-openapi"],
+      zod: pins.dependencies.zod,
+      ...MOCK_DEPENDENCIES,
+      ...(withDecimal ? { "decimal.js": DECIMAL_JS_VERSION } : {}),
+    },
+    devDependencies: {
+      typescript: pins.devDependencies.typescript,
+      tsx: pins.devDependencies.tsx,
+      tsup: pins.devDependencies.tsup,
+    },
+  };
+  return `${JSON.stringify(pkg, null, 2)}\n`;
+}
+
+export function renderTsconfig(): string {
+  return projectTsconfigJson(false);
+}
+
+export function renderTsupConfig(): string {
+  return TSUP_CONFIG;
+}
+
+export function renderDockerfile(): string {
+  return lines(
+    "# syntax=docker/dockerfile:1",
+    "# Auto-generated: the mock target.",
+    "",
+    `FROM ${NODE_RUNTIME_IMAGE} AS build`,
+    "WORKDIR /app",
+    "COPY package.json ./",
+    "# No lockfile is emitted, so `npm install` rather than `npm ci`.",
+    "RUN npm install --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000",
+    "COPY . .",
+    "RUN npm run typecheck",
+    "RUN npm run build",
+    "",
+    `FROM ${NODE_RUNTIME_IMAGE} AS runtime`,
+    "WORKDIR /app",
+    `ENV NODE_ENV=production PORT=${MOCK_LISTEN_PORT}`,
+    "COPY --from=build /app/node_modules ./node_modules",
+    "COPY --from=build /app/dist ./dist",
+    "COPY --from=build /app/package.json ./package.json",
+    "# Run unprivileged: the base image's `node` user (uid 1000), by number so a",
+    "# k8s `runAsNonRoot` check can verify it.",
+    "USER 1000:1000",
+    `EXPOSE ${MOCK_LISTEN_PORT}`,
+    'CMD ["node", "--enable-source-maps", "dist/index.js"]',
+    "",
+  );
+}
+
+export const DOCKERIGNORE = lines("# Auto-generated.", "node_modules", "dist", ".git", "*.log", "");
+
+/** `index.ts` — the one module that opens a socket. */
+export function renderIndexTs(deployable: DeployableIR): string {
+  return lines(
+    "// Auto-generated: the mock target.",
+    'import { serve } from "@hono/node-server";',
+    'import { bootApp } from "./boot";',
+    "",
+    "// The process surface this entry reads, declared here so the project needs",
+    "// no Node type package.",
+    "declare const process: {",
+    "  env: Record<string, string | undefined>;",
+    "  on(signal: string, listener: () => void): void;",
+    "  exit(code: number): never;",
+    "};",
+    "",
+    `const port = Number(process.env.PORT ?? ${MOCK_LISTEN_PORT});`,
+    "const { app, stop } = await bootApp(undefined);",
+    "const server = serve({ fetch: app.fetch, port });",
+    `console.log(\`mock ${deployable.name} listening on \${port}\`);`,
+    "",
+    "async function shutdown(): Promise<void> {",
+    "  await stop();",
+    "  server.close(() => process.exit(0));",
+    "}",
+    'process.on("SIGTERM", () => void shutdown());',
+    'process.on("SIGINT", () => void shutdown());',
+    "",
+  );
+}
+
+/** `boot.ts` — the node backend's `bootApp` call shape; the database and the
+ *  infrastructure options are accepted and ignored. */
+export function renderBootTs(): string {
+  return lines(
+    "// Auto-generated: the mock target.",
+    "// The node backend's start-up call shape, so a host that boots a node",
+    "// backend through `bootApp` boots the mock the same way.  The mock owns no",
+    "// database and no infrastructure: both arguments are ignored.",
+    'import { createApp } from "./http/index";',
+    "",
+    "export interface BootOptions {",
+    '  verifier?: "configured" | "dev-stub";',
+    '  infra?: "external" | "in-process";',
+    "}",
+    "",
+    "export interface BootedApp {",
+    "  app: ReturnType<typeof createApp>;",
+    "  stop(): Promise<void>;",
+    "}",
+    "",
+    "export async function bootApp(_db?: unknown, _opts: BootOptions = {}): Promise<BootedApp> {",
+    "  const app = createApp(_db);",
+    "  return {",
+    "    app,",
+    "    async stop() {},",
+    "  };",
+    "}",
+    "",
+  );
+}
+
+/** A router `http/index.ts` mounts. */
+export interface MockRouterMount {
+  fn: string;
+  module: string;
+  mountPath: string;
+}
+
+/** `http/index.ts` — `createApp`, the node backend's factory signature. */
+export function renderHttpIndex(args: {
+  models: readonly { name: string; module: string }[];
+  routers: readonly MockRouterMount[];
+  auth: boolean;
+}): string {
+  const imports = new Map<string, string[]>();
+  const add = (module: string, name: string): void => {
+    imports.set(module, [...(imports.get(module) ?? []), name]);
+  };
+  for (const m of args.models) add(m.module, `${m.name}Model`);
+  for (const r of args.routers) add(r.module, r.fn);
+  if (args.auth) add("./auth", "authRoutes");
+  return lines(
+    "// Auto-generated: the mock target.",
+    'import { OpenAPIHono } from "@hono/zod-openapi";',
+    'import { cors } from "hono/cors";',
+    'import { HTTPException } from "hono/http-exception";',
+    'import type { ContentfulStatusCode } from "hono/utils/http-status";',
+    'import { emptyBodyAsEmptyObject, frameworkProblemBody } from "./problem-details";',
+    'import { MockStore, notImplemented } from "./mock-runtime";',
+    ...[...imports].map(([module, names]) => `import { ${names.join(", ")} } from "${module}";`),
+    "",
+    `const NOTICE = ${JSON.stringify(MOCK_NOTICE)};`,
+    "",
+    "/** The mock app.  Both arguments are the node backend's `createApp`",
+    " *  parameters (database, event dispatcher), accepted and ignored. */",
+    "export function createApp(_db?: unknown, _events?: unknown): OpenAPIHono {",
+    "  const app = new OpenAPIHono();",
+    `  const store = new MockStore([${args.models.map((m) => `${m.name}Model`).join(", ")}]);`,
+    '  app.use("*", async (c, next) => {',
+    "    await next();",
+    `    c.res.headers.set(${JSON.stringify(MOCK_HEADER)}, ${JSON.stringify(MOCK_HEADER_VALUE)});`,
+    "  });",
+    '  app.use("*", cors({ origin: (origin) => origin || "*", credentials: true }));',
+    '  app.use("*", emptyBodyAsEmptyObject);',
+    '  app.get("/", (c) => c.text(NOTICE));',
+    `  app.get(${JSON.stringify(MOCK_HEALTH_PATH)}, (c) => c.json({ status: "ok" }));`,
+    '  app.get("/ready", (c) => c.json({ status: "ready" }));',
+    ...(args.auth ? [`  app.route(${JSON.stringify(AUTH_BASE_PATH)}, authRoutes());`] : []),
+    ...args.routers.map((r) => `  app.route(${JSON.stringify(r.mountPath)}, ${r.fn}(store));`),
+    `  app.all(${JSON.stringify(`${API_BASE_PATH}/files/*`)}, (c) => notImplemented(c, "file uploads"));`,
+    `  app.all(${JSON.stringify(`${API_BASE_PATH}/realtime/*`)}, (c) => notImplemented(c, "realtime events"));`,
+    "  app.notFound((c) =>",
+    "    c.body(frameworkProblemBody(404, `no route for ${c.req.method} ${c.req.path}`, c.req.path), 404, {",
+    '      "content-type": "application/problem+json",',
+    "    }),",
+    "  );",
+    "  app.onError((err, c) => {",
+    "    if (err instanceof HTTPException && err.res) return err.getResponse();",
+    "    const status = (err instanceof HTTPException ? err.status : 500) as ContentfulStatusCode;",
+    '    const detail = err instanceof HTTPException ? err.message : "internal";',
+    "    if (!(err instanceof HTTPException)) console.error(err);",
+    "    return c.body(frameworkProblemBody(status, detail, c.req.path), status, {",
+    '      "content-type": "application/problem+json",',
+    "    });",
+    "  });",
+    '  app.doc("/openapi.json", {',
+    '    openapi: "3.1.0",',
+    '    info: { title: "Generated API", version: "1.0.0" },',
+    "  });",
+    "  return app;",
+    "}",
+    "",
+  );
+}

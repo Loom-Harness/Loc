@@ -535,6 +535,17 @@ export const TARGETS = {
   failed: (reason: string) => `Could not rewrite the target: ${reason}`,
 } as const;
 
+/** A `mock` backend: it serves the api from generated rows and runs no
+ *  rules, permissions, tenancy or workflows. */
+export const MOCK = {
+  label: "mock: rules not simulated",
+  detail:
+    "Serves the api's routes and schemas from generated rows; rules, permissions, tenancy and workflows are not simulated.",
+  /** Why the API suite does not run: its default target is a mock. */
+  apiRefusal: (slug: string) =>
+    `API tests target ${slug}, a mock (rules not simulated) — its answers are not the backend's behaviour, so they are not run.`,
+} as const;
+
 /** The share dialog — what the link carries, and what it does not. */
 export const SHARE = {
   label: "Share",

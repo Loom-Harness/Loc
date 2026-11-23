@@ -6,8 +6,10 @@ import { GrammarUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { Platform } from "../../ir/types/loom-ir.js";
 import {
+  apiServingPlatformNames,
   backendPlatformNames,
   backendVersionsForFamily,
+  contractPlatformNames,
   descriptorFor,
   frontendPlatformNames,
   gatewayPlatformNames,
@@ -32,7 +34,7 @@ import {
   hostableFrameworksFor,
   isReservedStub,
   platformMountsUi,
-  platformOwnsBackend,
+  platformServesApi,
   type RealizationAxis,
   realizationAxisMenu,
   resolveStyleLayoutCompat,
@@ -214,7 +216,7 @@ export function checkDeployable(
         diagMessage("loom.frontend-targets-invalid", {
           name: d.name,
           targetName: target.name,
-          backends: backendPlatformNames()
+          backends: apiServingPlatformNames()
             .map((n) => `'${n}'`)
             .join(", "),
         }),
@@ -289,7 +291,12 @@ export function checkDeployable(
  *  like the `ui:` menu above, so a platform added or removed there is offered
  *  or dropped here with no list to update. */
 function knownPlatformMenu(): string {
-  return [...backendPlatformNames(), ...FRONTEND_KEYWORDS, ...gatewayPlatformNames()]
+  return [
+    ...backendPlatformNames(),
+    ...FRONTEND_KEYWORDS,
+    ...gatewayPlatformNames(),
+    ...contractPlatformNames(),
+  ]
     .map((p) => `'${p}'`)
     .join(", ");
 }
@@ -299,9 +306,14 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
   if (raw == null) return;
   const parsed = parseBuiltinPlatformRef(raw);
   if (parsed == null) {
-    // Not a backend family — only the frontend and gateway keywords remain
-    // valid (`web`, `feliz`, `flutter`, `gateway`, bare or quoted).
-    if (!FRONTEND_KEYWORDS.has(raw) && !gatewayPlatformNames().includes(raw)) {
+    // Not a backend family — only the frontend, gateway and contract-class
+    // keywords remain valid (`web`, `feliz`, `flutter`, `gateway`, `mock`,
+    // bare or quoted).
+    if (
+      !FRONTEND_KEYWORDS.has(raw) &&
+      !gatewayPlatformNames().includes(raw) &&
+      !contractPlatformNames().includes(raw)
+    ) {
       accept(
         "error",
         diagMessage("loom.platform-unknown", {
@@ -615,18 +627,18 @@ export function checkDeployableDataSources(d: Deployable, accept: ValidationAcce
 }
 
 /** `serves:` validations.
- *    - Only valid on platforms that own a backend (dotnet, node,
- *      java, elixir, python).  Frontend platforms (web, feliz, flutter)
- *      have no api surface to serve.
+ *    - Only valid on platforms that serve an api surface: the backends
+ *      (dotnet, node, java, elixir, python) and the contract-class mock.
+ *      Frontend platforms (web, feliz, flutter) have no api surface to serve.
  *    - Each api ref must resolve.
  *    - No duplicate api names within one deployable's serves list. */
 export function checkDeployableServes(d: Deployable, accept: ValidationAcceptor): void {
   if (!d.serves || d.serves.length === 0) return;
-  if (!platformOwnsBackend(d.platform)) {
+  if (!platformServesApi(d.platform)) {
     accept(
       "error",
       diagMessage("loom.serves-on-frontend", {
-        backends: backendPlatformNames()
+        backends: apiServingPlatformNames()
           .map((n) => `'${n}'`)
           .join(", "),
         platform: d.platform,

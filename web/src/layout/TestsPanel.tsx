@@ -27,7 +27,7 @@ import { OutputStreamLink } from "./OutputStreamLink";
 import { TsTransformClient, type EsbuildBuild } from "../testing/transform-client";
 import { discoverSuites } from "../testing/discover";
 import { formatSuiteLoadFailures, nearestPackageDeps } from "../testing/suite-deps";
-import { findApiTestFile, loadApiTests } from "../testing/run-api-tests";
+import { apiSuiteRefusal, findApiTestFile, loadApiTests } from "../testing/run-api-tests";
 import { findUiTestFile, loadUiSuite, uiSuiteFiles } from "../testing/run-ui-tests";
 import {
   findUnitTestFiles,
@@ -164,6 +164,12 @@ function TestsBodyView({
   const [running, setRunning] = useState<string | null>(null);
 
   const hasAny = unitFiles.length > 0 || !!apiFile || !!uiFile;
+  // The API suite runs against the default dispatch target; a mock there
+  // refuses it (see `apiSuiteRefusal`).
+  const apiRefusal = apiSuiteRefusal(
+    ctx.bootedBackends[0] ?? ctx.bundledDeployables[0] ?? null,
+    ctx.mockDeployables,
+  );
   const hasProofs = Object.values(results).some((r) => r.screenshot);
 
   // Live Definition-of-Done overlay: join the current results onto the
@@ -310,6 +316,7 @@ function TestsBodyView({
   };
   const runApi = (cases: TestCase[], busyKey: string): void => {
     void guard(busyKey, async () => {
+      if (apiRefusal) throw new Error(apiRefusal);
       if (engine) await engine.wipe();
       merge("api", await runTests(cases));
     });
@@ -430,12 +437,12 @@ function TestsBodyView({
             <Suite
               testid="api"
               label="API tests"
-              hint={!ddl ? `${nextStep("boot", ctx.isDesktop)} to run` : undefined}
+              hint={apiRefusal ?? (ddl === null ? `${nextStep("boot", ctx.isDesktop)} to run` : undefined)}
               cases={apiCases.map((c) => c.name)}
               group="api"
               results={results}
               running={running}
-              disabled={!ddl || running !== null}
+              disabled={apiRefusal !== null || ddl === null || running !== null}
               onRunAll={() => runApi(apiCases, key("api", ALL))}
               onRunOne={(name) => {
                 const c = apiCases.find((t) => t.name === name);
@@ -447,12 +454,12 @@ function TestsBodyView({
             <Suite
               testid="ui"
               label="UI tests"
-              hint={!ddl ? `${nextStep("boot", ctx.isDesktop)} to run` : undefined}
+              hint={ddl === null ? `${nextStep("boot", ctx.isDesktop)} to run` : undefined}
               cases={uiCases.map((c) => c.name)}
               group="ui"
               results={results}
               running={running}
-              disabled={!ddl || running !== null}
+              disabled={ddl === null || running !== null}
               onRunAll={() => runUi(uiCases, key("ui", ALL))}
               onRunOne={(name) => {
                 const c = uiCases.find((t) => t.name === name);
@@ -690,7 +697,7 @@ function Suite({
           Run all
         </Button>
         {hint && (
-          <Text size="xs" c="dimmed">
+          <Text size="xs" c="dimmed" data-testid={`suite-hint-${testid}`}>
             {hint}
           </Text>
         )}

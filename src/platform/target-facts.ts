@@ -63,6 +63,12 @@ export interface TargetFacts {
   /** Serves other web deployables behind one front door (`gathers:`), each
    *  under its base path; it hosts no ui, context or database of its own. */
   readonly gathersWebDeployables?: boolean;
+  /** A contract-class backend: it hosts contexts and `serves:` apis, so a
+   *  frontend may `targets:` it, but it runs no domain logic and owns no
+   *  persistence, broker, migrations or tenancy filter of its own.  The
+   *  checks that are about those skip it; the checks about the api surface
+   *  and routing treat it as a backend. */
+  readonly servesContractOnly?: boolean;
 }
 
 /** One ui framework's facts. */
@@ -155,6 +161,14 @@ export const TARGET_FACTS: Readonly<Record<Platform, TargetFacts>> = {
     servesRealtime: false,
     sharedTableInheritance: false,
     gathersWebDeployables: true,
+  },
+  // Serves the api surface with no domain logic and no database.
+  mock: {
+    rendersUiOnlyWhenBound: false,
+    fullstack: false,
+    servesRealtime: false,
+    sharedTableInheritance: false,
+    servesContractOnly: true,
   },
 };
 

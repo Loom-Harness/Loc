@@ -77,11 +77,13 @@ interface BundleModule {
       channelTransport?: (binding: ChannelBindingLike) => ChannelTransport;
     },
   ) => Promise<{ app: { fetch: (req: Request) => Promise<Response> }; stop: () => Promise<void> }>;
-  schema: Record<string, unknown>;
-  drizzle: (client: unknown, opts: { schema: Record<string, unknown> }) => unknown;
-  is: (value: unknown, type: unknown) => boolean;
-  Table: unknown;
-  getTableConfig: (t: unknown) => never;
+  /** The Drizzle layer — absent from the bundle of a backend with no
+   *  database layer, which boots with no db handle (`bootApp(undefined, …)`). */
+  schema?: Record<string, unknown>;
+  drizzle?: (client: unknown, opts: { schema: Record<string, unknown> }) => unknown;
+  is?: (value: unknown, type: unknown) => boolean;
+  Table?: unknown;
+  getTableConfig?: (t: unknown) => never;
 }
 
 /** The imported bundle, between `load` and `start`. */
@@ -98,7 +100,8 @@ interface Started {
    *  relay) — run before the storage connection closes on Reset and
    *  re-boot. */
   stop: () => Promise<void>;
-  storage: StorageClient;
+  /** Null for a backend with no database layer. */
+  storage: StorageClient | null;
   /** The line to the infra services (the broker) — closed after `stop`. */
   infra: InfraPort | null;
 }
@@ -152,7 +155,7 @@ async function tearDown(): Promise<void> {
       // best-effort
     }
     try {
-      await started.storage.close();
+      await started.storage?.close();
     } catch {
       // best-effort
     }
@@ -197,11 +200,12 @@ async function load(
   loaded = { mod, bundleUrl: url };
   if (!synthDdl) return { ok: true };
   progress("ddl-synth");
+  const { schema, is, Table, getTableConfig } = mod;
+  if (!schema || !is || !getTableConfig) {
+    return { ok: false, message: "DDL synth failed: the bundle has no database layer." };
+  }
   try {
-    return {
-      ok: true,
-      ddl: synthDDL(mod.schema, { is: mod.is, Table: mod.Table, getTableConfig: mod.getTableConfig }),
-    };
+    return { ok: true, ddl: synthDDL(schema, { is, Table, getTableConfig }) };
   } catch (err) {
     return { ok: false, message: `DDL synth failed: ${errText(err)}` };
   }
@@ -209,27 +213,41 @@ async function load(
 
 /** Connect to the storage over `storagePort` and start the app on it.
  *  `infraPort`, when the engine attached the deployable to the infra
- *  services, carries the channel bindings to the emulated broker. */
-async function start(storagePort: MessagePort | undefined, infraPort: MessagePort | undefined): Promise<StartResult> {
+ *  services, carries the channel bindings to the emulated broker.  With
+ *  `withStorage` false (a backend with no database layer) there is no
+ *  storage port, and the app starts with no db handle. */
+async function start(
+  storagePort: MessagePort | undefined,
+  infraPort: MessagePort | undefined,
+  withStorage: boolean,
+): Promise<StartResult> {
   const infra = infraPort ? new InfraPort(infraPort) : null;
-  if (!loaded || !storagePort) {
+  if (!loaded || (withStorage && !storagePort)) {
     infra?.close();
     storagePort?.close();
     return { ok: false, message: loaded ? "No storage port — attach first." : "No bundle loaded — load first." };
   }
   const { mod } = loaded;
-  progress("storage-connect");
-  connectResourceFakes(infra);
-  const storage = new StorageClient(storagePort);
-  try {
-    await storage.waitReady;
-  } catch (err) {
+  if (withStorage && (!mod.drizzle || !mod.schema)) {
     infra?.close();
-    await storage.close();
-    return { ok: false, message: `Storage connection failed: ${errText(err)}` };
+    storagePort?.close();
+    return { ok: false, message: "No database layer in the bundle — it cannot take a storage." };
+  }
+  if (storagePort) progress("storage-connect");
+  connectResourceFakes(infra);
+  let storage: StorageClient | null = null;
+  if (storagePort) {
+    storage = new StorageClient(storagePort);
+    try {
+      await storage.waitReady;
+    } catch (err) {
+      infra?.close();
+      await storage.close();
+      return { ok: false, message: `Storage connection failed: ${errText(err)}` };
+    }
   }
   try {
-    const db = mod.drizzle(storage, { schema: mod.schema });
+    const db = storage && mod.drizzle && mod.schema ? mod.drizzle(storage, { schema: mod.schema }) : undefined;
     progress("create-app");
     if (mod.bootApp) {
       // The deployed start-up sequence minus `serve()`: seeds, verifier,
@@ -251,7 +269,7 @@ async function start(storagePort: MessagePort | undefined, infraPort: MessagePor
     return { ok: true };
   } catch (err) {
     infra?.close();
-    await storage.close().catch(() => undefined);
+    await storage?.close().catch(() => undefined);
     return { ok: false, message: `${mod.bootApp ? "bootApp" : "createApp"} failed: ${errText(err)}` };
   }
 }
@@ -356,7 +374,12 @@ async function serve(ev: MessageEvent<RuntimeRpcRequest>): Promise<void> {
         );
         break;
       case "start":
-        response.result = await start(ev.ports[0], ev.ports[1]);
+        // The storage port leads the transferred ports; a deployable with no
+        // database layer sends only its infra port.
+        response.result =
+          req.params.storage === false
+            ? await start(undefined, ev.ports[0], false)
+            : await start(ev.ports[0], ev.ports[1], true);
         break;
       case "dispatch":
         response.result = await dispatch(req.params);

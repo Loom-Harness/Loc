@@ -142,11 +142,13 @@ export class LoomRuntimeClient {
 
   /** Connect to the storage over `storagePort` and start the app.
    *  `infraPort` is the deployable's end of its line to the infra services.
-   *  Both are transferred. */
-  start(storagePort: MessagePort, infraPort?: MessagePort): Promise<StartResult> {
+   *  Both are transferred.  `storagePort` is null for a deployable with no
+   *  database layer, which starts with no storage. */
+  start(storagePort: MessagePort | null, infraPort?: MessagePort): Promise<StartResult> {
+    const ports = [storagePort, infraPort].filter((p): p is MessagePort => !!p);
     return this.send<StartResult>(
-      { method: "start", params: {} },
-      infraPort ? [storagePort, infraPort] : [storagePort],
+      { method: "start", params: storagePort ? {} : { storage: false } },
+      ports,
     );
   }
 

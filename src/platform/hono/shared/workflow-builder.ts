@@ -1486,7 +1486,7 @@ function workflowResultTsType(t: TypeIR): string {
  *  same way `routes-builder.emitResponseDtoSchema` walks an aggregate's
  *  `wireShape` — id-source rows are `z.string()`, the rest go through the
  *  shared `zodForResponse`.  File-local (`const`): nothing imports these. */
-function emitInstanceResponseSchemas(wf: WorkflowIR): string[] {
+export function emitInstanceResponseSchemas(wf: WorkflowIR): string[] {
   const out: string[] = [];
   out.push(`const ${SCHEMA_NAMES.instanceResponse(wf.name)} = z.object({`);
   for (const f of wf.instanceWireShape ?? []) {
@@ -3370,7 +3370,7 @@ function pgIsolationLevel(level: IsolationLevel): string {
  *  emitted alongside the request record instead of dropping the contract
  *  (#2864 D7/T2).  Mirrors `routes-builder.zodForResponseField`, which makes
  *  the same declared-payload exception on the response side. */
-function zodForWorkflowParam(t: TypeIR, ctx: BoundedContextIR): string {
+export function zodForWorkflowParam(t: TypeIR, ctx: BoundedContextIR): string {
   const pl = recordPayloadOf(t, ctx);
   if (!pl) return zodFor(t);
   const info = wireTypeInfo(t, "request");
