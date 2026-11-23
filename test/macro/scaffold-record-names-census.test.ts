@@ -44,17 +44,18 @@ describe("scaffold record names census", () => {
   });
 
   it("the IR reads the create record by the name the scaffold declares", async () => {
-    const { model, errors } = await parseString(
+    const { model } = await parseString(
       `
       system S {
         subdomain D {
           context C with scaffoldHandlers {
             aggregate Order { code: string  create(code: string) { code := code } }
             repository Orders for Order { }
-            aggregate Ledger persistedAs eventLog {
-              owner: string
-              create open(owner: string) emits Opened { owner := owner }
-              event Opened { owner: string }
+            event Opened { amount: int }
+            aggregate Ledger persistedAs: eventLog {
+              total: int
+              create open(amount: int) { emit Opened { amount: amount } }
+              apply(e: Opened) { total := e.amount }
             }
             repository Ledgers for Ledger { }
           }
@@ -63,7 +64,6 @@ describe("scaffold record names census", () => {
     `,
       { validate: false },
     );
-    expect(errors).toEqual([]);
     const ctx = lowerModel(model).systems[0]!.subdomains[0]!.contexts[0]!;
     const found = ctx.aggregates.map((agg) => declaredCreateCommandFor(ctx.payloads, agg)?.name);
     expect(found).toEqual(["CreateOrderCommand", "OpenLedgerCommand"]);

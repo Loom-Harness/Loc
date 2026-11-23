@@ -45,6 +45,12 @@ export type WireContractChangeKind =
   | "entity-removed"
   | "entity-added"
   | "property-removed"
+  // A request field leaving the JSON body for the path, query string, a
+  // header or the raw body (`bound`), or coming back.  Breaking either way:
+  // a client that built the old body no longer matches, and the spec does
+  // not model the route's path to tell a moved placeholder apart.
+  | "property-moved-out-of-body"
+  | "property-moved-into-body"
   | "property-added-required"
   | "property-added-optional"
   | "property-made-required"
@@ -196,6 +202,32 @@ function diffEntity(
     const pBefore = before.properties[field];
     const pAfter = after.properties[field];
 
+    const boundAfter = after.bound?.[field];
+    if (pBefore && !pAfter && boundAfter) {
+      out.push({
+        kind: "property-moved-out-of-body",
+        breaking: true,
+        bucket,
+        entity,
+        field,
+        detail: `property '${field}' on ${entity} moved from the body to ${boundAfter.join(" / ")}`,
+        from: renderPropType(pBefore),
+      });
+      continue;
+    }
+    const boundBefore = before.bound?.[field];
+    if (!pBefore && pAfter && boundBefore) {
+      out.push({
+        kind: "property-moved-into-body",
+        breaking: true,
+        bucket,
+        entity,
+        field,
+        detail: `property '${field}' on ${entity} moved from ${boundBefore.join(" / ")} into the body`,
+        to: renderPropType(pAfter),
+      });
+      continue;
+    }
     if (pBefore && !pAfter) {
       out.push({
         kind: "property-removed",

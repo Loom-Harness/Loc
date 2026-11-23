@@ -154,7 +154,12 @@
       "type": "object",
       "properties": {},
       "required": [],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     },
     "CreateProductCommand": {
       "type": "object",
@@ -186,19 +191,34 @@
         "sku",
         "price"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     },
     "DestroyProductCommand": {
       "type": "object",
       "properties": {},
       "required": [],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     },
     "GetOrderByIdQuery": {
       "type": "object",
       "properties": {},
       "required": [],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     },
     "CreateOrderCommand": {
       "type": "object",
@@ -242,13 +262,23 @@
         "productId",
         "qty"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     },
     "ConfirmOrderCommand": {
       "type": "object",
       "properties": {},
       "required": [],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     },
     "UpdateOrderCommand": {
       "type": "object",
@@ -275,13 +305,23 @@
         "status",
         "placedAt"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     },
     "DestroyOrderCommand": {
       "type": "object",
       "properties": {},
       "required": [],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     },
     "PlaceOrderCommand": {
       "type": "object",
@@ -308,7 +348,12 @@
       "type": "object",
       "properties": {},
       "required": [],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     },
     "CreateCustomerCommand": {
       "type": "object",
@@ -348,13 +393,23 @@
         "email",
         "age"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     },
     "DestroyCustomerCommand": {
       "type": "object",
       "properties": {},
       "required": [],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path"
+        ]
+      }
     }
   }
 }

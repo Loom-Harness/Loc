@@ -136,6 +136,11 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
   "requests": {
     "AddLineOrderCommand": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {
         "productId": {
           "format": "uuid",
@@ -153,6 +158,11 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
     },
     "ConfirmOrderCommand": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {},
       "required": [],
       "type": "object",
@@ -222,36 +232,66 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
     },
     "DestroyCustomerCommand": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {},
       "required": [],
       "type": "object",
     },
     "DestroyOrderCommand": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {},
       "required": [],
       "type": "object",
     },
     "DestroyProductCommand": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {},
       "required": [],
       "type": "object",
     },
     "GetCustomerByIdQuery": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {},
       "required": [],
       "type": "object",
     },
     "GetOrderByIdQuery": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {},
       "required": [],
       "type": "object",
     },
     "GetProductByIdQuery": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {},
       "required": [],
       "type": "object",
@@ -279,6 +319,11 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
     },
     "UpdateCustomerCommand": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {
         "age": {
           "type": "integer",
@@ -299,6 +344,11 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
     },
     "UpdateOrderCommand": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {
         "customerId": {
           "type": "string",
@@ -326,6 +376,11 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
     },
     "UpdateProductCommand": {
       "additionalProperties": false,
+      "bound": {
+        "id": [
+          "path",
+        ],
+      },
       "properties": {
         "price": {
           "$ref": "#/valueObjects/Money",

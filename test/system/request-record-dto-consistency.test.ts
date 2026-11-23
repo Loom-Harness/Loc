@@ -6,7 +6,10 @@
 // backend's request-DTO / request-schema emitter reads the IR inputs
 // instead: a state-based aggregate's canonical create takes
 // `createInputFields(agg)`, an event-sourced one its single `create` action's
-// params, and an operation its params.  While the two sources coexist, a
+// params, and an operation its params.  A record addressing one existing
+// aggregate states its `id` ahead of those inputs — the field the route's
+// `{id}` binds, which no DTO carries because it never rides in the body — so
+// the comparison expects it there and nowhere else.  While the two sources coexist, a
 // request field one adds and the other omits is a breaking change the diff
 // never sees.  This census holds them equal — name, order, optionality and
 // type — over every served aggregate in the corpus, until the emitters read the
@@ -86,6 +89,12 @@ describe("command records agree with the request DTOs (corpus census)", () => {
                 );
               }
             };
+            /** `id: <Agg> id`, the field an operation's record states first. */
+            const idInput = (aggName: string): Input => ({
+              name: "id",
+              type: { kind: "id", targetName: aggName },
+              optional: false,
+            });
             for (const agg of ctx.aggregates) {
               if (!declaredResponseFor(ctx.payloads, agg)) continue;
               if (!ctx.repositories.some((r) => r.aggregateName === agg.name)) continue;
@@ -109,15 +118,15 @@ describe("command records agree with the request DTOs (corpus census)", () => {
               }
               for (const op of agg.operations) {
                 if (op.visibility !== "public") continue;
-                compare(
-                  `${upperFirst(op.name)}${agg.name}Command`,
-                  op.params.map((p) => ({
+                compare(`${upperFirst(op.name)}${agg.name}Command`, [
+                  idInput(agg.name),
+                  ...op.params.map((p) => ({
                     name: p.name,
                     type: p.type,
                     optional: false,
                     default: p.default,
                   })),
-                );
+                ]);
               }
             }
           }

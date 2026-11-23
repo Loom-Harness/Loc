@@ -92,6 +92,52 @@ describe("diffWireSpec", () => {
     ]);
   });
 
+  // A field moving between the body and the path / query string is a
+  // different change from a removal: the request still states it, the client
+  // sends it somewhere else.  Both directions break an existing caller, and
+  // the detail names where the field now rides.
+  it("a request field leaving the body for the path is a move, not a removal", async () => {
+    const op = `name: string  operation rename(to: string) { name := to }`;
+    const flat = sys(
+      `aggregate Order { ${op} }  repository Orders for Order { }
+       command RenameOrderCommand { id: Order id  to: string }
+       commandHandler RenameOrder(cmd: RenameOrderCommand) { let o = Orders.get(cmd.id)  o.rename(cmd.to) }`,
+    );
+    const routed = (path: string) =>
+      flat.replace(
+        "  storage pg",
+        `  api SalesApi from D { route POST "${path}" send Sales.RenameOrderCommand }\n  storage pg`,
+      );
+    // `POST /orders/{id}/rename` binds `id` from the path; `POST /orders/rename`
+    // has no placeholder, so every field rides in the body.
+    const inBody = await specFor(routed("/orders/rename"));
+    const onPath = await specFor(routed("/orders/{id}/rename"));
+
+    const out = diffWireSpec(inBody, onPath);
+    expect(out.breaking).toBe(true);
+    expect(out.changes).toEqual([
+      expect.objectContaining({
+        bucket: "requests",
+        entity: "RenameOrderCommand",
+        field: "id",
+        kind: "property-moved-out-of-body",
+        breaking: true,
+        detail: "property 'id' on RenameOrderCommand moved from the body to path",
+      }),
+    ]);
+
+    const back = diffWireSpec(onPath, inBody);
+    expect(back.breaking).toBe(true);
+    expect(back.changes).toEqual([
+      expect.objectContaining({
+        field: "id",
+        kind: "property-moved-into-body",
+        breaking: true,
+        detail: "property 'id' on RenameOrderCommand moved from path into the body",
+      }),
+    ]);
+  });
+
   it("removing an entire aggregate is breaking", async () => {
     const a = await specFor(
       sys(`
