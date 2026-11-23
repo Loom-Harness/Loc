@@ -40,6 +40,8 @@ export function provableStringType(e: ExprIR): TypeIR | undefined {
       return stringType;
     case "ternary":
       return provableStringType(e.then) && provableStringType(e.otherwise) ? stringType : undefined;
+    case "coalesce":
+      return provableStringType(e.left) && provableStringType(e.fallback) ? stringType : undefined;
     // NOT provably a string from the node alone.  `undefined` is the
     // conservative answer — callers fall back to their own inference rather
     // than assuming `string` — so a missing arm narrows a claim, it never
@@ -98,6 +100,8 @@ export function bodyTypeOf(e: ExprIR): TypeIR | undefined {
       return { kind: "primitive", name: e.target };
     case "ternary":
       return bodyTypeOf(e.then);
+    case "coalesce":
+      return bodyTypeOf(e.fallback);
     // An ARITHMETIC lambda body — `sum(l => l.price * l.qty)`, the canonical
     // order total.  `resultType` already carries the type-system's
     // closed-money / numeric-widening verdict (`money * int → money`); fall

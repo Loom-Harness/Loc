@@ -13,6 +13,7 @@
 
 import type { BinOp, ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { FRONTEND_RENDERED_COLLECTION_OPS } from "../../ir/util/collection-op-site.js";
+import { nullishOperand } from "../_expr/coalesce.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
 import { renderJsIntrinsic } from "../_expr/js-intrinsics.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
@@ -29,6 +30,7 @@ type ExprLeaves = Pick<
   | "exprValueEquality"
   | "exprUnary"
   | "exprTernary"
+  | "exprCoalesce"
   | "exprConvert"
   | "exprList"
   | "exprObject"
@@ -78,6 +80,9 @@ export const jsExprLeaves: ExprLeaves = {
   },
   exprUnary(op: string, operand: string): string {
     return `(${op}${operand})`;
+  },
+  exprCoalesce(left: string, fallback: string): string {
+    return `(${nullishOperand(left)} ?? ${nullishOperand(fallback)})`;
   },
   exprTernary(cond: string, then: string, otherwise: string): string {
     return `(${cond} ? ${then} : ${otherwise})`;
@@ -223,6 +228,7 @@ export const unreachableExprLeaves: ExprLeaves = {
   exprBinary: unreachedExprLeaf("exprBinary"),
   exprUnary: unreachedExprLeaf("exprUnary"),
   exprTernary: unreachedExprLeaf("exprTernary"),
+  exprCoalesce: unreachedExprLeaf("exprCoalesce"),
   exprConvert: unreachedExprLeaf("exprConvert"),
   exprList: unreachedExprLeaf("exprList"),
   exprObject: unreachedExprLeaf("exprObject"),

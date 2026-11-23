@@ -1659,6 +1659,7 @@ function isDecimalOperand(operand: ExprIR): boolean {
     case "method-call":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
       return false;

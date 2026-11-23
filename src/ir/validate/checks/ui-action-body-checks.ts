@@ -166,6 +166,7 @@ export function checkBody(e: ExprIR | undefined, ctx: BodyCheckCtx, diags: LoomD
     case "object":
     case "paren":
     case "ref":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":
@@ -796,6 +797,7 @@ function toastMessageProblem(
     case "method-call":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":

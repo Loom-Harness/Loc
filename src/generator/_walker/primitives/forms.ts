@@ -1088,6 +1088,7 @@ function defaultUsesThis(e: ExprIR | undefined): boolean {
     case "new":
     case "object":
     case "ref":
+    case "coalesce":
     case "ternary":
       return false;
     default: {

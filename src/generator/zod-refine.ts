@@ -11,6 +11,7 @@ import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../ir/util/wi
 import { bodyTypeOf } from "../util/expr-body-type.js";
 import { intrinsicKey } from "../util/intrinsics.js";
 import { escapeTsIdent, humanize } from "../util/naming.js";
+import { nullishOperand } from "./_expr/coalesce.js";
 import { tsCodePointLength as codePointLength } from "./_expr/code-point.js";
 import { groupedOperand, groupedOperands } from "./_expr/grouping.js";
 import { JS_INTRINSIC_RENDERERS } from "./_expr/js-intrinsics.js";
@@ -194,6 +195,8 @@ export function refineRenderable(e: ExprIR, decimal: RefineDecimalMode = "server
       return ok(e.left) && ok(e.right);
     case "ternary":
       return ok(e.cond) && ok(e.then) && ok(e.otherwise);
+    case "coalesce":
+      return ok(e.left) && ok(e.fallback);
     case "lambda":
       return e.body !== undefined && ok(e.body);
     case "object":
@@ -510,6 +513,8 @@ export function renderRefineExpr(e: ExprIR): string {
       return renderBinary(e);
     case "ternary":
       return `${renderRefineExpr(e.cond)} ? ${renderRefineExpr(e.then)} : ${renderRefineExpr(e.otherwise)}`;
+    case "coalesce":
+      return `${nullishOperand(renderRefineExpr(e.left))} ?? ${nullishOperand(renderRefineExpr(e.fallback))}`;
     case "lambda":
       // Lambda body is optional.  Wire-boundary refines never see block-body
       // lambdas — `classifyForWire` only admits single-expression predicates,

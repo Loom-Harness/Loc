@@ -1600,6 +1600,7 @@ export const felizTarget: WalkerTarget = {
   exprBinary: (left, right, op) => FS_LEAVES.binary(left, right, op as never),
   exprUnary: (op, operand) => FS_LEAVES.unary(op as "-" | "!", operand),
   exprTernary: (cond, then, otherwise) => FS_LEAVES.ternary(cond, then, otherwise),
+  exprCoalesce: (left, fallback) => FS_LEAVES.coalesce(left, fallback),
   exprConvert: (value, target, from) => FS_LEAVES.convert(value, target as never, from as never),
   exprList: (elements) => FS_LEAVES.list(elements),
   exprObject: (fields) => FS_LEAVES.object([...fields]),

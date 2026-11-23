@@ -1,5 +1,5 @@
-// `a ?? b` lowers to `a == null ? b : a` sharing ONE left node.  Every backend
-// must render the left once (an effectful left — a call — must not run twice)
+// `a ?? b` lowers to a `coalesce` node.  Every backend must render the left
+// once (an effectful left — a call — must not run twice)
 // and keep the fallback lazy.
 
 import { describe, expect, it } from "vitest";
@@ -12,26 +12,15 @@ import { renderTsExpr } from "../../src/generator/typescript/render-expr.js";
 import type { ExprIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
-const BOOL: TypeIR = { kind: "primitive", name: "bool" };
 
 const call = (name: string): ExprIR => ({ kind: "call", callKind: "function", name, args: [] });
 const str = (v: string): ExprIR => ({ kind: "literal", lit: "string", value: v });
 
-/** The lowerer's shape: `cond.left` and `otherwise` are the same node. */
 const coalesce = (left: ExprIR, fallback: ExprIR): ExprIR => ({
-  kind: "ternary",
-  cond: {
-    kind: "binary",
-    op: "==",
-    left,
-    right: { kind: "literal", lit: "null", value: "" },
-    leftType: STRING,
-    rightType: STRING,
-    resultType: BOOL,
-  },
-  // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then`
-  then: fallback,
-  otherwise: left,
+  kind: "coalesce",
+  left,
+  fallback,
+  leftType: STRING,
 });
 
 const exCtx = { thisName: "record", contextModule: "MyApp" };

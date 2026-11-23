@@ -28,6 +28,7 @@
 // the subset (the backend 403 still enforces them).
 
 import type { BinOp, ExprIR } from "../../ir/types/loom-ir.js";
+import { nullishOperand } from "../_expr/coalesce.js";
 import { groupedOperand, groupedOperands } from "../_expr/grouping.js";
 
 /** Binary operators that differ between Loom source and JS output; the rest
@@ -81,6 +82,8 @@ export function renderGateExpr(e: ExprIR, userVar: string): string {
         e.then,
         userVar,
       )} : ${renderGateExpr(e.otherwise, userVar)}`;
+    case "coalesce":
+      return `${nullishOperand(renderGateExpr(e.left, userVar))} ?? ${nullishOperand(renderGateExpr(e.fallback, userVar))}`;
     default:
       throw new Error(`UI gate: expression kind '${e.kind}' is not supported in a UI gate.`);
   }

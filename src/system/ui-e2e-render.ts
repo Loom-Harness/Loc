@@ -1,3 +1,4 @@
+import { nullishOperand } from "../generator/_expr/coalesce.js";
 import { groupedOperand, groupedOperands } from "../generator/_expr/grouping.js";
 import type {
   AggregateIR,
@@ -398,6 +399,8 @@ function renderUIExpr(e: ExprIR, ctx: RenderCtx): string {
     }
     case "ternary":
       return `${renderUIExpr(e.cond, ctx)} ? ${renderUIExpr(e.then, ctx)} : ${renderUIExpr(e.otherwise, ctx)}`;
+    case "coalesce":
+      return `${nullishOperand(renderUIExpr(e.left, ctx))} ?? ${nullishOperand(renderUIExpr(e.fallback, ctx))}`;
     case "lambda":
       // Lambda body is now optional (block-body lambdas were
       // added for page event handlers).  UI E2E tests don't currently

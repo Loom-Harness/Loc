@@ -41,6 +41,7 @@ import { RETURN_TO_PARAM } from "../../util/return-to.js";
 import { groupedOperand, groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
 import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { flutterHttpImport } from "./api-client.js";
+import { DART_LEAVES } from "./dart-expr.js";
 import { type DartRecord, renderDartModel } from "./dart-model-emit.js";
 import { dartStringLit } from "./i18n.js";
 
@@ -253,6 +254,11 @@ export function renderFlutterGate(e: ExprIR, userVar: string): string {
         e.then,
         userVar,
       )} : ${renderFlutterGate(e.otherwise, userVar)})`;
+    case "coalesce":
+      return DART_LEAVES.coalesce(
+        renderFlutterGate(e.left, userVar),
+        renderFlutterGate(e.fallback, userVar),
+      );
     default:
       throw new Error(
         `flutter UI gate: expression kind '${e.kind}' is not supported in a UI gate.`,

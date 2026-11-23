@@ -117,6 +117,10 @@ export function walkExprChildren(e: ExprIR, v: ExprChildVisitor): void {
       expr?.(e.then);
       expr?.(e.otherwise);
       break;
+    case "coalesce":
+      expr?.(e.left);
+      expr?.(e.fallback);
+      break;
     case "convert":
       expr?.(e.value);
       break;
@@ -336,6 +340,8 @@ export function mapExprChildren(e: ExprIR, f: (child: ExprIR) => ExprIR): ExprIR
         then: f(e.then),
         otherwise: f(e.otherwise),
       };
+    case "coalesce":
+      return { ...e, left: f(e.left), fallback: f(e.fallback) };
     case "convert":
       return { ...e, value: f(e.value) };
     case "duration":
