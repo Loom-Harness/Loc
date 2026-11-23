@@ -16,6 +16,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { renderTsType } from "../render-expr.js";
 import { aggHasFieldMask } from "../repository-wire-builder.js";
 import { TT } from "../ts-symbols.js";
@@ -55,7 +56,7 @@ export const maskUserImport = (agg: EnrichedAggregateIR, repo?: RepositoryIR): s
   // this out (`repoUsesUser`); folding it in here keeps the other three from
   // rediscovering it one at a time.
   (aggHasFieldMask(agg) || (repo?.finds ?? []).some(findUsesCurrentUser)) &&
-  `import type { User } from "../../auth/user-types";`;
+  tsImportSlot("~/auth/user-types");
 
 /** TS type for a find parameter (id params are branded; scalars pass through). */
 

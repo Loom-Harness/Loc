@@ -33,8 +33,9 @@ import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/princ
 import { stampsReadAggregate } from "../../../ir/util/stamp-self-read.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { renderTsExpr, type TsRenderContext } from "../render-expr.js";
-import { T } from "../ts-symbols.js";
+import { T, TT } from "../ts-symbols.js";
 
 /** The name every save site binds the domain instance to, and the helper's
  *  second parameter — stamp values reading the aggregate render against it. */
@@ -176,7 +177,7 @@ export function renderAuditStampHelper(audited: EnrichedAggregateIR[]): string {
   return lines(
     "// Auto-generated.  Do not edit by hand.",
     `import { requestContext } from "../obs/als";`,
-    anyPrincipal ? `import type { User } from "../auth/user-types";` : null,
+    anyPrincipal ? tsImportSlot("~/auth/user-types") : null,
     anyGuard ? `import { ForbiddenError } from "../domain/errors";` : null,
     ...instanceTypes.map(
       (a) => `import type { ${a.name} } from "../domain/${lowerFirst(a.name)}";`,
@@ -206,7 +207,7 @@ function renderAggregateStamps(agg: EnrichedAggregateIR): {
   const insertNeedsPrincipal = insert.some((e) => e.usesPrincipalClaim);
   const updateNeedsPrincipal = update.some((e) => e.usesPrincipalClaim);
   const principalBinding = [
-    "  const currentUser = ctx.currentUser as User | null;",
+    `  const currentUser = ctx.currentUser as ${TT.User} | null;`,
     "  if (!currentUser) return row;",
   ];
   // A claim-valued stamp into a NOT NULL column must REFUSE a principal whose

@@ -231,7 +231,9 @@ export function buildBaseReaderFile(
       { from: "../schema", namespace: "schema" },
       { from: "../read-scopes", values: [drizzleScopeFnName(base)] },
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
-      { from: "../../auth/user-types", types: ["User"] },
+    ]),
+    tsImportSlot("~/auth/user-types"),
+    ...derivedImports(fullBody, [
       { from: "../../domain/ids", namespace: "Ids" },
       ...concretes.map((c) => ({ from: `../../domain/${N.stem(c.name)}`, values: [c.name] })),
       {
@@ -261,7 +263,7 @@ function toWireLines(
   read: PolymorphicRead,
   masked: ReadonlySet<string>,
 ): string[] {
-  const param = masked.size > 0 ? ", currentUser: User | null = null" : "";
+  const param = masked.size > 0 ? `, currentUser: ${TT.User} | null = null` : "";
   return [
     `  toWire(root: ${base.name}${param}): unknown {`,
     ...read.variants.map((v) => {
@@ -338,7 +340,9 @@ export function buildTpcBaseReaderFile(
         : { from: "drizzle-orm/node-postgres", types: ["NodePgDatabase"] },
       ...(mikro ? [] : [{ from: "../schema", namespace: "schema" }]),
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
-      { from: "../../auth/user-types", types: ["User"] },
+    ]),
+    tsImportSlot("~/auth/user-types"),
+    ...derivedImports(body, [
       { from: "../../domain/ids", namespace: "Ids" },
       ...concretes.map((c) => ({ from: `../../domain/${N.stem(c.name)}`, values: [c.name] })),
       ...concretes.map((c) => ({
@@ -455,7 +459,9 @@ export function buildMikroBaseReaderFile(
         types: concretes.map((c) => rowClassOf(c.name)),
       },
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
-      { from: "../../auth/user-types", types: ["User"] },
+    ]),
+    tsImportSlot("~/auth/user-types"),
+    ...derivedImports(body, [
       { from: "../../domain/ids", namespace: "Ids" },
       ...concretes.map((c) => ({ from: `../../domain/${N.stem(c.name)}`, values: [c.name] })),
       {

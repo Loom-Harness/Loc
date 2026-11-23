@@ -250,7 +250,7 @@ export function buildRepositoryFile(
     `import * as schema from "../schema";`,
     // Its own scope helper, plus each target's a reference-admission probe reads.
     scopeImportLine([agg, ...admittedTargets(agg, ctx)], bodyScan),
-    repoUsesUser && `import type { User } from "../../auth/user-types";`,
+    repoUsesUser && tsImportSlot("~/auth/user-types"),
     // …or a reified criterion fn (a tenancy `criterion` used by a
     // find/retrieval) binds the principal through the same accessor — detected
     // from the scanned body, which includes the criterion fns (line above).

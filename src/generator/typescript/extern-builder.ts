@@ -5,6 +5,7 @@ import { lowerFirst } from "../../util/naming.js";
 import { tsImportSlot } from "../_imports/ts.js";
 import { renderOperationReturnType } from "./emit/aggregate.js";
 import { renderTsType } from "./render-expr.js";
+import { TT } from "./ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Extern operation seam — the TS/Hono domain extension point
@@ -46,7 +47,7 @@ export function buildExternSubclassFile(agg: AggregateIR, ctx: BoundedContextIR)
     // file's Biome lint clean); the user renames them when filling in the body.
     const params = [
       ...op.params.map((p) => `_${p.name}: ${renderTsType(p.type)}`),
-      usesUser ? "_currentUser: User" : "",
+      usesUser ? `_currentUser: ${TT.User}` : "",
     ]
       .filter(Boolean)
       .join(", ");
@@ -84,7 +85,7 @@ export function buildExternSubclassFile(agg: AggregateIR, ctx: BoundedContextIR)
     imports.push(`export { ${agg.parts.map((p) => p.name).join(", ")} } from "./${slug}.base";`);
   }
   imports.push(tsImportSlot("~/domain/ids"));
-  if (/\bUser\b/.test(scan)) imports.push(`import type { User } from "../auth/user-types";`);
+  imports.push(tsImportSlot("~/auth/user-types"));
   const voEnum = [
     ...new Set([...valueObjectPool(ctx).map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]),
   ]

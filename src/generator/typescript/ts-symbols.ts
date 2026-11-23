@@ -37,6 +37,7 @@ const TS_SYM = {
   registerDevStubVerifier: tsNamed("~/auth/dev-stub", "registerDevStubVerifier"),
   devStubClaims: tsNamed("~/auth/dev-stub", "devStubClaims"),
   runAsUser: tsNamed("~/auth/middleware", "runAsUser"),
+  User: tsNamed("~/auth/user-types", "User"),
   actAsUser: tsNamed("~/auth/middleware", "actAsUser"),
   migrate: tsNamed("~/db/migrate", "migrate"),
   runSeeds: tsNamed("~/db/seed", "runSeeds"),

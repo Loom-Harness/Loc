@@ -88,7 +88,9 @@ export function renderMikroEventSourcedRepository(
     (find) => {
       const usesUser = findUsesCurrentUser(find);
       const baseParams = find.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
-      const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
+      const params = (usesUser ? [...baseParams, `currentUser: ${TT.User}`] : baseParams).join(
+        ", ",
+      );
       const pred = findPredicate(agg, find, ctx);
       const isArray = find.returnType.kind === "array";
       const isOptional = find.returnType.kind === "optional";
@@ -104,9 +106,9 @@ export function renderMikroEventSourcedRepository(
       // above and as the drizzle event-sourced repository (F2-CB-C1).
       if (pagedReturn(find.returnType)) {
         const pagedParams = [...baseParams, ...PAGED_TAIL_PARAMS];
-        const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(
-          ", ",
-        );
+        const pagedAll = (
+          usesUser ? [...pagedParams, `currentUser: ${TT.User}`] : pagedParams
+        ).join(", ");
         const L = inMemoryPagedLocals(find.params);
         return lines(
           `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
@@ -314,7 +316,7 @@ export function renderMikroEventSourcedRepository(
       `import type * as Events from "../../domain/events";`,
       tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),
       `import type { DomainEventDispatcher } from "../../domain/events";`,
-      repoUsesUser && `import type { User } from "../../auth/user-types";`,
+      repoUsesUser && tsImportSlot("~/auth/user-types"),
       `import { requestLog } from "../../obs/als";`,
       "",
       body,

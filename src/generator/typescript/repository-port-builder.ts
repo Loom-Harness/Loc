@@ -14,7 +14,7 @@
 //
 // The port is ORM-neutral BY CONSTRUCTION: it is derived from the concrete
 // repo's PUBLIC method headers, which already name only domain types
-// (`<Agg>`, `Ids.<Agg>Id`, value objects, `User`) — no Drizzle/`Tx`
+// (`<Agg>`, `Ids.<Agg>Id`, value objects, the principal `User`) — no Drizzle/`Tx`
 // vocabulary ever appears in a public signature.  Presentation (`toWire`) is
 // excluded (it is not part of the repository contract — audit note).
 //
@@ -26,6 +26,7 @@
 import type { EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
+import { resolveMarkers } from "../_imports/symbol.js";
 import { tsImportSlot } from "../_imports/ts.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { refsTsSymbol } from "./ts-symbols.js";
@@ -107,9 +108,16 @@ export function renderRepositoryPortsFile(
   // Strip string-literal contents so a symbol mentioned only in a quoted
   // message doesn't register as a reference.
   const scan = allMembers.replace(/"(?:\\.|[^"\\])*"/g, '""').replace(/'(?:\\.|[^'\\])*'/g, "''");
-  const referenced = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
+  // A model type is referenced by its bare name; a library or runtime symbol
+  // (the principal `User`, `Decimal`) by its marker, which is blanked here so
+  // a model type that shares its name is not taken for it, nor it for one.
+  const bare = resolveMarkers(
+    scan,
+    () => false,
+    () => "",
+  ).text;
+  const referenced = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(bare);
 
-  const usesUser = referenced("User");
   // A `find` whose parameter or result is `money` / `decimal` spells `Decimal`
   // in its signature (the concrete repository imports decimal.js for it); the
   // pooled port file must import the type too or the generated project fails
@@ -133,7 +141,7 @@ export function renderRepositoryPortsFile(
       "// Domain-owned repository ports (hexagonal architecture — audit S7).",
       tsImportSlot("~/domain/ids"),
       usesDecimal ? 'import type Decimal from "decimal.js";' : null,
-      usesUser ? 'import type { User } from "../auth/user-types";' : null,
+      tsImportSlot("~/auth/user-types"),
       voEnumNames.length > 0
         ? `import type { ${voEnumNames.join(", ")} } from "./value-objects";`
         : null,

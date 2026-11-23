@@ -349,7 +349,7 @@ export function buildEventSourcedRepositoryFile(
     `import { and, eq } from "drizzle-orm";`,
     tenancy && stampImportLine(agg, { update: false }),
     `import * as schema from "../schema";`,
-    repoUsesUser && `import type { User } from "../../auth/user-types";`,
+    repoUsesUser && tsImportSlot("~/auth/user-types"),
     `import { ${domainImports} } from "../../domain/${N.stem(agg.name)}";`,
     voOrEnumImportLine,
     `import * as Ids from "../../domain/ids";`,
@@ -400,7 +400,7 @@ function eventSourcedFindMethod(
   })`;
   const usesUser = findUsesCurrentUser(find);
   const baseParams = find.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
-  const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
+  const params = (usesUser ? [...baseParams, `currentUser: ${TT.User}`] : baseParams).join(", ");
   const pred = findPredicate(agg, find, ctx);
   const isArray = find.returnType.kind === "array";
   const isOptional = find.returnType.kind === "optional";
@@ -419,7 +419,9 @@ function eventSourcedFindMethod(
   // document shape (and java's event store) does.
   if (pagedReturn(find.returnType)) {
     const pagedParams = [...baseParams, ...PAGED_TAIL_PARAMS];
-    const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(", ");
+    const pagedAll = (usesUser ? [...pagedParams, `currentUser: ${TT.User}`] : pagedParams).join(
+      ", ",
+    );
     const L = inMemoryPagedLocals(find.params);
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
