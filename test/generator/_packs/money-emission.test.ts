@@ -12,6 +12,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import { renderCsType } from "../../../src/generator/dotnet/render-expr.js";
 import { mapTypeToEcto } from "../../../src/generator/elixir/vanilla/schema-emit.js";
 import { renderTsType } from "../../../src/generator/typescript/render-expr.js";
@@ -41,7 +42,7 @@ async function billingFixture(): Promise<{
 
 describe("money emission — type mappings per backend", () => {
   it("TS renderTsType('money') → 'Decimal'", () => {
-    expect(renderTsType({ kind: "primitive", name: "money" })).toBe("Decimal");
+    expect(spellMarkers(renderTsType({ kind: "primitive", name: "money" }))).toBe("Decimal");
   });
 
   it(".NET renderCsType('money') → 'decimal'", () => {

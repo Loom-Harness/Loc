@@ -54,7 +54,7 @@ import {
   statementExprMarks,
   statementSubRegions,
 } from "../render-stmt.js";
-import { T, TT } from "../ts-symbols.js";
+import { refsTsSymbol, T, TT } from "../ts-symbols.js";
 import { tsRuleParams } from "../wire-policy-ts.js";
 
 /** One operation body's exact emitted text plus its per-statement
@@ -213,7 +213,7 @@ export function renderAggregate(
       // `decimal` exactly (RS-37 — `new Decimal(a).plus(b).toNumber()`), so the
       // import also follows a body scan, the same scan the value-object and
       // domain-service emitters already use.
-      usesMoney || /(?<![.\w$])Decimal\b/.test(body) ? 'import Decimal from "decimal.js";' : null,
+      usesMoney || refsTsSymbol(body, "Decimal") ? 'import Decimal from "decimal.js";' : null,
       'import * as Ids from "./ids";',
       voEnumImport,
       serviceImport,

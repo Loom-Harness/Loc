@@ -721,3 +721,93 @@ describe("symbol-plan census: OpenAPI schema component names come from the plan"
     expect(handSpelledSchemaNames("// `${agg.name}ListResponse`\n")).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// decimal.js's `Decimal` class is spelled through a hook, never bare.
+//
+// The defect class: the node backend spells the class bare in a module that
+// also binds a model type named `Decimal`, and the two meet (TS2740 / TS2339
+// on every money computation).  The node backend spells it through its import
+// symbol (`T.Decimal` / `TT.Decimal`, `typescript/ts-symbols.ts`), which the
+// module finalizer aliases beside a model type; the shared JS helpers take the
+// spelling from their caller (`_expr/js-decimal.ts`), so the frontends keep
+// the bare name their page shells import by scan.
+//
+// THE DETECTOR is textual over the node backend's sources and the shared
+// helpers, comments excluded: a construction `new Decimal(`, a static
+// `Decimal.<member>`, a returned or selected type `"Decimal"`, or an array
+// type `Decimal[]`.  A fixed runtime module that binds no model type is waived
+// by its exact line.
+// ---------------------------------------------------------------------------
+
+const DECIMAL_HOOK_SOURCES: readonly string[] = [
+  ...sourceFiles("src/generator/typescript"),
+  ...sourceFiles("src/platform/hono"),
+  "src/generator/_expr/js-intrinsics.ts",
+  "src/generator/_expr/js-collection-ops.ts",
+  "src/generator/zod-refine.ts",
+];
+
+/** A bare spelling a fixed runtime module keeps: it is emitted verbatim and
+ *  binds no model type, so nothing can clash with the class there. */
+const BARE_DECIMAL_WAIVERS: readonly { file: string; line: string; standing: string }[] = [
+  {
+    file: "src/platform/hono/shared/emit.ts",
+    line: "Decimal.set({ precision: ${DECIMAL_PRECISION} });",
+    standing: "lib/decimal-setup.ts, a fixed module that imports only decimal.js",
+  },
+];
+
+const BARE_DECIMAL =
+  /\bnew Decimal\(|(?<![\w.$])Decimal\.[A-Za-z]|(?:return|\?|:)\s*"Decimal"|(?<![\w.$])Decimal\[\]/;
+
+function bareDecimalLines(src: string): string[] {
+  return stripComments(src)
+    .split("\n")
+    .filter((line) => BARE_DECIMAL.test(line))
+    .map((line) => line.trim());
+}
+
+describe("symbol-plan census: decimal.js's Decimal is spelled through its hook", () => {
+  it("no node or shared-helper source spells the class bare", () => {
+    const found: string[] = [];
+    for (const rel of DECIMAL_HOOK_SOURCES) {
+      for (const line of bareDecimalLines(fs.readFileSync(path.join(ROOT, rel), "utf8"))) {
+        if (BARE_DECIMAL_WAIVERS.some((w) => w.file === rel && line.includes(w.line))) continue;
+        found.push(`${rel}: ${line}`);
+      }
+    }
+    expect(
+      found,
+      "spell it T.Decimal / TT.Decimal on node, or take the caller's spelling in a shared helper",
+    ).toEqual([]);
+  });
+
+  it("every waiver still names a live line", () => {
+    for (const w of BARE_DECIMAL_WAIVERS) {
+      const lines = bareDecimalLines(fs.readFileSync(path.join(ROOT, w.file), "utf8"));
+      expect(
+        lines.some((l) => l.includes(w.line)),
+        `${w.file}: stale waiver`,
+      ).toBe(true);
+    }
+  });
+
+  it("scans the node backend and the shared helpers", () => {
+    expectReach("node + shared-helper source files", DECIMAL_HOOK_SOURCES.length, 80);
+  });
+
+  it("the detector sees each bare spelling and ignores the hooks", () => {
+    expect(bareDecimalLines("x(`new Decimal(${v})`);\n")).toHaveLength(1);
+    expect(bareDecimalLines("x(`${r}.toDecimalPlaces(2, Decimal.ROUND_HALF_UP)`);\n")).toHaveLength(
+      1,
+    );
+    expect(bareDecimalLines('      return "Decimal";\n')).toHaveLength(1);
+    expect(bareDecimalLines("x(`new ${T.Decimal}(${v})`);\n")).toEqual([]);
+    expect(bareDecimalLines("x(`${r}.toDecimalPlaces(2, ${decimal}.ROUND_HALF_UP)`);\n")).toEqual(
+      [],
+    );
+    expect(bareDecimalLines('if (refsTsSymbol(scan, "Decimal")) go();\n')).toEqual([]);
+    expect(bareDecimalLines("// new Decimal(0)\n")).toEqual([]);
+  });
+});

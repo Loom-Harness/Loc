@@ -28,6 +28,7 @@ import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { tsImportSlot } from "../_imports/ts.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import { refsTsSymbol } from "./ts-symbols.js";
 
 const N = DOMAIN_NAMES.ts;
 
@@ -114,7 +115,7 @@ export function renderRepositoryPortsFile(
   // pooled port file must import the type too or the generated project fails
   // `tsc` with TS2304 — the `intrinsics` corpus fixture's `byFloorPrice(whole:
   // money)` was the first find with a money parameter (wave C3 3d → 3-A fold).
-  const usesDecimal = referenced("Decimal");
+  const usesDecimal = refsTsSymbol(scan, "Decimal");
   const voEnumNames = [
     ...valueObjectPool(ctx).map((v) => v.name),
     ...enumPool(ctx).map((e) => e.name),

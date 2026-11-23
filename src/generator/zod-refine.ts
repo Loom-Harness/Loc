@@ -15,7 +15,8 @@ import { escapeTsIdent, humanize } from "../util/naming.js";
 import { nullishOperand } from "./_expr/coalesce.js";
 import { tsCodePointLength as codePointLength } from "./_expr/code-point.js";
 import { groupedOperand, groupedOperands } from "./_expr/grouping.js";
-import { JS_INTRINSIC_RENDERERS } from "./_expr/js-intrinsics.js";
+import { FRONTEND_DECIMAL } from "./_expr/js-decimal.js";
+import { JS_INTRINSIC_RENDERERS, jsIntrinsicRenderers } from "./_expr/js-intrinsics.js";
 import { asRegexLiteral } from "./_expr/regex-literal.js";
 import { ruleCode, ruleText } from "./_i18n/rule-text.js";
 import { TS_RUNTIME } from "./_symbols/plan.js";
@@ -437,6 +438,8 @@ export function refineClauseFor(
    *  that leaves one out passes the refine and the domain floor judges the
    *  merged state. */
   presence?: readonly string[],
+  /** How the surface spells decimal.js's `Decimal` class (`_expr/js-decimal.ts`). */
+  decimalClass: string = FRONTEND_DECIMAL,
 ): string | null {
   if (!classifyForWire(inv, ctx)) return null;
   // Local (browser-JS) admission — see the header note.  An invariant this
@@ -448,8 +451,8 @@ export function refineClauseFor(
   // chain (which has no message slot) so its refine survives — only suppress the
   // refine for an unnamed shape the chain already absorbed.
   if (!inv.message && takeSingleFieldChain(inv, ctx, decimal)) return null;
-  const body = renderRefineExpr(inv.expr);
-  const ruled = inv.guard ? `!(${renderRefineExpr(inv.guard)}) || (${body})` : body;
+  const body = renderRefineExpr(inv.expr, decimalClass);
+  const ruled = inv.guard ? `!(${renderRefineExpr(inv.guard, decimalClass)}) || (${body})` : body;
   const guarded =
     presence && presence.length > 0
       ? `${presence.map((m) => `data.${m} === undefined`).join(" || ")} || (${ruled})`
@@ -494,37 +497,38 @@ export function refineClauseFor(
  *  `refineRenderable` screen to prove the `UNRENDERABLE` backstop actually
  *  fires; production callers must go through `refineClauseFor`, which screens
  *  first. */
-export function renderRefineExpr(e: ExprIR): string {
+export function renderRefineExpr(e: ExprIR, decimal: string = FRONTEND_DECIMAL): string {
+  const sub = (x: ExprIR): string => renderRefineExpr(x, decimal);
   switch (e.kind) {
     case "literal":
       return renderLiteral(e.lit, e.value);
     case "ref":
       return renderRef(e);
     case "member":
-      return renderMember(e);
+      return renderMember(e, decimal);
     case "method-call":
-      return renderMethodCall(e);
+      return renderMethodCall(e, decimal);
     case "paren":
-      return `(${renderRefineExpr(e.inner)})`;
+      return `(${sub(e.inner)})`;
     case "unary":
-      return `${e.op}${groupedOperand(e, renderRefineExpr)}`;
+      return `${e.op}${groupedOperand(e, sub)}`;
     case "binary":
-      return renderBinary(e);
+      return renderBinary(e, decimal);
     case "ternary":
-      return `${renderRefineExpr(e.cond)} ? ${renderRefineExpr(e.then)} : ${renderRefineExpr(e.otherwise)}`;
+      return `${sub(e.cond)} ? ${sub(e.then)} : ${sub(e.otherwise)}`;
     case "coalesce":
-      return `${nullishOperand(renderRefineExpr(e.left))} ?? ${nullishOperand(renderRefineExpr(e.fallback))}`;
+      return `${nullishOperand(sub(e.left))} ?? ${nullishOperand(sub(e.fallback))}`;
     case "lambda":
       // Lambda body is optional.  Wire-boundary refines never see block-body
       // lambdas — `classifyForWire` only admits single-expression predicates,
       // and `refineRenderable` re-checks — so the throw is unreachable.
-      if (e.body) return `(${escapeTsIdent(e.param)}) => ${renderRefineExpr(e.body)}`;
+      if (e.body) return `(${escapeTsIdent(e.param)}) => ${sub(e.body)}`;
       return unrenderable("a block-bodied lambda");
     case "object":
-      return `({ ${e.fields.map((f) => `${f.name}: ${renderRefineExpr(f.value)}`).join(", ")} })`;
+      return `({ ${e.fields.map((f) => `${f.name}: ${sub(f.value)}`).join(", ")} })`;
     case "i18nFormat":
       // Transparent i18n wrapper — render the wrapped operand (format dropped).
-      return renderRefineExpr(e.inner);
+      return sub(e.inner);
     case "exists":
     case "this":
     case "id":
@@ -584,8 +588,8 @@ function renderRef(e: Extract<ExprIR, { kind: "ref" }>): string {
   }
 }
 
-function renderMember(e: Extract<ExprIR, { kind: "member" }>): string {
-  const recv = renderRefineExpr(e.receiver);
+function renderMember(e: Extract<ExprIR, { kind: "member" }>, decimal: string): string {
+  const recv = renderRefineExpr(e.receiver, decimal);
   // `lines.count` style — collection length on an array-typed receiver.
   if (e.receiverType.kind === "array" && e.member === "count") {
     return `${recv}.length`;
@@ -602,21 +606,21 @@ function renderMember(e: Extract<ExprIR, { kind: "member" }>): string {
   return `${recv}.${e.member}`;
 }
 
-function renderMethodCall(e: Extract<ExprIR, { kind: "method-call" }>): string {
-  const recv = renderRefineExpr(e.receiver);
-  const args = e.args.map(renderRefineExpr);
+function renderMethodCall(e: Extract<ExprIR, { kind: "method-call" }>, decimal: string): string {
+  const recv = renderRefineExpr(e.receiver, decimal);
+  const args = e.args.map((a) => renderRefineExpr(a, decimal));
   if (sumIsDecimal(e)) {
     // Exact `decimal` fold (RS-37) — from a `new Decimal(0)` seed, narrowed once.
     const fold =
       args.length === 1
-        ? `(${recv}).reduce((acc, x) => acc.plus((${args[0]})(x)), new Decimal(0))`
-        : `(${recv}).reduce((acc, x) => acc.plus(x), new Decimal(0))`;
+        ? `(${recv}).reduce((acc, x) => acc.plus((${args[0]})(x)), new ${decimal}(0))`
+        : `(${recv}).reduce((acc, x) => acc.plus(x), new ${decimal}(0))`;
     return `${fold}${DECIMAL_NARROW}`;
   }
   if (isDecimalRound(e)) {
     // Exact half-away-from-zero rounding (RS-37; decimal.js ROUND_HALF_UP).
-    const recvDec = decimalChainOperand(recv, e.receiver) ?? `new Decimal(${recv})`;
-    return `${recvDec}.toDecimalPlaces(${args[0] ?? "0"}, Decimal.ROUND_HALF_UP)${DECIMAL_NARROW}`;
+    const recvDec = decimalChainOperand(recv, e.receiver) ?? `new ${decimal}(${recv})`;
+    return `${recvDec}.toDecimalPlaces(${args[0] ?? "0"}, ${decimal}.ROUND_HALF_UP)${DECIMAL_NARROW}`;
   }
   if (e.isCollectionOp) {
     return renderCollectionOp(`(${recv})`, e.member, args);
@@ -643,7 +647,7 @@ function renderMethodCall(e: Extract<ExprIR, { kind: "method-call" }>): string {
   // `substring(start, len)` → `.slice(start, start + len)`), so pasting
   // `.${member}(...)` verbatim was either a TS2339 or silently wrong.
   if (e.receiverType.kind === "primitive") {
-    const intrinsic = JS_INTRINSIC_RENDERERS[intrinsicKey(e.receiverType.name, e.member)];
+    const intrinsic = jsIntrinsicRenderers(decimal)[intrinsicKey(e.receiverType.name, e.member)];
     if (intrinsic) return intrinsic(recv, args);
   }
   return unrenderable(`the scalar method \`${e.member}\``);
@@ -699,15 +703,15 @@ function isNullLiteral(e: ExprIR): boolean {
   return inner.kind === "literal" && inner.lit === "null";
 }
 
-function renderBinary(e: Extract<ExprIR, { kind: "binary" }>): string {
+function renderBinary(e: Extract<ExprIR, { kind: "binary" }>, decimal: string): string {
   const { op, left, right } = e;
   // `decimal` arithmetic — EXACT through decimal.js, the node domain
   // renderer's shape (RS-37).  Only reachable under `RefineDecimalMode`
   // "exact": `refineRenderable` screens it out otherwise.
   if (isDecimalArithmetic(e)) {
-    const l = renderRefineExpr(left);
-    const recv = decimalChainOperand(l, left) ?? `new Decimal(${l})`;
-    const r = renderRefineExpr(right);
+    const l = renderRefineExpr(left, decimal);
+    const recv = decimalChainOperand(l, left) ?? `new ${decimal}(${l})`;
+    const r = renderRefineExpr(right, decimal);
     const arg = decimalChainOperand(r, right) ?? r;
     return `${recv}.${DECIMAL_METHOD[op]}(${arg})${DECIMAL_NARROW}`;
   }
@@ -725,6 +729,6 @@ function renderBinary(e: Extract<ExprIR, { kind: "binary" }>): string {
   // body (`body.x == null ? null : body.x`).
   const looseNull = (op === "==" || op === "!=") && (isNullLiteral(left) || isNullLiteral(right));
   const opPrint = looseNull ? op : op === "==" ? "===" : op === "!=" ? "!==" : op;
-  const [l, r] = groupedOperands(e, renderRefineExpr);
+  const [l, r] = groupedOperands(e, (x) => renderRefineExpr(x, decimal));
   return `${l} ${opPrint} ${r}`;
 }

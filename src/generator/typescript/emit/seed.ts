@@ -39,7 +39,7 @@ import {
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
 import { renderTsExpr } from "../render-expr.js";
-import { TT } from "../ts-symbols.js";
+import { refsTsSymbol, TT } from "../ts-symbols.js";
 
 export function emitTypescriptSeeds(
   ctx: EnrichedBoundedContextIR,
@@ -227,7 +227,7 @@ function renderSeedFile(
   // Strip string/template contents so symbols mentioned only in SQL literals
   // (e.g. the dataset names) don't count as references for import narrowing.
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""').replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const usesDecimal = /\bnew Decimal\(/.test(scan);
+  const usesDecimal = refsTsSymbol(scan, "Decimal");
   // Value objects + enums live in domain/value-objects.  Intersect the
   // context's declared names against the rendered body so the import is
   // exactly what's used (and never an aggregate/repository class).
@@ -342,7 +342,7 @@ function renderMikroSeedFile(
   voEnumNames: string[],
 ): string {
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""').replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const usesDecimal = /\bnew Decimal\(/.test(scan);
+  const usesDecimal = refsTsSymbol(scan, "Decimal");
   const voEnum = [...new Set(voEnumNames)]
     .filter((n) => new RegExp(`\\b${n}\\b`).test(scan))
     .sort();

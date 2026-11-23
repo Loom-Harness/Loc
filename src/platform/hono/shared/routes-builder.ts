@@ -52,7 +52,7 @@ import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/do
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
-import { T, TT } from "../../../generator/typescript/ts-symbols.js";
+import { refsTsSymbol, T, TT } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   tsErrorVariantExt,
@@ -1751,10 +1751,9 @@ export function buildRoutesFile(
   if (/\bversionETag\(/.test(assembledSoFar)) problemNamed.push("versionETag");
   if (/\bdomainFloorProblem\(/.test(assembledSoFar)) problemNamed.push("domainFloorProblem");
   // Patch the deferred `decimal.js` import.  Read off the assembled text with
-  // string literals blanked, so a message or an `.openapi("…")` label naming
-  // the word cannot mint a dead import; `new Decimal(` is the only way this
-  // file spells the class today, and the wider `Decimal` test covers a type
-  // annotation or a static call if a future render site adds one.
+  // string literals blanked, and keyed on the class's import symbol (any
+  // position) rather than the spelled word, so neither a message naming the
+  // word nor a model type `Decimal` mints the library import.
   const assembledScan = assembledSoFar
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
@@ -1762,7 +1761,7 @@ export function buildRoutesFile(
     .replace(DECIMAL_IMPORT_PLACEHOLDER, "");
   // Replaced WITH its trailing newline so the unused case removes the line
   // outright rather than leaving a blank one in the header.
-  const decimalImport = /(?<![.\w$])Decimal\b/.test(assembledScan)
+  const decimalImport = refsTsSymbol(assembledScan, "Decimal")
     ? `import Decimal from "decimal.js";\n`
     : "";
   const assembled = lines
@@ -3202,7 +3201,13 @@ export function emitWireSchema(
   }
   const refines = remaining
     .map((inv) =>
-      refineClauseFor(inv, ctx, decimal, mergePatch ? ruleMembers(inv, available) : undefined),
+      refineClauseFor(
+        inv,
+        ctx,
+        decimal,
+        mergePatch ? ruleMembers(inv, available) : undefined,
+        T.Decimal,
+      ),
     )
     .filter((s): s is string => s !== null);
 

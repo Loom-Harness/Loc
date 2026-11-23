@@ -482,7 +482,7 @@ function tsFindParamType(t: TypeIR): string {
       case "decimal":
         return "number";
       case "money":
-        return "Decimal";
+        return TT.Decimal;
       case "bool":
         return "boolean";
       case "datetime":

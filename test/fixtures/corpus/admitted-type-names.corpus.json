@@ -1,6 +1,6 @@
 {
   "//": "Gate for D-RESERVED-GENERATED-NAMES (docs/decisions).",
-  "title": "domain types named like names the generated code binds where the two never meet — `Map`, `Set`, `Duration`, `Kernel`, `Location`, `Token`, `Status`, `TaskStatus`, `Queue`, `Order` — the near misses the reserved type-name table admits",
+  "title": "domain types named like names the generated code binds where the two never meet — `Map`, `Set`, `Duration`, `Kernel`, `Location`, `Token`, `Status`, `TaskStatus`, `Queue`, `Order`, `Decimal` — the near misses the reserved type-name table admits",
   "doc": "language",
   "backends": "ALL",
   "note": "The positive half of the reserved type-name table (`src/util/reserved-type-names.ts`): a name wrongly put in the table is refused at validation, so this fixture stops generating; a name wrongly left out of it makes a backend's build fail, so one of the five compile legs goes red.  The negative half — every table entry breaks a target it lists — is the opt-in mutation proof `test/e2e/reserved-type-names-proof.test.ts`.",
