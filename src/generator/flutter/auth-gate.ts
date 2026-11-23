@@ -39,6 +39,7 @@ import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { RETURN_TO_PARAM } from "../../util/return-to.js";
 import { groupedOperand, groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
+import { gateReadsSystemPrincipal } from "../_frontend/gate-expr.js";
 import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { flutterHttpImport } from "./api-client.js";
 import { DART_LEAVES } from "./dart-expr.js";
@@ -221,6 +222,7 @@ export function renderFlutterGate(e: ExprIR, userVar: string): string {
     case "literal":
       return renderGateLiteral(e.lit, e.value);
     case "member":
+      if (gateReadsSystemPrincipal(e)) return renderGateLiteral("bool", "false");
       // Claim access — a Dart record keeps the source spelling, so this is the
       // one place the F# sibling diverges (it pascal-cases each hop).
       return `${renderFlutterGate(e.receiver, userVar)}.${e.member}`;
