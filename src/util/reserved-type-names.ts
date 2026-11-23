@@ -131,19 +131,6 @@ export const RESERVED_TYPE_NAMES: readonly ReservedTypeName[] = [
   },
   tsGlobal("Date"),
   {
-    name: "Decimal",
-    category: "import-style",
-    bindings: [
-      n("node", "decimal.js Decimal, spelled bare by the shared expression and numeric helpers"),
-    ],
-    deferral: {
-      deferred:
-        "the shared expression, collection-op, refine and numeric helpers spell decimal.js's `Decimal` bare instead of through a symbol the TS import finalizer can alias; once they do, `Decimal` leaves the table",
-      reviewUntil: "2027-01-15",
-      blockedBy: "#6467",
-    },
-  },
-  {
     name: "Dispatch",
     category: "generated",
     bindings: [n("elixir", "the generated context dispatch module <App>.<Context>.Dispatch")],

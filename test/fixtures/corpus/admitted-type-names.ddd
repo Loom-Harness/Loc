@@ -11,6 +11,12 @@
 //     emitters bind only in units that never meet the model's types.
 //   - `TaskStatus`, `Queue` — .NET BCL names the .NET backend aliases.
 //   - `Order` — Spring's `@Order` annotation, written by fully qualified name.
+//   - `Decimal` — decimal.js's class on node, which every money and exact
+//     `decimal` computation constructs.  `Ledger` meets it in each position
+//     the shared helpers spell it: money arithmetic and comparison, the money
+//     intrinsics, a money collection sum, exact `decimal` arithmetic and a
+//     wire-boundary refine, beside a field of the model's `Decimal`; the node
+//     finalizer imports the library class under an alias wherever both meet.
 //
 // The holder carries the common field types (datetime, date, decimal, guid,
 // a list) so each unit imports the framework types it ever does.
@@ -26,6 +32,13 @@ system AdmittedTypeNames {
       valueobject Kernel { version: string }
       valueobject Location { city: string }
       valueobject Token { value: string }
+      valueobject Decimal { digits: int }
+      valueobject Quote {
+        amount: money
+        cap: money
+        scale: Decimal?
+        invariant amount <= cap
+      }
 
       aggregate Order with crudish {
         code: string
@@ -51,6 +64,28 @@ system AdmittedTypeNames {
         openedAt: datetime
       }
       repository Queues for Queue { }
+
+      aggregate Ledger with crudish {
+        label: string
+        price: money
+        fee: money
+        entries: money[]
+        rate: decimal
+        base: decimal
+        scale: Decimal?
+        quote: Quote?
+        derived gross: money = price + fee
+        derived larger: money = price.max(fee)
+        derived rounded: money = price.round(2)
+        derived booked: money = entries.sum()
+        derived scaled: decimal = rate * base
+        invariant fee <= price
+        invariant rate + base >= 0
+        operation reprice(to: money) {
+          price := to.max(fee)
+        }
+      }
+      repository Ledgers for Ledger { }
     }
   }
 

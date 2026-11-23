@@ -43,10 +43,12 @@ escaped, and shipped models that used a refused name were rewritten.
     top-level function of `Program.cs` every unit sees; the Elixir modules
     `ProblemDetails`, `<Context>.Dispatch` and `FileRef`.
   - **import-style** — a name an emitter still spells bare where it could
-    alias it: only `Decimal` on node, which the shared expression and numeric
-    helpers write for `decimal.js`. Such an entry is parked work: it carries a
-    deferral with a `reviewUntil` date and the open issue it waits on, and a
-    fast test fails it once the date passes or the issue closes.
+    alias it. Such an entry is parked work: it carries a deferral with a
+    `reviewUntil` date and the open issue it waits on, and a fast test fails
+    it once the date passes or the issue closes. The category has no members:
+    node spells `decimal.js`'s `Decimal` through its import symbol, so its
+    finalizer aliases the class beside a model type `Decimal`, and the shared
+    JavaScript helpers take the spelling from their caller.
 - Each entry breaks the build of every target it lists when the refusal is
   ignored, and builds on every target it does not list, in all four shapes the
   proof declares (value object, aggregate, emitted event, enum).
