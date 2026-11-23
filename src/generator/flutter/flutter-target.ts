@@ -41,6 +41,7 @@ import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { dartCodePointLength } from "../_expr/code-point.js";
 import { optionalChainedMemberRead } from "../_frontend/optional-member.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
 import { giveUp } from "../_walker/give-up.js";
@@ -1287,6 +1288,7 @@ export const flutterTarget: WalkerTarget = {
   exprConvert: (value, target, from) => DART_LEAVES.convert(value, target, from),
   exprList: (elements) => DART_LEAVES.list(elements),
   exprObject: (fields) => DART_LEAVES.object(fields),
+  exprStringLength: (recv) => dartCodePointLength(recv),
   // A duration is a Dart `Duration`, not the JS frontends' millisecond number —
   // and Dart's `DateTime` has no arithmetic operators, so `until + days(7)` is
   // `.add(...)`.  Both are the same shared table `riverpod-emit.ts`'s Notifier

@@ -18,6 +18,7 @@ import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { formatTokens, ISO_SLICE, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
+import { dartCodePointPad, dartCodePointSubstring } from "../_expr/code-point.js";
 import { sortByKey } from "../_expr/js-collection-ops.js";
 import { MONEY_WIRE_SCALE, MONEY_WIRE_ZERO } from "../money-scale.js";
 
@@ -388,15 +389,10 @@ export const DART_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   "string.trim": (recv) => `(${recv}.trim())`,
   "string.toUpper": (recv) => `(${recv}.toUpperCase())`,
   "string.toLower": (recv) => `(${recv}.toLowerCase())`,
-  // 0-based CLAMPING semantics (JS `slice` — the catalogue contract).  Dart's
-  // `substring(start, [end])` takes start+END (not start+LENGTH) and THROWS
-  // a RangeError on an out-of-range start or end, so both the arg-shape and
-  // the clamping are bridged here.  Receiver/arg duplication is safe — Loom
-  // expressions are pure.
-  "string.substring": (recv, args) =>
-    args.length > 1
-      ? `(${args[0]} >= ${recv}.length ? '' : ${recv}.substring(${args[0]}, math.min((${args[0]}) + (${args[1]}), ${recv}.length)))`
-      : `(${args[0]} >= ${recv}.length ? '' : ${recv}.substring(${args[0]}))`,
+  // 0-based, CLAMPING and counted in CODE POINTS (the catalogue contract;
+  // `_expr/code-point.ts`).  Dart's own `substring(start, [end])` takes
+  // start+END in UTF-16 units and THROWS out of range, so it is not used.
+  "string.substring": (recv, args) => dartCodePointSubstring(recv, args[0]!, args[1]),
   // Ordinal (culture-free) comparison, exactly as `String.startsWith` /
   // `endsWith` / `contains` already are in Dart — no wrapper needed.
   "string.startsWith": (recv, args) => `(${recv}.startsWith(${args[0]}))`,
@@ -485,12 +481,10 @@ export const DART_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   "duration.toDays": (recv) => `(${recv}).inDays`,
   "duration.toHours": (recv) => `(${recv}).inHours`,
   "duration.toMinutes": (recv) => `(${recv}).inMinutes`,
-  // ---- formatting — invariant text (the catalogue contract).  Lengths are
-  // this frontend's `.length` (UTF-16 units).
-  "string.padStart": (recv, args) =>
-    `(() { final s = ${recv}; final k = (${args[0]}) - s.length; if (k <= 0) return s; final p = (${args[1]}) * k; return (p.length > k ? p.substring(0, k) : p) + s; })()`,
-  "string.padEnd": (recv, args) =>
-    `(() { final s = ${recv}; final k = (${args[0]}) - s.length; if (k <= 0) return s; final p = (${args[1]}) * k; return s + (p.length > k ? p.substring(0, k) : p); })()`,
+  // ---- formatting — invariant text (the catalogue contract), the lengths
+  // counted in code points like `.length`.
+  "string.padStart": (recv, args) => dartCodePointPad(recv, args[0]!, args[1]!, true),
+  "string.padEnd": (recv, args) => dartCodePointPad(recv, args[0]!, args[1]!, false),
   "date.format": (recv, args) => isoSliceFormat(`(${recv})`, args[0]!, dartString),
   "datetime.format": (recv, args) =>
     isoSliceFormat(`(${recv}).toUtc().toIso8601String()`, args[0]!, dartString),

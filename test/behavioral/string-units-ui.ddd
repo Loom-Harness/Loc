@@ -1,0 +1,67 @@
+// String positions on the frontends count CODE POINTS — the unit every
+// backend's `.length` / `.substring` / `.padStart` / `.padEnd` counts in
+// (`src/generator/_expr/code-point.ts`), so a page reads the answer the server
+// computes.  The host primitives count UTF-16 units:
+//
+//   react/vue/svelte/angular  JS `s.length` is UTF-16 units
+//   feliz                     .NET `String.Length` / `Substring` under Fable
+//                             are JS strings, UTF-16 units
+//   flutter                   Dart `String.length` / `substring` are UTF-16
+//                             units
+//
+// `"a😀bc"` is 4 code points and 5 UTF-16 units, so every string answer below
+// differs between the two.  `list-len` is the collection `.length`, which must
+// stay the element count.  The page renders one `<name>=<value>|` token per op;
+// the behavioural UI runners open `/string-units` on the BUILT app and require
+// each expected token (`string-units-ui.mjs`).  `__FRONTEND__` and
+// `__FRAMEWORK__` are filled per case (test/behavioral/frontend-fixture.mjs,
+// from corpus.json → `frontend`).  Kept out of `systems/`, which every BACKEND
+// leg iterates.
+system StringUnitsUi {
+  subdomain Shop {
+    context Shelves {
+      aggregate Card with crudish {
+        name: string
+      }
+      repository Cards for Card { }
+    }
+  }
+  api ShopApi from Shop
+
+  ui WebApp {
+    __FRAMEWORK__
+    page StringUnits {
+      route: "/string-units"
+      state {
+        word: string = "a😀bc"
+        words: string[] = ["a", "b", "c"]
+      }
+      body: Stack {
+        Heading { "String units" },
+        Text { `len={word.length}|`, testid: "len" },
+        Text { `sub={word.substring(1, 2)}|`, testid: "sub" },
+        Text { `tail={word.substring(2)}|`, testid: "tail" },
+        Text { `past={word.substring(4)}|`, testid: "past" },
+        Text { `pad-start={word.padStart(6, "-")}|`, testid: "pad-start" },
+        Text { `pad-end={word.padEnd(6, "-")}|`, testid: "pad-end" },
+        Text { `list-len={words.length}|`, testid: "list-len" }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource shelvesState { for: Shelves, kind: state, use: primary }
+  deployable api {
+    platform: node
+    contexts: [Shelves]
+    dataSources: [shelvesState]
+    serves: ShopApi
+    port: 3000
+  }
+  deployable webApp {
+    platform: __FRONTEND__
+    targets: api
+    ui: WebApp
+    port: 3001
+  }
+}

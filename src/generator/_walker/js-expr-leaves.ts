@@ -15,6 +15,7 @@ import { numericOpPlan } from "../../ir/plan/numeric-op.js";
 import type { BinOp, ExprIR, LiteralKind, PrimitiveName } from "../../ir/types/loom-ir.js";
 import { FRONTEND_RENDERED_COLLECTION_OPS } from "../../ir/util/collection-op-site.js";
 import { nullishOperand } from "../_expr/coalesce.js";
+import { tsCodePointLength } from "../_expr/code-point.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
 import { renderJsIntrinsic } from "../_expr/js-intrinsics.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
@@ -35,6 +36,7 @@ type ExprLeaves = Pick<
   | "exprConvert"
   | "exprList"
   | "exprObject"
+  | "exprStringLength"
   | "renderIntrinsic"
   | "renderCollectionOp"
 >;
@@ -120,6 +122,8 @@ export const jsExprLeaves: ExprLeaves = {
   exprObject(fields: ReadonlyArray<{ name: string; value: string }>): string {
     return `{ ${fields.map((f) => `${f.name}: ${f.value}`).join(", ")} }`;
   },
+  // A spread iterates a string by code point (and an array by element).
+  exprStringLength: (recv) => tsCodePointLength(`(${recv})`),
   // The JS frontends and the Hono/TypeScript backend emit the SAME language,
   // so they share ONE intrinsic snippet table — that shared table is what makes
   // `s.replace(a, b)` mean replace-ALL in a page body exactly as it does in an
@@ -230,4 +234,5 @@ export const unreachableExprLeaves: ExprLeaves = {
   exprConvert: unreachedExprLeaf("exprConvert"),
   exprList: unreachedExprLeaf("exprList"),
   exprObject: unreachedExprLeaf("exprObject"),
+  exprStringLength: unreachedExprLeaf("exprStringLength"),
 };

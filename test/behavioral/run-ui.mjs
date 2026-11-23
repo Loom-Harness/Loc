@@ -73,6 +73,7 @@ import {
 } from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
 import { judgeSortOrder, SORT_ORDER_ROUTE } from "./sort-order-ui.mjs";
+import { judgeStringUnits, STRING_UNITS_ROUTE } from "./string-units-ui.mjs";
 import { NUMERIC_FIELDS, numericSeedBody } from "./numeric-ui-contract.mjs";
 import { startLoginIssuer } from "./oidc-mock.mjs";
 import {
@@ -242,7 +243,10 @@ async function numericListProbe(origin, cfg) {
  *     money comparison (a decimal.js `Decimal` by reference / by `valueOf()`
  *     string, an F# `decimal option` against a `decimal`);
  *   - `sort-order` (`sort-order-ui.mjs`): one `<name>=<order>` token per page
- *     `sortBy` — the one sort order, not the host comparer's.
+ *     `sortBy` — the one sort order, not the host comparer's;
+ *   - `string-units` (`string-units-ui.mjs`): one `<name>=<value>|` token per
+ *     string `.length` / `substring` / `padStart` / `padEnd` — code points,
+ *     not the host's UTF-16 units.
  */
 const STATIC_TEXT_PROBES = {
   "money-compare": {
@@ -256,6 +260,12 @@ const STATIC_TEXT_PROBES = {
     route: SORT_ORDER_ROUTE,
     done: /statuses-up=\S/,
     judge: judgeSortOrder,
+  },
+  "string-units": {
+    name: `string units probe: ${STRING_UNITS_ROUTE} counts string positions in code points`,
+    route: STRING_UNITS_ROUTE,
+    done: /list-len=\d/,
+    judge: judgeStringUnits,
   },
 };
 

@@ -22,15 +22,16 @@
 //      for the five backends.
 //   2. THE CATALOGUE CONTRACT — the snippets are checked against the
 //      contract in `src/util/intrinsics.ts`, not against Dart's own
-//      defaults.  Three arms deliberately diverge: `substring` clamps where
-//      Dart's `String.substring` throws (and Dart's is start+END, not
-//      Loom's start+LENGTH), `round` forces away-from-zero where Dart's
-//      `.round()` rounds `.5` toward +infinity, and `floor`/`ceil` use
-//      `floorToDouble`/`ceilToDouble` — the bare `num` methods return `int`,
-//      which would silently narrow `decimal`'s Dart representation (`double`,
-//      per `dart-types.ts`).  The MONEY arms of those three route through the
-//      generated `LoomMoney` runtime instead: money is the wire STRING on this
-//      target (M-T1.21), so a `num` method on it would not compile at all.
+//      defaults.  Two arms deliberately diverge: `round` forces
+//      away-from-zero where Dart's `.round()` rounds `.5` toward +infinity,
+//      and `floor`/`ceil` use `floorToDouble`/`ceilToDouble` — the bare
+//      `num` methods return `int`, which would silently narrow `decimal`'s
+//      Dart representation (`double`, per `dart-types.ts`).  The MONEY arms
+//      of those ops route through the generated `LoomMoney` runtime instead:
+//      money is the wire STRING on this target, so a `num` method on it would
+//      not compile at all.  The code-point string ops (`substring`,
+//      `padStart`, `padEnd`) are held to the shared `dartCodePoint*` helpers
+//      by `test/generator/_walker/string-code-points-cross-target.test.ts`.
 //
 // Dart compilation of every arm is proven by `generated-flutter-build.yml`
 // (`flutter analyze` + `flutter build web`), not by this suite — a string
@@ -84,17 +85,6 @@ describe("Flutter Dart intrinsic table — the catalogue contract", () => {
 
   it("`replace` maps to `replaceAll` — Dart has no bare all-vs-first ambiguity", () => {
     expect(r("s", "replace", "string", "'-'", "' '")).toBe("(s.replaceAll('-', ' '))");
-  });
-
-  // Dart's `String.substring(start, [end])` takes start+END and THROWS a
-  // RangeError out of range — the divergence a verbatim emission would hide.
-  it("`substring` is start+LENGTH and CLAMPS instead of throwing", () => {
-    const two = r("s", "substring", "string", "2", "5") ?? "";
-    expect(two).toContain("s.substring(2, math.min((2) + (5), s.length))");
-    expect(two, "an out-of-range start must yield '', not a RangeError").toContain(
-      "2 >= s.length ? '' :",
-    );
-    expect(r("s", "substring", "string", "2") ?? "").toContain("s.substring(2)");
   });
 
   it("`abs`/`min`/`max` route through `math.*`, two-value not aggregate", () => {

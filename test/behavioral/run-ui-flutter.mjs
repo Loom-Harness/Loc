@@ -63,6 +63,7 @@ import {
 } from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE, moneyCompareExpected } from "./money-compare-ui.mjs";
 import { judgeSortOrder, SORT_ORDER_ROUTE, sortOrderExpected } from "./sort-order-ui.mjs";
+import { judgeStringUnits, STRING_UNITS_ROUTE, stringUnitsExpected } from "./string-units-ui.mjs";
 import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
 import { buildServerModule, findDistRoot, findNodeDeployable, walk } from "./ui-stack.mjs";
 
@@ -214,6 +215,20 @@ const SORT_ORDER_PROBES = [
     api: null,
     expect: sortOrderExpected(),
     judge: judgeSortOrder,
+  },
+];
+
+/** The string-units probe for a `textProbe: "string-units"` case:
+ *  `string-units-ui.ddd` measures its own page `state`, so there is no seed and
+ *  no backend read, and the verdict is `judgeStringUnits` over the
+ *  accessibility tree. */
+const STRING_UNITS_PROBES = [
+  {
+    name: `the string units page (${STRING_UNITS_ROUTE}) counts string positions in code points`,
+    route: `#${STRING_UNITS_ROUTE}`,
+    api: null,
+    expect: stringUnitsExpected(),
+    judge: judgeStringUnits,
   },
 ];
 
@@ -578,6 +593,8 @@ async function runCase(c) {
         ? MONEY_COMPARE_PROBES
         : c.textProbe === "sort-order"
           ? SORT_ORDER_PROBES
+          : c.textProbe === "string-units"
+          ? STRING_UNITS_PROBES
           : c.textProbe === "form-spec"
           ? FORM_SPEC_PROBES
           : [...PROBES, ...DRIVEN_PROBES];

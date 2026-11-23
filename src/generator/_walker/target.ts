@@ -1863,6 +1863,13 @@ export interface WalkerTarget {
   exprList(elements: string[]): string;
   /** Object literal — JS `{ n: v }` vs F# anonymous record `{| n = v |}`. */
   exprObject(fields: ReadonlyArray<{ name: string; value: string }>): string;
+  /** A string's `.length`, counted in CODE POINTS — the unit every backend
+   *  counts in (`_expr/code-point.ts`).  The host's own string length counts
+   *  UTF-16 units on every frontend (JS, Fable, Dart).  The walker routes a
+   *  `.length` read here exactly when `readsStringLength` decides its
+   *  receiver is a string, and the receiver may carry only the IR's `string`
+   *  placeholder type, so a spelling must also stay right on a collection. */
+  exprStringLength(recv: string): string;
 
   /** Duration literal (`days(7)` / `hours(2)` / `minutes(30)`) — the frontend
    *  twin of the backend `ExprTarget.duration` leaf, and for the same reason:

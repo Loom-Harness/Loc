@@ -175,11 +175,24 @@ const PINS: Record<ExprIR["kind"], Pin[]> = {
       expr: {
         kind: "member",
         receiver: state("orderId"),
+        member: "name",
+        receiverType: { kind: "entity", name: "Order", declKind: "aggregate" } as TypeIR,
+        memberType: STRING,
+      },
+      dart: "orderId.name",
+    },
+    {
+      // Code points, tested at run time: the receiver may be typed only as
+      // the `string` placeholder while holding a `List`.
+      name: "string `.length`",
+      expr: {
+        kind: "member",
+        receiver: state("orderId"),
         member: "length",
         receiverType: STRING,
         memberType: INT,
       },
-      dart: "orderId.length",
+      dart: "((Object? __s) => __s is String ? __s.runes.length : (__s as dynamic).length as int)(orderId)",
     },
   ],
   "method-call": [

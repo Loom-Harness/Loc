@@ -23,7 +23,9 @@ import { formatTokens, ISO_SLICE, patternFromRenderedLiteral } from "../../util/
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
+import { fableJsExpr, fsCodePointLength } from "../_expr/code-point.js";
 import { sortByKey } from "../_expr/js-collection-ops.js";
+import { JS_INTRINSIC_RENDERERS } from "../_expr/js-intrinsics.js";
 import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { fsIdent } from "./fs-ident.js";
@@ -430,6 +432,17 @@ export function fsNumericBinary(
 // `generated-feliz-build.yml` proves.
 // ---------------------------------------------------------------------------
 
+/** A code-point string op (`CODE_POINT_INTRINSICS`) on F#: the JS frontends'
+ *  arm for the same op, inlined through `emitJsExpr`.  A Fable string is a JS
+ *  string and Fable compiles `.Length` / `.Substring` to its UTF-16 members,
+ *  so running the JS twin's snippet makes the two agree by construction
+ *  rather than through a second, hand-written code-point walk. */
+function fsViaJs(key: string, recv: string, args: readonly string[]): string {
+  // Each hole parenthesized: Fable splices an argument's compiled JS verbatim.
+  const holes = args.map((_, i) => `($${i + 1})`);
+  return fableJsExpr(JS_INTRINSIC_RENDERERS[key]!("($0)", holes), [recv, ...args], "string");
+}
+
 export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
   "string.uncheckedInt": (recv) => `(System.Int32.Parse(${recv}))`,
   "string.uncheckedLong": (recv) => `(System.Int64.Parse(${recv}))`,
@@ -439,13 +452,9 @@ export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "string.trim": (recv) => `(${recv}.Trim())`,
   "string.toUpper": (recv) => `(${recv}.ToUpper())`,
   "string.toLower": (recv) => `(${recv}.ToLower())`,
-  // 0-based CLAMPING semantics (JS `slice` — the catalogue contract).  .NET's
-  // Substring THROWS on an out-of-range start or length, so guard both edges.
-  // Receiver/arg duplication is safe: Loom expressions are pure.
-  "string.substring": (recv, args) =>
-    args.length > 1
-      ? `(if ${args[0]} >= ${recv}.Length then "" else ${recv}.Substring(${args[0]}, min (${args[1]}) (${recv}.Length - ${args[0]})))`
-      : `(if ${args[0]} >= ${recv}.Length then "" else ${recv}.Substring(${args[0]}))`,
+  // 0-based, CLAMPING and counted in CODE POINTS (the catalogue contract;
+  // `_expr/code-point.ts`) — the JS twin's own snippet, see `fsViaJs`.
+  "string.substring": (recv, args) => fsViaJs("string.substring", recv, args),
   // Fable compiles these to the JS String methods, which are ordinal — the
   // catalogue's culture-free contract, with no StringComparison overload
   // needed (and Fable's coverage of those overloads is thinner).
@@ -535,12 +544,10 @@ export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "duration.toDays": (recv) => `(int64 ((${recv}).TotalDays))`,
   "duration.toHours": (recv) => `(int64 ((${recv}).TotalHours))`,
   "duration.toMinutes": (recv) => `(int64 ((${recv}).TotalMinutes))`,
-  // ---- formatting — invariant text (the catalogue contract).  Lengths are
-  // this frontend's `.Length` (UTF-16 units).
-  "string.padStart": (recv, args) =>
-    `(let s = ${recv} in let k = max 0 ((${args[0]}) - s.Length) in let p = String.replicate k (${args[1]}) in (if p.Length > k then p.Substring(0, k) else p) + s)`,
-  "string.padEnd": (recv, args) =>
-    `(let s = ${recv} in let k = max 0 ((${args[0]}) - s.Length) in let p = String.replicate k (${args[1]}) in s + (if p.Length > k then p.Substring(0, k) else p))`,
+  // ---- formatting — invariant text (the catalogue contract), the lengths
+  // counted in code points like `.length`.
+  "string.padStart": (recv, args) => fsViaJs("string.padStart", recv, args),
+  "string.padEnd": (recv, args) => fsViaJs("string.padEnd", recv, args),
   "date.format": (recv, args) => fsIsoFormat(`(${recv})`, args[0]!),
   "datetime.format": (recv, args) =>
     fsIsoFormat(`((${recv}).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss"))`, args[0]!),
@@ -713,8 +720,8 @@ function renderFsMethodCall(
   const intrinsic = renderFsIntrinsic(e.receiverType, e.member, recv, args);
   if (intrinsic !== undefined) return intrinsic;
   // `length` is a string PROPERTY in Loom, not a catalogue intrinsic, so it is
-  // not in the table — but it does reach this path.
-  if (e.member === "length") return `(${recv}.Length)`;
+  // not in the table — but it does reach this path, and counts code points.
+  if (e.member === "length") return fsCodePointLength(recv);
   throw new Error(
     `feliz: method '${e.member}' is not implemented on the F# action/update path — ` +
       `the Feliz frontend renders the scalar-intrinsic catalogue plus a bounded set of ` +
@@ -833,6 +840,16 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       if (isCollectionType(e.receiverType)) {
         const op = renderFsCollectionOp({ op: e.member, recv: r(e.receiver), args: [] });
         if (op !== undefined) return op;
+        if (e.member === "length") return `(List.length ${r(e.receiver)})`;
+      }
+      // A string's `.length` counts code points, as on every backend and on
+      // the view path (`exprStringLength`).
+      if (
+        e.member === "length" &&
+        e.receiverType.kind === "primitive" &&
+        e.receiverType.name === "string"
+      ) {
+        return fsCodePointLength(r(e.receiver));
       }
       // Record-field access — the receiver is a wire record (an async-effect
       // success binding `p`, a read row) whose F# fields keep the EXACT lowercase

@@ -187,6 +187,65 @@
       "textProbe": "sort-order"
     },
     {
+      "name": "string-units-ui-react",
+      "ddd": "test/behavioral/string-units-ui.ddd",
+      "frontend": "react",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "textProbe": "string-units"
+    },
+    {
+      "name": "string-units-ui-vue",
+      "ddd": "test/behavioral/string-units-ui.ddd",
+      "frontend": "vue",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "string-units"
+    },
+    {
+      "name": "string-units-ui-svelte",
+      "ddd": "test/behavioral/string-units-ui.ddd",
+      "frontend": "svelte",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "string-units"
+    },
+    {
+      "name": "string-units-ui-angular",
+      "ddd": "test/behavioral/string-units-ui.ddd",
+      "frontend": "angular",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "string-units"
+    },
+    {
+      "name": "string-units-ui-feliz",
+      "ddd": "test/behavioral/string-units-ui.ddd",
+      "frontend": "feliz",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "string-units"
+    },
+    {
+      "name": "string-units-ui-flutter",
+      "ddd": "test/behavioral/string-units-ui.ddd",
+      "frontend": "flutter",
+      "api": false,
+      "unit": false,
+      "ui": false,
+      "uiFlutter": true,
+      "textProbe": "string-units"
+    },
+    {
       "name": "form-spec-ui-react",
       "ddd": "test/behavioral/form-spec-ui.ddd",
       "frontend": "react",

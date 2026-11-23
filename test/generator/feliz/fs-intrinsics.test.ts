@@ -21,10 +21,12 @@
 //
 // The snippets themselves are checked against the CATALOGUE CONTRACT (the
 // comment block in `src/util/intrinsics.ts`), not against .NET's defaults —
-// three of them deliberately diverge from what the bare .NET member does:
-// `substring` clamps where .NET throws, `round` forces away-from-zero where
-// .NET defaults to banker's, and `startOfDay` normalizes to UTC where `.Date`
-// would truncate in the value's own Kind.
+// two of them deliberately diverge from what the bare .NET member does:
+// `round` forces away-from-zero where .NET defaults to banker's, and
+// `startOfDay` normalizes to UTC where `.Date` would truncate in the value's
+// own Kind.  The code-point string ops (`substring`, `padStart`, `padEnd`)
+// are evaluated on an astral probe by
+// `test/generator/_walker/string-code-points-cross-target.test.ts`.
 //
 // Fable compilation of every arm is proven by `generated-feliz-build.yml`
 // (`dotnet fable`), not by this suite — a string table cannot prove that.
@@ -69,17 +71,6 @@ describe("Feliz F# intrinsic table — the catalogue contract", () => {
 
   it("`replace` replaces ALL — .NET's Replace already does, unlike JS's", () => {
     expect(r("s", "replace", "string", '"-"', '" "')).toBe('(s.Replace("-", " "))');
-  });
-
-  // .NET's Substring(start, length) agrees with Loom on the ARG MEANING but
-  // THROWS where Loom clamps — the divergence a verbatim emission would hide.
-  it("`substring` is start+LENGTH and CLAMPS instead of throwing", () => {
-    const two = r("s", "substring", "string", "2", "5") ?? "";
-    expect(two).toContain("s.Substring(2, min (5) (s.Length - 2))");
-    expect(two, 'an out-of-range start must yield "", not an exception').toContain(
-      'if 2 >= s.Length then ""',
-    );
-    expect(r("s", "substring", "string", "2") ?? "").toContain("s.Substring(2)");
   });
 
   // A Loom `T[]` is an F# `list` on this target (`FS_LEAVES.list`, and the

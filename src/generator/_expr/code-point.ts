@@ -129,3 +129,66 @@ export function elixirCodePointSubstring(recv: string, start: string, len?: stri
     ? `List.to_string(Enum.drop(String.to_charlist(${recv}), ${start}))`
     : `List.to_string(Enum.slice(String.to_charlist(${recv}), ${start}, ${len}))`;
 }
+
+// ---------------------------------------------------------------------------
+// The FRONTENDS count in the same unit.
+//
+// A page body's `s.length` / `s.substring(…)` / `s.padStart(…)` /
+// `s.padEnd(…)` must read the answer the server computes for the same
+// expression, so every frontend counts code points too.  The host primitives
+// do not: JS `s.length`, .NET `String.Length` under Fable (a JS string) and
+// Dart `String.length` all count UTF-16 units, so `"a😀bc"` reads 5 there and
+// 4 on the server, and every substring offset past the emoji shifts by one.
+//
+// `CODE_POINT_INTRINSICS` names the catalogue intrinsics that measure or index
+// a string by position; `.length` is their member-read twin (the walker's
+// `exprStringLength` seam).  Every frontend expression target answers both,
+// and `test/generator/_walker/string-code-points-cross-target.test.ts` holds
+// each target to the code-point answers on an astral probe.
+// ---------------------------------------------------------------------------
+
+/** The catalogue intrinsics (`intrinsicKey` form) whose arguments or result
+ *  count string positions — the ones a UTF-16 host primitive gets wrong. */
+export const CODE_POINT_INTRINSICS: ReadonlySet<string> = new Set([
+  "string.substring",
+  "string.padStart",
+  "string.padEnd",
+]);
+
+/** F# under Fable: a Fable string IS a JS string and Fable compiles `.Length`
+ *  / `.Substring` to the JS UTF-16 members, so the code-point form is the JS
+ *  one itself, inlined through Fable's `emitJsExpr` (`$0`, `$1`, … are the
+ *  `args`, in order).  Fully qualified, so it needs no `open`. */
+export function fableJsExpr(template: string, args: readonly string[], type: string): string {
+  const literal = template.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+  return `(Fable.Core.JsInterop.emitJsExpr (${args.join(", ")}) "${literal}" : ${type})`;
+}
+
+/** F#: the JS spread count.  A JS spread also counts the elements of an F#
+ *  list (Fable's `FSharpList` is iterable), so the form stays right on a
+ *  receiver the IR typed only as the `string` placeholder. */
+export function fsCodePointLength(recv: string): string {
+  return fableJsExpr(tsCodePointLength("($0)"), [recv], "int");
+}
+
+/** Dart: `runes` iterates a string by code point.  The receiver is tested at
+ *  run time because a page body's receiver may carry only the `string`
+ *  placeholder type while holding a `List` — `.runes` on a statically-typed
+ *  `List` would not compile, and a `List`'s `.length` is its element count. */
+export function dartCodePointLength(recv: string): string {
+  return `((Object? __s) => __s is String ? __s.runes.length : (__s as dynamic).length as int)(${recv})`;
+}
+
+/** Dart: `skip`/`take` over the runes clamp at both ends, and
+ *  `String.fromCharCodes` re-encodes each code point. */
+export function dartCodePointSubstring(recv: string, start: string, len?: string): string {
+  const window = len === undefined ? `.skip(${start})` : `.skip(${start}).take(${len})`;
+  return `String.fromCharCodes((${recv}).runes${window})`;
+}
+
+/** Dart: the fill repeated and cut to the missing number of code points,
+ *  before (`atStart`) or after the receiver. */
+export function dartCodePointPad(recv: string, n: string, fill: string, atStart: boolean): string {
+  const padded = atStart ? "p + s" : "s + p";
+  return `(() { final s = ${recv}; final k = (${n}) - s.runes.length; if (k <= 0) return s; final p = String.fromCharCodes(((${fill}) * k).runes.take(k)); return ${padded}; })()`;
+}

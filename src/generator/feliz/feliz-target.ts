@@ -12,6 +12,7 @@ import { enumPool, type ScopeField } from "../../ir/util/reachable-types.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { fsCodePointLength } from "../_expr/code-point.js";
 import { apiReadMemberType } from "../_frontend/optional-member.js";
 import { giveUp } from "../_walker/give-up.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
@@ -1607,6 +1608,7 @@ export const felizTarget: WalkerTarget = {
   exprConvert: (value, target, from) => FS_LEAVES.convert(value, target as never, from as never),
   exprList: (elements) => FS_LEAVES.list(elements),
   exprObject: (fields) => FS_LEAVES.object([...fields]),
+  exprStringLength: (recv) => fsCodePointLength(recv),
   // A duration is a `System.TimeSpan` here, not the JS frontends' millisecond
   // number — and datetime arithmetic is `.Add`/`.Subtract`, not `+`/`-`.  Both
   // seams forward to the SAME shared table the MVU update path uses, so

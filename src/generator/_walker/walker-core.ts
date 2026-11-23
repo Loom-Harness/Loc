@@ -62,7 +62,7 @@ import type {
   StmtIR,
   UiApiParamIR,
 } from "../../ir/types/loom-ir.js";
-import { collectionOpSite } from "../../ir/util/collection-op-site.js";
+import { collectionOpSite, isCollectionReceiver } from "../../ir/util/collection-op-site.js";
 import { walkStmtChildren } from "../../ir/util/walk.js";
 import { errorTypeUri } from "../../util/error-defaults.js";
 import { provableStringType } from "../../util/expr-body-type.js";
@@ -1619,6 +1619,8 @@ function emitMemberAccess(
   // receiver — a data read there has already rendered as its access site;
   // this appends `.<member>`.
   const recv = emitExpr(expr.receiver, ctx);
+  // A string's `.length` counts code points on every target.
+  if (readsStringLength(expr, ctx)) return ctx.target.exprStringLength(recv);
   // A target whose embedded language is not JavaScript spells some members
   // differently (F#'s `.Length`); returning undefined keeps the JS form.
   const spelled = ctx.target.renderMemberRead?.({
@@ -1632,6 +1634,26 @@ function emitMemberAccess(
   const plain = spelled ?? `${recv}.${expr.member}`;
   if (!unwrapProvenanced || !isProvenancedCarrierRead(expr, ctx)) return plain;
   return carrierHop(plain, expr, ctx, PROVENANCE_VALUE_FIELD);
+}
+
+/** True when a `.length` read measures a STRING (in code points) — not a
+ *  collection's size and not a record field that happens to be named
+ *  `length`.  The one decision every frontend renders through
+ *  `exprStringLength`, keyed the way the scalar intrinsics are: on the
+ *  receiver's type, with the declared field type behind an api read
+ *  (`apiReadMemberType`) preferred over the IR's, because a page body's
+ *  record chain can carry only the `string` placeholder.
+ *
+ *  A row-set binding (`QueryView` `data:`) is a collection whatever its IR
+ *  type says (`isCollectionReceiver`).  Where neither source can say more
+ *  than the placeholder, the read is taken as a string — which is why every
+ *  `exprStringLength` spelling also counts a collection's elements. */
+function readsStringLength(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContext): boolean {
+  if (expr.member !== "length") return false;
+  if (apiReadMemberType(expr, ctx) !== undefined) return false;
+  const t = apiReadMemberType(expr.receiver, ctx) ?? expr.receiverType;
+  if (t.kind !== "primitive" || t.name !== "string") return false;
+  return !isCollectionReceiver(expr.receiver, t, ctx.rowSetBindings ?? EMPTY_ROW_SET);
 }
 
 /** `<carrier>.<hop>` (`value` / `lineage`) off a provenanced field's wire
