@@ -241,23 +241,23 @@ const FORM_SPEC_PROBES = [
         }
       });
       const before = new Set((await listRows(origin, "tallies")).map((o) => o.id));
-      // What the form shows: the picker's text (the DateTime it holds) and the
-      // text fields' values, read off the accessibility tree and its inputs.
-      let shown = {};
-      for (let i = 0; i < 60; i++) {
-        const text = await accessibleText(page);
-        const values = await page.evaluate(() =>
-          [...document.querySelectorAll("input, textarea")].map((e) => e.value),
-        );
-        const at = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?/.exec(text)?.[0];
-        // The region is read where Flutter puts it: an input's value, or the
-        // field's text in the accessibility tree.
-        const region = PREFILL_PRINCIPAL.region;
-        const inRegion = values.includes(region) || text.split(/\s+/).includes(region);
-        shown = { countedAt: at, countedIn: inRegion ? region : values.join("|") };
-        if (shown.countedAt && shown.countedIn) break;
-        await page.waitForTimeout(250);
+      // What the form shows.  The picker's text (the DateTime it holds) is in
+      // the accessibility tree; a text field's value is not — Flutter fills
+      // its semantics input only while the field has focus, so each input is
+      // focused and read in turn.
+      let countedAt;
+      for (let i = 0; i < 60 && !countedAt; i++) {
+        countedAt = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?/.exec(await accessibleText(page))?.[0];
+        if (!countedAt) await page.waitForTimeout(250);
       }
+      const values = [];
+      for (const input of await page.$$("input, textarea")) {
+        await input.click({ force: true, timeout: 2000 }).catch(() => {});
+        await page.waitForTimeout(300);
+        values.push(await page.evaluate(() => document.activeElement?.value ?? ""));
+      }
+      const region = PREFILL_PRINCIPAL.region;
+      const shown = { countedAt, countedIn: values.includes(region) ? region : values.join("|") };
       await clickSemantic(page, "Create");
       const row = await storedTally(origin, before, (ms) => page.waitForTimeout(ms));
       const body = bodies[0] ? JSON.parse(bodies[0]) : undefined;
@@ -599,8 +599,16 @@ async function runCase(c) {
       ...chromiumLaunchOptions(chromium.executablePath()),
     });
     for (const probe of probes) {
-      // A probe that runs as a named principal sends its `x-dev-claims`.
-      const page = await browser.newPage(probe.headers ? { extraHTTPHeaders: probe.headers } : {});
+      const page = await browser.newPage();
+      // A probe that runs as a named principal sends its `x-dev-claims` to the
+      // app's own origin only: on a cross-origin fetch (the engine's fonts) the
+      // header fails the CORS preflight.
+      if (probe.headers) {
+        await page.route(
+          (url) => url.origin === origin,
+          (route) => route.continue({ headers: { ...route.request().headers(), ...probe.headers } }),
+        );
+      }
       const api = [];
       const errors = [];
       /** Cross-origin request failures — reported, never fatal (see the

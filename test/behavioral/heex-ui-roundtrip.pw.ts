@@ -117,7 +117,7 @@ test("a create form refuses typed text the rule refuses and saves an accepted on
 // fill (D-FORM-PREFILL): `readAt` the server's clock at mount, `readBy`
 // the session principal's role (the dev stub's built-in "admin").  Submitted
 // with those two untouched, the form event carries both as shown and no
-// stamped key, and the stored meter holds what the form showed.
+// server-owned key, and the stored meter holds what the form showed.
 test("a create form opens pre-filled from the clock and the session and stores what it showed", async ({
   page,
 }) => {
@@ -139,15 +139,16 @@ test("a create form opens pre-filled from the clock and the session and stores w
   );
 
   await page.getByTestId("meters-new-submit").click();
-  await expect(page).toHaveURL(/\/meters\/[0-9a-f-]{8,}$/i);
-  const id = new URL(page.url()).pathname.split("/").pop();
-
+  await expect.poll(() => frames.some((f) => f.includes('"save_meter"'))).toBe(true);
   const submit = decodeURIComponent(frames.find((f) => f.includes('"save_meter"')) ?? "");
   expect(submit, "the form event names the shown readAt").toContain(`meter[read_at]=${shownAt}`);
   expect(submit, "the form event names the shown readBy").toContain(`meter[read_by]=${shownAs}`);
-  expect(submit, "no stamped key rides the form event").not.toMatch(
+  expect(submit, "no server-owned key rides the form event").not.toMatch(
     /(?:created|updated)_(?:at|by)/,
   );
+
+  await expect(page).toHaveURL(/\/meters\/[0-9a-f-]{8,}$/i);
+  const id = new URL(page.url()).pathname.split("/").pop();
 
   const res = await page.request.get(`/api/meters/${id}`);
   expect(res.status()).toBe(200);
