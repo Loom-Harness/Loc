@@ -28,8 +28,17 @@
 // the subset (the backend 403 still enforces them).
 
 import type { BinOp, ExprIR } from "../../ir/types/loom-ir.js";
+import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { nullishOperand } from "../_expr/coalesce.js";
 import { groupedOperand, groupedOperands } from "../_expr/grouping.js";
+
+/** A client-side gate reads `currentUser.isSystem` as `false`: a browser user
+ *  is never the system principal (D-REACTOR-SYSTEM-PRINCIPAL), and the session
+ *  user carries no such claim.  Every frontend's gate spelling asks this
+ *  before rendering a claim access. */
+export function gateReadsSystemPrincipal(e: ExprIR): boolean {
+  return isPrincipalIsSystem(e);
+}
 
 /** Binary operators that differ between Loom source and JS output; the rest
  *  pass through verbatim. */
@@ -56,6 +65,7 @@ export function renderGateExpr(e: ExprIR, userVar: string): string {
     case "literal":
       return renderLiteral(e.lit, e.value);
     case "member":
+      if (gateReadsSystemPrincipal(e)) return "false";
       // Claim access — `currentUser.role`, `currentUser.org.tier`.  The
       // session-user local is bound loosely (dynamic JWT claims), so chained
       // access stays type-clean.
