@@ -39,6 +39,13 @@ export interface ResultBound {
   result?: CallResultBindingIR;
 }
 
+/** What undoes a committed `step`: its `undo { … }` body, `final` (the step
+ *  is never undone), or nothing written. */
+export type StepCompensationIR =
+  | { kind: "undo"; body: WorkflowStmtIR[] }
+  | { kind: "final" }
+  | { kind: "none" };
+
 export type WorkflowStmtIR = (
   | ({ kind: "precondition"; expr: ExprIR; source: string } & Messaged)
   | {
@@ -308,6 +315,28 @@ export type WorkflowStmtIR = (
       kind: "not-found";
       detail?: string;
       subject?: string;
+    }
+  | ({
+      // `send <Record> { … }` / `let r = send <Record> { … }` — the workflow
+      // sends a command or query record to that record's one handler
+      // (`handlerFor`, `src/ir/plan/command-bus.ts`).  `context` is the
+      // record's declaring context (the sending workflow's own context for a
+      // bare name).  `result` is the `let`-bound handler result; its
+      // `errorVariants` must be matched (`loom.workflow-send-result-unmatched`).
+      kind: "send";
+      context: string;
+      record: string;
+      fields: { name: string; value: ExprIR }[];
+    } & ResultBound)
+  | {
+      // `step <name> { … }` — a named group of sends that commits as one
+      // transaction (`workflowSteps`, `src/ir/plan/workflow-steps.ts`).
+      // `compensation` is the step's `undo { … }` body, `final` (never
+      // undone), or `none`.
+      kind: "step";
+      name: string;
+      body: WorkflowStmtIR[];
+      compensation: StepCompensationIR;
     }
   | ({
       // `match <subject> { V b => { … } … else => { … } }` used for its

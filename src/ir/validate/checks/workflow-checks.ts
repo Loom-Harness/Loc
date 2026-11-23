@@ -1748,6 +1748,8 @@ function validateWorkflowStatements(
         case "resource-call":
         case "domain-service-call":
         case "not-found":
+        case "send":
+        case "step":
           break;
         default: {
           const _exhaustive: never = inner;
@@ -2264,6 +2266,12 @@ function validateWorkflowStatements(
         break;
       case "not-found":
         // A terminal answer: nothing to resolve, no effect.
+        break;
+      // A send is the workflow's change: its handler writes.  A step groups
+      // sends.  Both are checked in `workflow-send-checks.ts`.
+      case "send":
+      case "step":
+        markMutated();
         break;
       // A read of the audit trail: placement and the audited aggregate are
       // checked in `history-read-checks.ts`.

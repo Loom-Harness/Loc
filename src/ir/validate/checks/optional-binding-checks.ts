@@ -100,7 +100,12 @@ function checkBody(
         break;
       }
       case "domain-service-call":
+      case "send":
         bindResult(st.result);
+        break;
+      case "step":
+        checkBody(st.body, scope, report);
+        if (st.compensation.kind === "undo") checkBody(st.compensation.body, scope, report);
         break;
       case "precondition":
       case "requires":

@@ -114,6 +114,11 @@ function unreadWorkflowLets(
           used.add(s.target);
           if (s.result) lets.push({ name: s.result.name, origin: s.origin });
           break;
+        case "send":
+          if (s.result) lets.push({ name: s.result.name, origin: s.origin });
+          break;
+        case "step":
+          break;
         case "assign":
           if (s.target.segments[0]) used.add(s.target.segments[0]);
           break;

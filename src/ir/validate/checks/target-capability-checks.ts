@@ -59,7 +59,7 @@ import { bodyUsesMoneyLocaleFormat } from "../../util/money-locale-format.js";
 import { contextReadsOrgAncestors, registryContextName } from "../../util/org-context.js";
 import { findValueObjectInScope } from "../../util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
-import { walkExprDeep, walkStmtsDeep } from "../../util/walk.js";
+import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtsDeep } from "../../util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../util/write-scope-guards.js";
 import {
   type OpSelfCallHit,
@@ -232,6 +232,34 @@ function tenantOwnedReferenceUses(ctx: BoundedContextIR, nonRelational: boolean)
 
 /** Where each backend construct is used, per hosted context. */
 export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetector>> = {
+  "stmt:send@workflow-body": (ctx) => {
+    const out: ConstructUse[] = [];
+    for (const wf of ctx.workflows) {
+      const bodies = [
+        ...wf.creates.map((c) => ({
+          label: c.name ? `create ${c.name}` : "create",
+          body: c.statements,
+        })),
+        ...wf.subscriptions.map((s) => ({ label: `on(${s.event})`, body: s.statements })),
+      ];
+      for (const { label, body } of bodies) {
+        const found: Extract<WorkflowStmtIR, { kind: "send" | "step" }>[] = [];
+        for (const st of body)
+          walkWorkflowStmtsDeep(st, (n) => {
+            if (n.kind === "send" || n.kind === "step") found.push(n);
+          });
+        const first = found[0];
+        if (!first) continue;
+        const spelled = first.kind === "send" ? `send ${first.record}` : `step ${first.name}`;
+        out.push({
+          what: `workflow '${wf.name}' ${label}: \`${spelled}\``,
+          source: `${ctx.name}/${wf.name}`,
+          origin: first.origin ?? wf.origin,
+        });
+      }
+    }
+    return out;
+  },
   "stmt:requires@event-sourced-create": (ctx) => {
     const out: ConstructUse[] = [];
     for (const agg of ctx.aggregates) {
@@ -732,6 +760,17 @@ function refuse(
       refused(
         diags,
         diagMessage("loom.target-unsupported#reference-admission-unrealized", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
+    case "workflow-send-unrendered":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#workflow-send-unrendered", {
           what: use.what,
           dName,
           target: t,

@@ -81,6 +81,8 @@ import {
   isPostfixChain,
   isProjectionOn,
   isQueryHandler,
+  isSendStmt,
+  isStepStmt,
   isStore,
   isUi,
   isWorkflowCreateDecl,
@@ -242,6 +244,18 @@ export function checkStatementPlacement(model: Model, accept: ValidationAcceptor
         property: "var",
         code: "loom.if-let-placement",
       });
+      continue;
+    }
+    // `send` / `step` — a workflow body only.  Outside a workflow or handler
+    // body no lowerer has a form for them; a handler body is refused at phase
+    // ⑦ with its own reason (`workflow-send-checks.ts`).
+    if (isSendStmt(node) || isStepStmt(node)) {
+      if (zoneOf(node) === "workflow") continue;
+      accept(
+        "error",
+        diagMessage("loom.workflow-send-placement#outside", { owner: describeOwner(node) }),
+        { node, code: "loom.workflow-send-placement" },
+      );
       continue;
     }
     // `for … in …` — workflow / handler bodies only TODAY (M-T5.30).

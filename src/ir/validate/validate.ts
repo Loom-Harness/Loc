@@ -172,6 +172,7 @@ import {
   validateHandlerInlineRepoCalls,
   validateWorkflows,
 } from "./checks/workflow-checks.js";
+import { validateWorkflowSends } from "./checks/workflow-send-checks.js";
 import { validateWorkflowUnusedParams } from "./checks/workflow-unused-param-checks.js";
 
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
@@ -496,6 +497,7 @@ export function validateLoomModel(
   // `route ... -> Context.Handler` target must resolve.  Whole-model (routes are
   // system-level, their targets cross-context).
   validateRoutes(loom, diags);
+  validateWorkflowSends(loom, diags);
   validateVariantMatch(loom, diags);
   // A find's `X or NotFound` / `X option` (and an `or`-returning operation's
   // result) must be discriminated by a variant `match` before it is read

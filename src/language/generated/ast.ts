@@ -155,6 +155,7 @@ export type DddKeywordNames =
     | "favicon"
     | "feliz"
     | "filter"
+    | "final"
     | "find"
     | "flutter"
     | "footer"
@@ -294,6 +295,7 @@ export type DddKeywordNames =
     | "sql"
     | "stamp"
     | "state"
+    | "step"
     | "storage"
     | "store"
     | "string"
@@ -315,6 +317,7 @@ export type DddKeywordNames =
     | "ttl"
     | "type"
     | "ui"
+    | "undo"
     | "unique"
     | "unless"
     | "urlStyle"
@@ -527,7 +530,7 @@ export function isAreaMember(item: unknown): item is AreaMember {
 }
 
 export interface AssignOrCallStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StampDecl | TestBlock | TestE2E | UiNotification | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StampDecl | StepStmt | TestBlock | TestE2E | UiNotification | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'AssignOrCallStmt';
     op?: '+=' | '-=' | ':=';
     target: LValue;
@@ -753,7 +756,7 @@ export interface CanExpr extends langium.AstNode {
     readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | CanExpr | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExistsExpr | ExpectStmt | FilterDecl | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PolicyReadRule | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | ReturnStmt | StateField | TemplateHole | TernaryExpr | TestPrincipalClaim | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'CanExpr';
     args: Array<Expression>;
-    op: 'exists' | 'send' | 'write' | string;
+    op: 'exists' | 'final' | 'send' | 'step' | 'undo' | 'write' | string;
     receiver: NameRef;
 }
 
@@ -1305,7 +1308,7 @@ export function isDomainServiceOperation(item: unknown): item is DomainServiceOp
 }
 
 export interface EmitField extends langium.AstNode {
-    readonly $container: EmitStmt;
+    readonly $container: EmitStmt | SendStmt;
     readonly $type: 'EmitField';
     name: LooseName;
     value: Expression;
@@ -1322,7 +1325,7 @@ export function isEmitField(item: unknown): item is EmitField {
 }
 
 export interface EmitStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | TestBlock | TestE2E | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | TestBlock | TestE2E | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'EmitStmt';
     event: langium.Reference<EventDecl>;
     fields: Array<EmitField>;
@@ -1518,7 +1521,7 @@ export function isFilterDecl(item: unknown): item is FilterDecl {
 }
 
 export interface ForStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'ForStmt';
     body: Array<Statement>;
     iterable: Expression;
@@ -1682,7 +1685,7 @@ export function isIdType(item: unknown): item is IdType {
 }
 
 export interface IfLetStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'IfLetStmt';
     elseBody: Array<Statement>;
     source: Expression;
@@ -1703,7 +1706,7 @@ export function isIfLetStmt(item: unknown): item is IfLetStmt {
 }
 
 export interface IfStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'IfStmt';
     cond: Expression;
     elseBody: Array<Statement>;
@@ -1916,7 +1919,7 @@ export function isLayoutSlotName(item: unknown): item is LayoutSlotName {
 }
 
 export interface LetStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | TestBlock | TestE2E | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | TestBlock | TestE2E | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'LetStmt';
     expr: Expression;
     name: CommonSoftKeywords | string;
@@ -2226,7 +2229,7 @@ export function isMatchExpr(item: unknown): item is MatchExpr {
 }
 
 export interface MatchStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'MatchStmt';
     elseBody: Array<Statement>;
     subject: Expression;
@@ -2489,7 +2492,7 @@ export function isNameRefIdent(item: unknown): item is NameRefIdent {
 }
 
 export interface NotFoundStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'NotFoundStmt';
     detail?: string;
 }
@@ -2639,7 +2642,7 @@ export interface Operation extends langium.AstNode {
     body: Array<Statement>;
     extern: boolean;
     gate?: Expression;
-    name: 'exists' | 'send' | 'write' | string;
+    name: 'exists' | 'final' | 'send' | 'step' | 'undo' | 'write' | string;
     params: Array<Parameter>;
     private: boolean;
     returnType?: TypeRef;
@@ -2914,7 +2917,7 @@ export function isPostfixSuffix(item: unknown): item is PostfixSuffix {
 }
 
 export interface PreconditionStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | TestBlock | TestE2E | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | TestBlock | TestE2E | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'PreconditionStmt';
     expr: Expression;
     name?: string;
@@ -3262,7 +3265,7 @@ export function isRequiresProp(item: unknown): item is RequiresProp {
 }
 
 export interface RequiresStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'RequiresStmt';
     expr: Expression;
 }
@@ -3355,7 +3358,7 @@ export function isRetrieval(item: unknown): item is Retrieval {
 }
 
 export interface ReturnStmt extends langium.AstNode {
-    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | VariantStmtArm | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'ReturnStmt';
     value: Expression;
 }
@@ -3498,6 +3501,44 @@ export function isSelfType(item: unknown): item is SelfType {
     return reflection.isInstance(item, SelfType.$type);
 }
 
+export interface SendStmt extends langium.AstNode {
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | VariantStmtArm | WorkflowCreateDecl;
+    readonly $type: 'SendStmt';
+    fields: Array<EmitField>;
+    name?: CommonSoftKeywords | string;
+    target: SendTarget;
+    type?: TypeRef;
+}
+
+export const SendStmt = {
+    $type: 'SendStmt',
+    fields: 'fields',
+    name: 'name',
+    target: 'target',
+    type: 'type'
+} as const;
+
+export function isSendStmt(item: unknown): item is SendStmt {
+    return reflection.isInstance(item, SendStmt.$type);
+}
+
+export interface SendTarget extends langium.AstNode {
+    readonly $container: SendStmt;
+    readonly $type: 'SendTarget';
+    context?: langium.Reference<BoundedContext>;
+    record: string;
+}
+
+export const SendTarget = {
+    $type: 'SendTarget',
+    context: 'context',
+    record: 'record'
+} as const;
+
+export function isSendTarget(item: unknown): item is SendTarget {
+    return reflection.isInstance(item, SendTarget.$type);
+}
+
 export interface SensitivityClause extends langium.AstNode {
     readonly $container: Property;
     readonly $type: 'SensitivityClause';
@@ -3549,10 +3590,10 @@ export function isSlotType(item: unknown): item is SlotType {
     return reflection.isInstance(item, SlotType.$type);
 }
 
-export type SoftKeywordsExceptSort = 'abstract' | 'action' | 'against' | 'aggregate' | 'aggregates' | 'allow' | 'angular' | 'api' | 'app' | 'apps' | 'area' | 'asc' | 'at' | 'audience' | 'audited' | 'auth' | 'bind' | 'body' | 'broadcast' | 'by' | 'cache' | 'can' | 'canonical' | 'capability' | 'carries' | 'channel' | 'channelSource' | 'channels' | 'check' | 'claims' | 'clientId' | 'clientSecret' | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts' | 'cookie' | 'covers' | 'criterion' | 'cron' | 'crossTenant' | 'dataSources' | 'date' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description' | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elixir' | 'embedded' | 'enforcement' | 'entitles' | 'enum' | 'env' | 'ephemeral' | 'error' | 'event' | 'eventLog' | 'eventSourced' | 'every' | 'exists' | 'extends' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flutter' | 'footer' | 'framework' | 'gateway' | 'gathers' | 'group' | 'header' | 'hosts' | 'httpStatus' | 'i18n' | 'immutable' | 'implements' | 'implies' | 'import' | 'index' | 'inheritanceUsing' | 'instance' | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'key' | 'keyPrefix' | 'keyed' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'log' | 'mailer' | 'main' | 'managed' | 'mask' | 'menu' | 'migration' | 'modules' | 'money' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc' | 'onCreate' | 'onUpdate' | 'opt' | 'or' | 'overlap' | 'own' | 'ownTable' | 'paged' | 'parent' | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy' | 'port' | 'projection' | 'provenanced' | 'provider' | 'python' | 'query' | 'queryHandler' | 'queue' | 'raw' | 'react' | 'readCommitted' | 'readUncommitted' | 'readonly' | 'relational' | 'repeatableRead' | 'replica' | 'repository' | 'required' | 'requirement' | 'resource' | 'response' | 'retain' | 'retention' | 'retrieval' | 'route' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select' | 'send' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'sessions' | 'shape' | 'share' | 'sharedTable' | 'sidebar' | 'slot' | 'snapshot' | 'solution' | 'source' | 'sql' | 'stamp' | 'state' | 'storage' | 'store' | 'subdomain' | 'svelte' | 'system' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource' | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user' | 'valueobject' | 'verifies' | 'views' | 'vue' | 'web' | 'work' | 'workflow' | 'workflows' | 'write';
+export type SoftKeywordsExceptSort = 'abstract' | 'action' | 'against' | 'aggregate' | 'aggregates' | 'allow' | 'angular' | 'api' | 'app' | 'apps' | 'area' | 'asc' | 'at' | 'audience' | 'audited' | 'auth' | 'bind' | 'body' | 'broadcast' | 'by' | 'cache' | 'can' | 'canonical' | 'capability' | 'carries' | 'channel' | 'channelSource' | 'channels' | 'check' | 'claims' | 'clientId' | 'clientSecret' | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts' | 'cookie' | 'covers' | 'criterion' | 'cron' | 'crossTenant' | 'dataSources' | 'date' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description' | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elixir' | 'embedded' | 'enforcement' | 'entitles' | 'enum' | 'env' | 'ephemeral' | 'error' | 'event' | 'eventLog' | 'eventSourced' | 'every' | 'exists' | 'extends' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'final' | 'flutter' | 'footer' | 'framework' | 'gateway' | 'gathers' | 'group' | 'header' | 'hosts' | 'httpStatus' | 'i18n' | 'immutable' | 'implements' | 'implies' | 'import' | 'index' | 'inheritanceUsing' | 'instance' | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'key' | 'keyPrefix' | 'keyed' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'log' | 'mailer' | 'main' | 'managed' | 'mask' | 'menu' | 'migration' | 'modules' | 'money' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc' | 'onCreate' | 'onUpdate' | 'opt' | 'or' | 'overlap' | 'own' | 'ownTable' | 'paged' | 'parent' | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy' | 'port' | 'projection' | 'provenanced' | 'provider' | 'python' | 'query' | 'queryHandler' | 'queue' | 'raw' | 'react' | 'readCommitted' | 'readUncommitted' | 'readonly' | 'relational' | 'repeatableRead' | 'replica' | 'repository' | 'required' | 'requirement' | 'resource' | 'response' | 'retain' | 'retention' | 'retrieval' | 'route' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select' | 'send' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'sessions' | 'shape' | 'share' | 'sharedTable' | 'sidebar' | 'slot' | 'snapshot' | 'solution' | 'source' | 'sql' | 'stamp' | 'state' | 'step' | 'storage' | 'store' | 'subdomain' | 'svelte' | 'system' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource' | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'undo' | 'urlStyle' | 'use' | 'user' | 'valueobject' | 'verifies' | 'views' | 'vue' | 'web' | 'work' | 'workflow' | 'workflows' | 'write';
 
 export function isSoftKeywordsExceptSort(item: unknown): item is SoftKeywordsExceptSort {
-    return item === 'abstract' || item === 'action' || item === 'against' || item === 'aggregates' || item === 'allow' || item === 'angular' || item === 'app' || item === 'apps' || item === 'at' || item === 'api' || item === 'area' || item === 'asc' || item === 'audience' || item === 'audited' || item === 'auth' || item === 'bind' || item === 'body' || item === 'broadcast' || item === 'by' || item === 'cache' || item === 'can' || item === 'canonical' || item === 'capability' || item === 'carries' || item === 'channel' || item === 'channels' || item === 'channelSource' || item === 'check' || item === 'claims' || item === 'clientId' || item === 'clientSecret' || item === 'command' || item === 'commandHandler' || item === 'component' || item === 'config' || item === 'connection' || item === 'context' || item === 'contexts' || item === 'cookie' || item === 'covers' || item === 'criterion' || item === 'cron' || item === 'crossTenant' || item === 'dataSources' || item === 'date' || item === 'delivery' || item === 'deny' || item === 'denyByDefault' || item === 'deployable' || item === 'desc' || item === 'description' || item === 'design' || item === 'directoryLayout' || item === 'document' || item === 'domainService' || item === 'dotnet' || item === 'e2e' || item === 'elixir' || item === 'embedded' || item === 'enforcement' || item === 'entitles' || item === 'env' || item === 'ephemeral' || item === 'error' || item === 'event' || item === 'eventLog' || item === 'eventSourced' || item === 'every' || item === 'exists' || item === 'extern' || item === 'favicon' || item === 'feliz' || item === 'filter' || item === 'flutter' || item === 'footer' || item === 'framework' || item === 'gateway' || item === 'gathers' || item === 'group' || item === 'header' || item === 'hosts' || item === 'httpStatus' || item === 'i18n' || item === 'immutable' || item === 'implements' || item === 'implies' || item === 'index' || item === 'inheritanceUsing' || item === 'instance' || item === 'internal' || item === 'isolationLevel' || item === 'issuer' || item === 'java' || item === 'join' || item === 'jwt' || item === 'key' || item === 'keyed' || item === 'keyPrefix' || item === 'kind' || item === 'label' || item === 'layout' || item === 'link' || item === 'literal' || item === 'loads' || item === 'local' || item === 'log' || item === 'mailer' || item === 'main' || item === 'managed' || item === 'mask' || item === 'menu' || item === 'migration' || item === 'modules' || item === 'money' || item === 'node' || item === 'objectStore' || item === 'of' || item === 'ogImage' || item === 'oidc' || item === 'onCreate' || item === 'onUpdate' || item === 'opt' || item === 'or' || item === 'overlap' || item === 'own' || item === 'ownTable' || item === 'paged' || item === 'parent' || item === 'payload' || item === 'permissions' || item === 'persistedAs' || item === 'persistence' || item === 'phoenixLiveView' || item === 'platform' || item === 'plural' || item === 'policy' || item === 'port' || item === 'projection' || item === 'provenanced' || item === 'provider' || item === 'python' || item === 'query' || item === 'queryHandler' || item === 'queue' || item === 'raw' || item === 'react' || item === 'readCommitted' || item === 'readonly' || item === 'readUncommitted' || item === 'relational' || item === 'repeatableRead' || item === 'replica' || item === 'required' || item === 'requirement' || item === 'resource' || item === 'response' || item === 'retain' || item === 'retention' || item === 'retrieval' || item === 'route' || item === 'schema' || item === 'scopes' || item === 'secret' || item === 'section' || item === 'seed' || item === 'select' || item === 'send' || item === 'sensitive' || item === 'serializable' || item === 'serves' || item === 'service' || item === 'sessions' || item === 'share' || item === 'shape' || item === 'sharedTable' || item === 'sidebar' || item === 'slot' || item === 'snapshot' || item === 'solution' || item === 'source' || item === 'sql' || item === 'stamp' || item === 'state' || item === 'storage' || item === 'store' || item === 'subdomain' || item === 'svelte' || item === 'tablePrefix' || item === 'targets' || item === 'tenancy' || item === 'testCase' || item === 'theme' || item === 'timerSource' || item === 'title' || item === 'token' || item === 'transactional' || item === 'ttl' || item === 'type' || item === 'ui' || item === 'urlStyle' || item === 'use' || item === 'user' || item === 'valueobject' || item === 'verifies' || item === 'views' || item === 'vue' || item === 'work' || item === 'workflow' || item === 'workflows' || item === 'write' || item === 'enum' || item === 'import' || item === 'extends' || item === 'system' || item === 'repository' || item === 'aggregate' || item === 'web';
+    return item === 'abstract' || item === 'action' || item === 'against' || item === 'aggregates' || item === 'allow' || item === 'angular' || item === 'app' || item === 'apps' || item === 'at' || item === 'api' || item === 'area' || item === 'asc' || item === 'audience' || item === 'audited' || item === 'auth' || item === 'bind' || item === 'body' || item === 'broadcast' || item === 'by' || item === 'cache' || item === 'can' || item === 'canonical' || item === 'capability' || item === 'carries' || item === 'channel' || item === 'channels' || item === 'channelSource' || item === 'check' || item === 'claims' || item === 'clientId' || item === 'clientSecret' || item === 'command' || item === 'commandHandler' || item === 'component' || item === 'config' || item === 'connection' || item === 'context' || item === 'contexts' || item === 'cookie' || item === 'covers' || item === 'criterion' || item === 'cron' || item === 'crossTenant' || item === 'dataSources' || item === 'date' || item === 'delivery' || item === 'deny' || item === 'denyByDefault' || item === 'deployable' || item === 'desc' || item === 'description' || item === 'design' || item === 'directoryLayout' || item === 'document' || item === 'domainService' || item === 'dotnet' || item === 'e2e' || item === 'elixir' || item === 'embedded' || item === 'enforcement' || item === 'entitles' || item === 'env' || item === 'ephemeral' || item === 'error' || item === 'event' || item === 'eventLog' || item === 'eventSourced' || item === 'every' || item === 'exists' || item === 'extern' || item === 'favicon' || item === 'feliz' || item === 'filter' || item === 'flutter' || item === 'footer' || item === 'framework' || item === 'gateway' || item === 'gathers' || item === 'group' || item === 'header' || item === 'hosts' || item === 'httpStatus' || item === 'i18n' || item === 'immutable' || item === 'implements' || item === 'implies' || item === 'index' || item === 'inheritanceUsing' || item === 'instance' || item === 'internal' || item === 'isolationLevel' || item === 'issuer' || item === 'java' || item === 'join' || item === 'jwt' || item === 'key' || item === 'keyed' || item === 'keyPrefix' || item === 'kind' || item === 'label' || item === 'layout' || item === 'link' || item === 'literal' || item === 'loads' || item === 'local' || item === 'log' || item === 'mailer' || item === 'main' || item === 'managed' || item === 'mask' || item === 'menu' || item === 'migration' || item === 'modules' || item === 'money' || item === 'node' || item === 'objectStore' || item === 'of' || item === 'ogImage' || item === 'oidc' || item === 'onCreate' || item === 'onUpdate' || item === 'opt' || item === 'or' || item === 'overlap' || item === 'own' || item === 'ownTable' || item === 'paged' || item === 'parent' || item === 'payload' || item === 'permissions' || item === 'persistedAs' || item === 'persistence' || item === 'phoenixLiveView' || item === 'platform' || item === 'plural' || item === 'policy' || item === 'port' || item === 'projection' || item === 'provenanced' || item === 'provider' || item === 'python' || item === 'query' || item === 'queryHandler' || item === 'queue' || item === 'raw' || item === 'react' || item === 'readCommitted' || item === 'readonly' || item === 'readUncommitted' || item === 'relational' || item === 'repeatableRead' || item === 'replica' || item === 'required' || item === 'requirement' || item === 'resource' || item === 'response' || item === 'retain' || item === 'retention' || item === 'retrieval' || item === 'route' || item === 'schema' || item === 'scopes' || item === 'secret' || item === 'section' || item === 'seed' || item === 'select' || item === 'send' || item === 'sensitive' || item === 'serializable' || item === 'serves' || item === 'service' || item === 'sessions' || item === 'share' || item === 'shape' || item === 'sharedTable' || item === 'sidebar' || item === 'slot' || item === 'snapshot' || item === 'solution' || item === 'source' || item === 'sql' || item === 'stamp' || item === 'state' || item === 'storage' || item === 'store' || item === 'subdomain' || item === 'svelte' || item === 'tablePrefix' || item === 'targets' || item === 'tenancy' || item === 'testCase' || item === 'theme' || item === 'timerSource' || item === 'title' || item === 'token' || item === 'transactional' || item === 'ttl' || item === 'type' || item === 'ui' || item === 'urlStyle' || item === 'use' || item === 'user' || item === 'valueobject' || item === 'verifies' || item === 'views' || item === 'vue' || item === 'work' || item === 'workflow' || item === 'workflows' || item === 'write' || item === 'enum' || item === 'import' || item === 'extends' || item === 'system' || item === 'repository' || item === 'aggregate' || item === 'web' || item === 'step' || item === 'undo' || item === 'final';
 }
 
 export interface Solution extends langium.AstNode {
@@ -3679,7 +3720,7 @@ export function isStateFieldName(item: unknown): item is StateFieldName {
     return isCommonSoftKeywords(item) || item === 'page' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
-export type Statement = AssignOrCallStmt | EmitStmt | ForStmt | IfLetStmt | IfStmt | LetStmt | MatchStmt | NotFoundStmt | PreconditionStmt | RequiresStmt | ReturnStmt;
+export type Statement = AssignOrCallStmt | EmitStmt | ForStmt | IfLetStmt | IfStmt | LetStmt | MatchStmt | NotFoundStmt | PreconditionStmt | RequiresStmt | ReturnStmt | SendStmt | StepStmt;
 
 export const Statement = {
     $type: 'Statement'
@@ -3687,6 +3728,29 @@ export const Statement = {
 
 export function isStatement(item: unknown): item is Statement {
     return reflection.isInstance(item, Statement.$type);
+}
+
+export interface StepStmt extends langium.AstNode {
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | StepStmt | VariantStmtArm | WorkflowCreateDecl;
+    readonly $type: 'StepStmt';
+    body: Array<Statement>;
+    final: boolean;
+    hasUndo: boolean;
+    name: CommonSoftKeywords | string;
+    undo: Array<Statement>;
+}
+
+export const StepStmt = {
+    $type: 'StepStmt',
+    body: 'body',
+    final: 'final',
+    hasUndo: 'hasUndo',
+    name: 'name',
+    undo: 'undo'
+} as const;
+
+export function isStepStmt(item: unknown): item is StepStmt {
+    return reflection.isInstance(item, StepStmt.$type);
 }
 
 export interface Storage extends langium.AstNode {
@@ -4168,7 +4232,7 @@ export function isTypeAtom(item: unknown): item is TypeAtom {
 }
 
 export interface TypeRef extends langium.AstNode {
-    readonly $container: ActionType | CommandHandler | Criterion | DerivedProp | DomainServiceOperation | FunctionDecl | LetStmt | Operation | Parameter | PolicyDecl | Property | QueryHandler | Retrieval | StateField | UiFunction | UserField | WorkflowCreateDecl;
+    readonly $container: ActionType | CommandHandler | Criterion | DerivedProp | DomainServiceOperation | FunctionDecl | LetStmt | Operation | Parameter | PolicyDecl | Property | QueryHandler | Retrieval | SendStmt | StateField | UiFunction | UserField | WorkflowCreateDecl;
     readonly $type: 'TypeRef';
     alternatives: Array<TypeAtom>;
     array: boolean;
@@ -4738,6 +4802,8 @@ export type DddAstType = {
     Seed: Seed
     SeedRow: SeedRow
     SelfType: SelfType
+    SendStmt: SendStmt
+    SendTarget: SendTarget
     SensitivityClause: SensitivityClause
     ServiceConnectionSource: ServiceConnectionSource
     SlotType: SlotType
@@ -4748,6 +4814,7 @@ export type DddAstType = {
     StateBlock: StateBlock
     StateField: StateField
     Statement: Statement
+    StepStmt: StepStmt
     Storage: Storage
     Store: Store
     StoreDecl: StoreDecl
@@ -7551,6 +7618,42 @@ export class DddAstReflection extends langium.AbstractAstReflection {
             },
             superTypes: [BaseType.$type]
         },
+        SendStmt: {
+            name: SendStmt.$type,
+            properties: {
+                fields: {
+                    name: SendStmt.fields,
+                    defaultValue: [],
+                    optional: true
+                },
+                name: {
+                    name: SendStmt.name,
+                    optional: true
+                },
+                target: {
+                    name: SendStmt.target
+                },
+                type: {
+                    name: SendStmt.type,
+                    optional: true
+                }
+            },
+            superTypes: [Statement.$type]
+        },
+        SendTarget: {
+            name: SendTarget.$type,
+            properties: {
+                context: {
+                    name: SendTarget.context,
+                    referenceType: BoundedContext.$type,
+                    optional: true
+                },
+                record: {
+                    name: SendTarget.record
+                }
+            },
+            superTypes: []
+        },
         SensitivityClause: {
             name: SensitivityClause.$type,
             properties: {
@@ -7674,6 +7777,35 @@ export class DddAstReflection extends langium.AbstractAstReflection {
             properties: {
             },
             superTypes: []
+        },
+        StepStmt: {
+            name: StepStmt.$type,
+            properties: {
+                body: {
+                    name: StepStmt.body,
+                    defaultValue: [],
+                    optional: true
+                },
+                final: {
+                    name: StepStmt.final,
+                    defaultValue: false,
+                    optional: true
+                },
+                hasUndo: {
+                    name: StepStmt.hasUndo,
+                    defaultValue: false,
+                    optional: true
+                },
+                name: {
+                    name: StepStmt.name
+                },
+                undo: {
+                    name: StepStmt.undo,
+                    defaultValue: [],
+                    optional: true
+                }
+            },
+            superTypes: [Statement.$type]
         },
         Storage: {
             name: Storage.$type,

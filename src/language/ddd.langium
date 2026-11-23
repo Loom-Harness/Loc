@@ -2101,7 +2101,7 @@ FunctionDecl:
 // `{ allowed }`.  Distinct from `requires` (auth, 403) and `precondition`
 // (argument validation inside the body, 400).
 Operation:
-    CallableLeadModifiers 'operation' name=(ID | 'write' | 'exists' | 'send') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableLeadModifiers 'operation' name=(ID | 'write' | 'exists' | 'send' | 'step' | 'undo' | 'final') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
         CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         body+=Statement*
     '}';
@@ -2234,7 +2234,8 @@ SoftKeywordsExceptSort returns string:
       | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'
       | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user'
       | 'valueobject' | 'verifies' | 'views' | 'vue' | 'work' | 'workflow' | 'workflows' | 'write'
-      | 'enum' | 'import' | 'extends' | 'system' | 'repository' | 'aggregate' | 'web';
+      | 'enum' | 'import' | 'extends' | 'system' | 'repository' | 'aggregate' | 'web'
+      | 'step' | 'undo' | 'final';
 
 // LooseName — admissible identifiers in name positions that need to
 // accept Loom keywords as ordinary names.  Used by `Parameter.name`
@@ -2369,6 +2370,14 @@ Statement:
   // `navigate(…)`) rather than yield a value.  Keyword-led, so no ambiguity
   // with `AssignOrCallStmt` (which starts with a NameRef).
   | MatchStmt
+  // `send` / `step` FIRST among the name-led forms: `send`, `step` and
+  // `let` all start other statements too (`step := 1` assigns a property
+  // named `step`; `let x = …` binds an expression), and only these rules
+  // continue with a record name (`send X {`) or a step name and a block
+  // (`step pay {`).  A workflow body sends; the validators refuse them
+  // anywhere else.
+  | SendStmt
+  | StepStmt
   | AssignOrCallStmt;
 
 // The effect-form match.  Distinct from the value-yielding `MatchExpr`
@@ -2483,6 +2492,31 @@ RequiresStmt:
 // value is checked against (and a bare literal promoted to) `T`.
 LetStmt:
     'let' name=(ID | CommonSoftKeywords) (':' type=TypeRef)? '=' expr=Expression;
+
+// `send <Record> { field: value, … }` — a workflow sends a command or a query
+// to the record's one handler.  `let r = send …` binds the handler's declared
+// result.  The record is bare (a record of the sending workflow's own
+// context) or context-qualified (`send Billing.ChargeAccount { … }`).  A
+// statement, not an expression: a send is a step of the workflow, never a
+// value inside a larger expression.
+SendStmt:
+    ('let' name=(ID | CommonSoftKeywords) (':' type=TypeRef)? '=')?
+    'send' target=SendTarget '{'
+        (fields+=EmitField (',' fields+=EmitField)* ','?)?
+    '}';
+
+SendTarget:
+    (context=[BoundedContext:ID] '.')? record=ID;
+
+// `step <name> { send … } undo { send … }` / `step <name> { … } final` — a
+// named group of sends that commits as one transaction.  A step that anything
+// able to fail follows carries `undo { … }` (its compensation) or `final`
+// (it is never undone); the validators say when.  There is no one-line form:
+// every undoable step has a name the logs and the failure answer show.
+StepStmt:
+    'step' name=(ID | CommonSoftKeywords) '{'
+        body+=Statement*
+    '}' (final?='final' | hasUndo?='undo' '{' undo+=Statement* '}')?;
 
 EmitStmt:
     'emit' event=[EventDecl:ID] '{'
@@ -2893,7 +2927,7 @@ ExistsExpr:
 // `can` is soft (see `SoftKeywordsExceptSort`): it starts this form only when a
 // name, a `.` and an operation call follow.
 CanExpr:
-    'can' receiver=NameRef '.' op=(ID | 'write' | 'exists' | 'send') '(' (args+=Expression (',' args+=Expression)*)? ')';
+    'can' receiver=NameRef '.' op=(ID | 'write' | 'exists' | 'send' | 'step' | 'undo' | 'final') '(' (args+=Expression (',' args+=Expression)*)? ')';
 
 // String interpolation — a backtick-delimited template with `{expr}` holes,
 // e.g. `Order {id} for {customer.name}`.  It lowers to plain string

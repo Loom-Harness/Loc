@@ -151,6 +151,8 @@ function constructLocals(st: WorkflowStmtIR): string[] {
     case "resource-call":
     case "domain-service-call":
     case "not-found":
+    case "send":
+    case "step":
       return [];
     default: {
       const _exhaustive: never = st;

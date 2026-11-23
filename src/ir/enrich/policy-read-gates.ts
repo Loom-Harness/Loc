@@ -102,6 +102,8 @@ export function handlerReadAggregates(statements: WorkflowStmtIR[]): string[] {
         case "for-each":
         case "if":
         case "variant-match":
+        case "send":
+        case "step":
           break;
         default: {
           const _exhaustive: never = n;

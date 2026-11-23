@@ -67,6 +67,8 @@ export function reposNeeded(
           case "resource-call":
           case "domain-service-call":
           case "not-found":
+          case "send":
+          case "step":
           // A created aggregate is saved at exit (or by its branch), so its
           // save names the repository.
           case "factory-let":

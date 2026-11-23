@@ -39,6 +39,8 @@ import {
   isRepository,
   isRequiresStmt,
   isReturnStmt,
+  isSendStmt,
+  isStepStmt,
   isWorkflow,
   isWorkflowCreateDecl,
 } from "../../language/generated/ast.js";
@@ -98,6 +100,7 @@ import {
   lowerFunction,
   plural,
 } from "./lower-members.js";
+import { lowerSendFields, lowerSendResult, sendContext } from "./lower-send.js";
 import { matchStmtHasElse } from "./lower-stmt.js";
 import {
   cstText,
@@ -858,6 +861,54 @@ function lowerWorkflowStatementInner(
         source: cstText(stmt.expr),
       },
       envAfter: env,
+    };
+  }
+  if (isSendStmt(stmt)) {
+    const result = lowerSendResult(stmt, env);
+    return {
+      stmt: {
+        kind: "send",
+        context: sendContext(stmt, env)?.name ?? "",
+        record: stmt.target.record,
+        fields: lowerSendFields(stmt, env),
+        ...(result ? { result } : {}),
+      },
+      envAfter: result ? withLocal(env, result.name, "let", result.type) : env,
+    };
+  }
+  if (isStepStmt(stmt)) {
+    // A step is not a scope: a name its sends bind is read after it and by its
+    // `undo` body.
+    const body = lowerWorkflowStatements(
+      stmt.body,
+      env,
+      aggsByName,
+      reposByName,
+      repoForAgg,
+      saveResolver,
+    );
+    const undo = stmt.hasUndo
+      ? lowerWorkflowStatements(
+          stmt.undo,
+          body.envAfter,
+          aggsByName,
+          reposByName,
+          repoForAgg,
+          saveResolver,
+        ).statements
+      : undefined;
+    return {
+      stmt: {
+        kind: "step",
+        name: stmt.name,
+        body: body.statements,
+        compensation: undo
+          ? { kind: "undo", body: undo }
+          : stmt.final
+            ? { kind: "final" }
+            : { kind: "none" },
+      },
+      envAfter: body.envAfter,
     };
   }
   if (isNotFoundStmt(stmt)) {

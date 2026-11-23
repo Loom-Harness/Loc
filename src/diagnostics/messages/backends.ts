@@ -140,6 +140,14 @@ export const messages = {
     `${p.what}: a \`requires\` in an event-sourced \`create\` cannot be enforced on deployable '${p.dName}' (backend '${p.target}'). The create body renders into the domain \`_init\`, which has no principal in scope — \`currentUser\` is a free identifier there, so the guard does not compile rather than deny. Gate the caller instead: put the \`requires\` on the named \`operation\` (or \`workflow\`) that issues the create, where the request principal is bound. (Phoenix/\`elixir\` hoists the gate to its context function and binds a principal, so it enforces this one.)`,
   // A tenant-scoped event stream on a backend whose event store does not yet
   // carry the stream tenant: it would serve every tenant every stream.
+  // A workflow `send` / `step` on a backend whose workflow emitter does not
+  // render steps or the command bus dispatch yet.
+  "loom.target-unsupported#workflow-send-unrendered": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what}: deployable '${p.dName}' (backend '${p.target}') can't run a workflow \`send\` or \`step\` yet — its workflow emitter does not dispatch a sent record to its handler or commit a step on its own. Call the aggregate's operation from the workflow body instead until the backend renders it.`,
   "loom.target-unsupported#tenant-owned-event-sourced": (p: {
     what: unknown;
     dName: unknown;

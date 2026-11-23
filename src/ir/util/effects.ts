@@ -136,6 +136,16 @@ function collectStmtEffects(st: WorkflowStmtIR, scope: readonly EffectScopeIR[],
     case "instance-let":
     case "projection-let":
       return;
+    // A send changes no aggregate in this body: the handler it reaches does,
+    // in its own body (`workflowSteps`, `src/ir/plan/workflow-steps.ts`).
+    case "send":
+      return;
+    // A step groups sends; its body and `undo` body run in the same scope.
+    case "step":
+      for (const s of st.body) collectStmtEffects(s, scope, cx);
+      if (st.compensation.kind === "undo")
+        for (const s of st.compensation.body) collectStmtEffects(s, scope, cx);
+      return;
     case "history-let":
       out.push({ kind: "load", op: "history", repoName: st.repoName, aggName: st.aggName, scope });
       return;

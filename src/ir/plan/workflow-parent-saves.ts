@@ -123,6 +123,8 @@ export function withParentFirstSaves(st: WorkflowStmtIR): WorkflowStmtIR {
     case "resource-call":
     case "domain-service-call":
     case "not-found":
+    case "send":
+    case "step":
       return st;
     default: {
       const _exhaustive: never = st;

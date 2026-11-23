@@ -1457,6 +1457,8 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
     case "repo-run":
     case "requires":
     case "resource-call":
+    case "send":
+    case "step":
       return undefined;
     default: {
       const _exhaustive: never = stmt;

@@ -212,6 +212,20 @@ export {
   stateRowWorkflows,
 } from "./workflow-sets.js";
 export {
+  type SendDelivery,
+  type SendIR,
+  type StepBlockIR,
+  type StepMode,
+  type StoreReason,
+  sendDelivery,
+  sendPrincipal,
+  sendsIn,
+  stepStores,
+  stepsNeedingCompensation,
+  type WorkflowStep,
+  workflowSteps,
+} from "./workflow-steps.js";
+export {
   esStarterSharesEvent,
   type SubscriptionHandler,
   subscriptionHandler,

@@ -56,7 +56,8 @@ export type TargetRefusalSlug =
   | "resource-knob-unrealized"
   | "feature-composition-broken"
   | "feature-composition-unwitnessed"
-  | "reference-admission-unrealized";
+  | "reference-admission-unrealized"
+  | "workflow-send-unrendered";
 
 /** A target's verdict on one construct × position. */
 export type CapabilityVerdict =
@@ -120,6 +121,9 @@ export type UiConstruct = RefusableUiConstruct | OwnedUiConstruct;
 export type BackendConstruct =
   /** A `requires` gate inside an event-sourced aggregate's `create` body. */
   | "stmt:requires@event-sourced-create"
+  /** A `send <Record> { … }` or a `step <name> { … }` block in a workflow
+   *  body (D-WORKFLOW-STEPS). */
+  | "stmt:send@workflow-body"
   /** A workflow command or command handler that mutates or deletes a row it
    *  holds (from `Repo.all(…)`, a find, a loop) of an aggregate whose write
    *  scope is narrowed (`deny write`): the
@@ -245,6 +249,7 @@ export const ALL_UI_CONSTRUCTS: readonly UiConstruct[] = [...UI_CONSTRUCTS, ...O
 /** Every backend construct, in a stable order. */
 export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "stmt:requires@event-sourced-create",
+  "stmt:send@workflow-body",
   "effect:mutate-held-row@command-body",
   "capability:tenantOwned@event-sourced",
   "capability:shareable@aggregate",
@@ -713,6 +718,8 @@ const METHOD_BODY_ROWS: Pick<
 /** The table for a static-bundle backend: it renders no ui framework. */
 const STATIC_HOST_BACKEND_ROWS: Readonly<Record<BackendConstruct, CapabilityVerdict>> = {
   "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_REFUSED,
+  // No workflow emitter renders a step or a send to the command bus yet.
+  "stmt:send@workflow-body": refused("workflow-send-unrendered"),
   "effect:mutate-held-row@command-body": SUPPORTED,
   // A tenant-scoped event stream is stamped, scoped and carried as event
   // metadata (the node MikroORM event store is refused in `ADAPTER_REFUSALS`).
@@ -836,6 +843,8 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
     },
     backend: {
       "stmt:requires@event-sourced-create": SUPPORTED,
+      // No workflow pipeline renders a step or a send to the command bus yet.
+      "stmt:send@workflow-body": refused("workflow-send-unrendered"),
       "effect:mutate-held-row@command-body": SUPPORTED,
       "capability:tenantOwned@event-sourced": SUPPORTED,
       "capability:shareable@aggregate": SUPPORTED,

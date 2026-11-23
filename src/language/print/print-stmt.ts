@@ -96,6 +96,22 @@ export function printStmt(node: Statement): string {
       });
       return `match ${printExpr(node.subject)} {\n${indentBlock(parts.join("\n"))}\n}`;
     }
+    case "SendStmt": {
+      const bind = node.name
+        ? `let ${node.name}${node.type ? `: ${printTypeRef(node.type)}` : ""} = `
+        : "";
+      const record = node.target.context
+        ? `${node.target.context.$refText}.${node.target.record}`
+        : node.target.record;
+      const fields = withIndent(() => node.fields.map((f) => `${f.name}: ${printExpr(f.value)}`));
+      return wrapBraced(`${bind}send ${record} `, fields);
+    }
+    case "StepStmt": {
+      const head = stmtBlock(`step ${node.name}`, node.body);
+      if (node.final) return `${head} final`;
+      if (node.hasUndo) return stmtBlock(`${head} undo`, node.undo);
+      return head;
+    }
     default: {
       const exhaustive: never = node;
       throw new Error(`printStmt: unhandled node ${(exhaustive as { $type: string }).$type}`);

@@ -845,6 +845,8 @@ function verifyWorkflowStmt(
     case "if":
     case "not-found":
     case "variant-match":
+    case "send":
+    case "step":
       return;
     default: {
       const _exhaustive: never = st;
@@ -869,6 +871,7 @@ function workflowBinding(s: WorkflowStmtIR): string | undefined {
       return s.var;
     case "op-call":
     case "domain-service-call":
+    case "send":
       return s.result?.name;
     case "precondition":
     case "requires":
@@ -879,6 +882,7 @@ function workflowBinding(s: WorkflowStmtIR): string | undefined {
     case "variant-match":
     case "if":
     case "assign":
+    case "step":
       return undefined;
     default: {
       const _exhaustive: never = s;
@@ -964,6 +968,10 @@ function workflowChildBlocks(s: WorkflowStmtIR): (readonly WorkflowStmtIR[])[] {
     case "history-let":
     case "instance-let":
     case "projection-let":
+    // A step's sends bind into the body around it: a name it binds is read
+    // after it and by its `undo`.
+    case "send":
+    case "step":
       return [];
     default: {
       const _exhaustive: never = s;

@@ -553,6 +553,61 @@ export const messages = {
     `workflow '${p.name}': '${p.aggName}.${p.opName}' is private.  Workflows can only call public operations.`,
   "loom.workflow-eventsourced-assign": (p: { name: unknown; segments: unknown }) =>
     `workflow '${p.name}': an event-sourced workflow can't assign its own state directly ('${p.segments}').  Change state by emitting an event with a matching 'apply' clause.`,
+  "loom.workflow-send-placement#handler": (p: { handler: unknown; what: unknown }) =>
+    `handler '${p.handler}': \`${p.what}\` — only a workflow sends a command or groups sends in a step.  A handler changes its aggregates itself; to run another handler's work, start a workflow (emit an event, or route a command to a workflow \`create\`).`,
+  "loom.workflow-send-placement#outside": (p: { owner: unknown }) =>
+    `a \`send\` or \`step\` sits in ${p.owner}, but only a workflow body sends commands.  Move it into a workflow's \`create\` or \`on\` body.`,
+  "loom.workflow-send-placement#nested": (p: { owner: unknown; what: unknown }) =>
+    `${p.owner}: \`${p.what}\` sits inside a loop, a branch or a match arm.  A send and a step are steps of the body, committed in order: put a send at the top level of the body or directly inside a \`step\`, and a \`step\` at the top level.`,
+  "loom.workflow-send-placement#duplicate": (p: { owner: unknown; step: unknown }) =>
+    `${p.owner}: two steps are named '${p.step}'.  A step's name is what the logs and a failure answer show, so each step of a body needs its own.`,
+  "loom.workflow-send-placement#step-body": (p: { owner: unknown; step: unknown }) =>
+    `${p.owner}: step '${p.step}' holds a statement that is not a \`send\`.  A step groups sends (its \`undo { … }\` too); compute values before the step, and change aggregates through the commands it sends.`,
+  "loom.workflow-send-record#unknown": (p: { owner: unknown; record: unknown; context: unknown }) =>
+    `${p.owner}: \`send ${p.record}\` — context '${p.context}' declares no \`command\` or \`query\` record '${p.record}'.  Declare it (\`command ${p.record} { … }\`), or qualify the name with the context that declares it (\`send Billing.${p.record} { … }\`).`,
+  "loom.workflow-send-record#unknown-field": (p: { owner: unknown; record: unknown; field: unknown }) =>
+    `${p.owner}: \`send ${p.record}\` sets '${p.field}', which record '${p.record}' does not declare.`,
+  "loom.workflow-send-record#missing-field": (p: { owner: unknown; record: unknown; field: unknown }) =>
+    `${p.owner}: \`send ${p.record}\` leaves out '${p.field}', a required field of record '${p.record}'.  Set it, or declare the field optional (\`${p.field}: T?\`).`,
+  "loom.workflow-send-handler#none": (p: {
+    owner: unknown;
+    record: unknown;
+    kind: unknown;
+    context: unknown;
+  }) =>
+    `${p.owner}: \`send ${p.record}\` — nothing in context '${p.context}' catches ${p.kind} '${p.record}'.  Declare the one ${p.kind === "query" ? "`queryHandler`" : "`commandHandler`"} that takes it (\`${p.kind === "query" ? "queryHandler" : "commandHandler"} ${p.record}Handler(${p.kind === "query" ? "q" : "cmd"}: ${p.record}) { … }\`).`,
+  "loom.workflow-send-handler#several": (p: { owner: unknown; record: unknown; handlers: unknown }) =>
+    `${p.owner}: \`send ${p.record}\` — ${p.handlers} all catch '${p.record}'.  A record is caught by exactly one handler; give each its own record.`,
+  "loom.workflow-send-handler#no-result": (p: {
+    owner: unknown;
+    record: unknown;
+    name: unknown;
+    handler: unknown;
+  }) =>
+    `${p.owner}: \`let ${p.name} = send ${p.record}\` binds a result, but handler '${p.handler}' declares none.  Declare its result type (\`: T\`), or send without \`let\`.`,
+  "loom.workflow-send-result-unmatched": (p: {
+    owner: unknown;
+    record: unknown;
+    name: unknown;
+    errors: unknown;
+  }) =>
+    `${p.owner}: \`let ${p.name} = send ${p.record}\` can answer ${p.errors}, and nothing matches '${p.name}'.  Match it (\`match ${p.name} { … }\`) so each error is answered or handled.`,
+  "loom.workflow-step-undo-required": (p: { owner: unknown; step: unknown }) =>
+    `${p.owner}: step '${p.step}' commits on its own, and what follows it can still fail — the body's later statements, or the workflow's own state write.  Say what undoes it (\`step ${p.step} { … } undo { send … }\`), or mark it \`final\` if it is never undone.`,
+  "loom.workflow-step-cross-storage": (p: {
+    owner: unknown;
+    scope: unknown;
+    deployable: unknown;
+    reached: unknown;
+  }) =>
+    `${p.owner}: ${p.scope} must commit in one transaction, and in deployable '${p.deployable}' it reaches more than one database: ${p.reached}.  Split it into steps that each send to one database, or host the contexts on one storage.`,
+  "loom.workflow-send-outbox-unsupported": (p: {
+    owner: unknown;
+    record: unknown;
+    deployable: unknown;
+    why: unknown;
+  }) =>
+    `${p.owner}: \`send ${p.record}\` from deployable '${p.deployable}' would go through the command outbox (${p.why}), which is not built yet.  Host the record's context in the same deployable, on the same storage.`,
   "loom.workflow-unrecognised-statement": (p: { name: unknown }) =>
     `workflow '${p.name}': statement isn't a recognised workflow form.  Allowed: precondition, let (factory / repo / scalar), name.op(args), emit, own-state assignment ('field := value').`,
   "loom.transactional-no-effect": (p: { name: unknown }) =>

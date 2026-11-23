@@ -80,6 +80,10 @@ export function namesBound(bodies: readonly (readonly WorkflowStmtIR[])[]): stri
           case "resource-call":
           case "domain-service-call":
           case "not-found":
+          case "step":
+            break;
+          case "send":
+            if (s.result) out.add(s.result.name);
             break;
           default: {
             const _exhaustive: never = s;

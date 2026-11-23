@@ -78,6 +78,8 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
       case "domain-service-call":
       case "not-found":
       case "if":
+      case "send":
+      case "step":
         break;
       default: {
         const _exhaustive: never = s;

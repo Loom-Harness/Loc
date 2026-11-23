@@ -40,6 +40,17 @@ import {
 
 type ByKind<K extends WorkflowStmtIR["kind"]> = Extract<WorkflowStmtIR, { kind: K }>;
 
+/** The statement kinds no backend renders: a workflow `send` and a `step`
+ *  block are refused by `loom.workflow-send-unsupported` before generation, so
+ *  the leaf tables carry no member for them and the dispatchers throw. */
+type UnrenderedKind = "send" | "step";
+
+function unrendered(st: ByKind<UnrenderedKind>): never {
+  throw new Error(
+    `workflow \`${st.kind}\` reached a backend emitter; loom.workflow-send-unsupported refuses it before generation`,
+  );
+}
+
 /** A statement kind's leaf-method name: `repo-let` → `repoLet`. */
 type LeafName<K extends string> = K extends `${infer Head}-${infer Rest}`
   ? `${Head}${Capitalize<LeafName<Rest>>}`
@@ -50,7 +61,7 @@ type LeafName<K extends string> = K extends `${infer Head}-${infer Rest}`
  *  tables fail to type-check until they render it, and nothing else does
  *  (beyond the spine's own exhaustive dispatch). */
 type LeafPerKind<Rendered> = {
-  [K in WorkflowStmtIR["kind"] as LeafName<K>]: (
+  [K in Exclude<WorkflowStmtIR["kind"], UnrenderedKind> as LeafName<K>]: (
     st: ByKind<K>,
     // biome-ignore lint/suspicious/noExplicitAny: each leaf declares its own trailing parameters
     ...rest: any[]
@@ -341,6 +352,9 @@ function renderWorkflowStmtOwn(
       return target.domainServiceCall(st, indent);
     case "not-found":
       return target.notFound(st, indent);
+    case "send":
+    case "step":
+      return unrendered(st);
   }
 }
 
@@ -492,6 +506,8 @@ function bindsResult(st: WorkflowStmtIR): boolean {
     case "if-let":
     case "if":
     case "variant-match":
+    case "send":
+    case "step":
       return false;
     default: {
       const _exhaustive: never = st;
@@ -604,6 +620,9 @@ function lowerPipelineStmt(
       return target.domainServiceCall(st, scope);
     case "not-found":
       return target.notFound(st, scope);
+    case "send":
+    case "step":
+      return unrendered(st);
     case "for-each":
       return target.forEach(st, scope, lowerPipelineBody(st.body, target, loopCarried(st)));
     case "if-let":
