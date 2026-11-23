@@ -85,11 +85,14 @@ describe("flutter auth: ui — the session module", () => {
   it("redirects to the backend's own sign-in / sign-out handshake", async () => {
     const out = await gated();
     const dart = out.get("web/lib/auth.dart")!;
-    expect(dart).toContain("Future<void> signIn() => _authRedirect('/auth/login');");
-    expect(dart).toContain("Future<void> signOut() => _authRedirect('/auth/logout');");
+    // On the web the sign-in carries the page it started from.
+    expect(dart).toContain(
+      "Future<void> signIn() => _authRedirect('/auth/login', kIsWeb ? {'returnTo': _here()} : const {});",
+    );
+    expect(dart).toContain("Future<void> signOut() => _authRedirect('/auth/logout', const {});");
     // `_self` = a same-tab navigation on the web (what the JS frontends do with
     // `window.location.href`); the system browser on a native surface.
-    expect(dart).toContain("await launchUrl(apiUri(path), webOnlyWindowName: '_self');");
+    expect(dart).toContain("webOnlyWindowName: '_self'");
     // The one pub package the guard pulls, and only under `auth: ui`.
     expect(out.get("web/pubspec.yaml")!).toContain("url_launcher: 6.3.3");
   });

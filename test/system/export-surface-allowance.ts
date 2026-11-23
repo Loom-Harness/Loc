@@ -115,7 +115,6 @@ export const MODULE_LOCAL_ALLOWANCE: Readonly<Record<string, number>> = {
   "src/language/validators/statements.ts": 1,
   "src/language/validators/structural.ts": 1,
   "src/language/validators/ui.ts": 1,
-  "src/macros/api/factories.ts": 1,
   "src/macros/api/ui-factories.ts": 1,
   "src/platform/dotnet.ts": 1,
   "src/platform/hono/shared/adapters/resource-clients.ts": 6,

@@ -29,7 +29,7 @@ subdomain Sales {
       billingAddress: Address
       creditLimit: Money
       active: bool = true
-      invariant name.length > 0
+      invariant customerNameIsRequired: name.length > 0
       derived display: string = name
     }
 
@@ -47,14 +47,14 @@ subdomain Sales {
       derived subtotal: decimal = lines.sum(l => l.lineTotal)
       derived display: string = reference
 
-      invariant reference.length > 0
-      invariant lines.count > 0 when status == Confirmed
+      invariant referenceIsRequired: reference.length > 0
+      invariant confirmedOrderMustHaveLines: lines.count > 0 when status == Confirmed
 
       function isMutable(): bool = status == Draft
 
       operation addLine(productRef: string, description: string, unitPrice: Money, qty: int) {
-        precondition isMutable()
-        precondition qty > 0
+        precondition linesCanOnlyBeAddedToDraftOrders: isMutable()
+        precondition quantityMustBePositive: qty > 0
         lines += SalesOrderLine {
           productRef: productRef,
           description: description,
@@ -64,21 +64,21 @@ subdomain Sales {
       }
 
       operation confirm() {
-        precondition isMutable()
-        precondition lines.count > 0
+        precondition onlyDraftOrdersCanBeConfirmed: isMutable()
+        precondition orderMustHaveLines: lines.count > 0
         status := Confirmed
         emit SalesOrderConfirmed { order: id, total: subtotal, at: now() }
       }
 
       operation fulfill() {
-        precondition status == Confirmed
+        precondition orderMustBeConfirmed: status == Confirmed
         status := Fulfilled
         emit SalesOrderFulfilled { order: id, at: now() }
       }
 
       operation cancel(reason: string) {
-        precondition status != Fulfilled
-        precondition status != Cancelled
+        precondition orderCannotAlreadyBeFulfilled: status != Fulfilled
+        precondition orderCannotAlreadyBeCancelled: status != Cancelled
         status := Cancelled
       }
 
@@ -88,7 +88,7 @@ subdomain Sales {
         unitPrice: Money
         qty: int
         derived lineTotal: decimal = unitPrice.amount * qty
-        invariant qty > 0
+        invariant lineQuantityMustBePositive: qty > 0
       }
 
       test "adding a line then confirming yields a confirmed order" verifies TC-SALES-1 {
@@ -126,15 +126,15 @@ subdomain Sales {
       amount: Money
       probability: Percentage
       validUntil: datetime
-      invariant reference.length > 0
+      invariant referenceIsRequired: reference.length > 0
       derived display: string = reference
 
       operation send() {
-        precondition status == Draft
+        precondition quoteMustBeDraft: status == Draft
         status := Sent
       }
       operation accept() {
-        precondition status == Sent
+        precondition quoteMustBeSent: status == Sent
         status := Accepted
       }
     }
@@ -169,7 +169,7 @@ subdomain Sales {
         qty: int,
         shipTo: Address
       ) {
-        precondition qty > 0
+        precondition quantityMustBePositive: qty > 0
         let order = SalesOrder.create(
           reference: reference,
           customerId: customerId,

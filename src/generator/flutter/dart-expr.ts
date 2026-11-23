@@ -384,6 +384,10 @@ export function dartMoneyBinary(
  *  `component-emit.ts`) — so a page that never calls one of these three never
  *  carries an unused import under `flutter analyze`. */
 export const DART_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+  "string.uncheckedInt": (recv) => `(int.parse(${recv}))`,
+  "string.uncheckedLong": (recv) => `(int.parse(${recv}))`,
+  "string.uncheckedDecimal": (recv) => `(double.parse(${recv}))`,
+  "string.uncheckedDate": (recv) => `(${recv})`,
   "string.trim": (recv) => `(${recv}.trim())`,
   "string.toUpper": (recv) => `(${recv}.toUpperCase())`,
   "string.toLower": (recv) => `(${recv}.toLowerCase())`,

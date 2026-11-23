@@ -84,7 +84,7 @@ import { lines } from "../../util/code-builder.js";
 import { hatchStub } from "../../util/hatch.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { HOOK_CONTRACT_NOTE } from "../_hatch-note.js";
-import { javaRef } from "../_imports/java.js";
+import { javaProjectRef, javaRef } from "../_imports/java.js";
 import { javaLogEvent } from "../_obs/render-java.js";
 import { opUnionResponses } from "../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
@@ -421,7 +421,7 @@ function renderPagedRunHandlerClass(
     usesUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
     `    }`,
     ``,
-    `    public Paged<${agg}> handle(${sigParams}) {`,
+    `    public Paged<${javaProjectRef(agg)}> handle(${sigParams}) {`,
     usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
     ...gateLines,
     // The whole collection pages through the repository's own list read.

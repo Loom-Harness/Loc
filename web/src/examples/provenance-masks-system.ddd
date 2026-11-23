@@ -56,7 +56,7 @@ system Payroll {
       enum Level { Junior, Mid, Senior }
 
       aggregate Department with crudish {
-        name: string
+        name: string check departmentNameIsRequired: name.trim().length > 0
         budget: money mask unless currentUser.role == "hr" || currentUser.role == "admin"
         headcount: int provenanced immutable
         payroll: money provenanced immutable mask unless currentUser.role == "hr" || currentUser.role == "admin"
@@ -76,7 +76,7 @@ system Payroll {
         }
         operation finishMonth() {
           requires currentUser.role == "hr" || currentUser.role == "admin"
-          precondition headcount > 0
+          precondition departmentMustHaveStaffToCloseTheMonth: headcount > 0
           costPerHead := payroll / headcount
         }
         derived display: string = name
@@ -84,8 +84,8 @@ system Payroll {
       repository Departments for Department { }
 
       aggregate Employee with crudish {
-        name: string
-        title: string
+        name: string check employeeNameIsRequired: name.trim().length > 0
+        title: string check jobTitleIsRequired: title.trim().length > 0
         level: Level
         department: Department id
         salary: money mask unless currentUser.role == "hr" || currentUser.role == "admin"
@@ -93,16 +93,16 @@ system Payroll {
         rating: int provenanced immutable
         derived totalComp: money = salary + bonus
         derived standing: string = rating >= 12 ? "Exceeds" : rating >= 8 ? "Meets" : "Developing"
-        invariant bonus <= salary
+        invariant bonusCannotExceedSalary: bonus <= salary
 
         operation review(goals: int, peers: int) {
-          precondition goals >= 0 && goals <= 5
-          precondition peers >= 0 && peers <= 5
+          precondition goalsScoreMustBeFromZeroToFive: goals >= 0 && goals <= 5
+          precondition peersScoreMustBeFromZeroToFive: peers >= 0 && peers <= 5
           rating := goals * 2 + peers
         }
         operation awardBonus(percent: int) {
           requires currentUser.role == "hr" || currentUser.role == "admin"
-          precondition percent >= 0 && percent <= 30
+          precondition bonusPercentMustBeFromZeroToThirty: percent >= 0 && percent <= 30
           bonus := salary * percent / 100 + salary * rating / 1000
         }
         operation resetBonus() {

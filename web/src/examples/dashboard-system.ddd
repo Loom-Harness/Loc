@@ -40,22 +40,22 @@ system DashboardShop {
             enum OrderStatus { Draft, Confirmed, Cancelled }
 
             aggregate Customer {
-                name: string
-                email: string
-                invariant name.length > 0
+                name: string check nameIsTooLong: name.length <= 120
+                email: string check emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
+                invariant nameIsRequired: name.trim().length > 0
                 derived display: string = name
             }
 
             aggregate Order {
-                code: string
-                total: money
-                lineCount: int
+                code: string check orderCodeIsRequired: code.trim().length > 0
+                total: money check totalCannotBeNegative: total >= 0
+                lineCount: int check lineCountCannotBeNegative: lineCount >= 0
                 status: OrderStatus
                 customerId: Customer id
                 placedAt: datetime
                 derived display: string = code
                 operation confirm() {
-                    precondition status == OrderStatus.Draft
+                    precondition orderMustBeDraft: status == OrderStatus.Draft
                     status := OrderStatus.Confirmed
                 }
             }

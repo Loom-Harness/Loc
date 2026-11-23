@@ -19,9 +19,9 @@ subdomain Procurement {
       address: Address
       rating: int = 3
       active: bool = true
-      invariant name.length > 0
-      invariant rating >= 1
-      invariant rating <= 5
+      invariant supplierNameIsRequired: name.length > 0
+      invariant ratingMustBeAtLeastOne: rating >= 1
+      invariant ratingCannotExceedFive: rating <= 5
       derived display: string = name
     }
 
@@ -39,21 +39,22 @@ subdomain Procurement {
 
       derived lineCount: int = lines.count
       derived display: string = reference
-      invariant reference.length > 0
+      invariant referenceIsRequired: reference.length > 0
+      invariant totalCannotBeNegative: total >= 0
 
       function isMutable(): bool = status == Draft
 
       operation addLine(productRef: string, qty: int, unitCost: Money) {
-        precondition isMutable()
-        precondition qty > 0
+        precondition linesCanOnlyBeAddedToDraftOrders: isMutable()
+        precondition quantityMustBePositive: qty > 0
         lines += PurchaseOrderLine { productRef: productRef, qty: qty, unitCost: unitCost }
         total := total + unitCost.amount * qty
       }
 
       operation applyDiscount(amount: decimal) {
-        precondition isMutable()
-        precondition amount >= 0
-        precondition amount <= total
+        precondition discountsCanOnlyBeAppliedToDraftOrders: isMutable()
+        precondition discountCannotBeNegative: amount >= 0
+        precondition discountCannotExceedTotal: amount <= total
         total := total - amount
       }
 
@@ -63,18 +64,18 @@ subdomain Procurement {
       // extern body is preconditions ONLY — the handler performs the
       // approval side effects in hand-written code.
       operation approve() extern {
-        precondition isMutable()
-        precondition lines.count > 0
+        precondition onlyDraftOrdersCanBeApproved: isMutable()
+        precondition purchaseOrderMustHaveLines: lines.count > 0
       }
 
       operation markReceived() {
-        precondition status != Cancelled
+        precondition purchaseOrderCannotBeCancelled: status != Cancelled
         status := Received
       }
 
       operation cancel(reason: string) {
-        precondition status != Received
-        precondition status != Closed
+        precondition purchaseOrderCannotAlreadyBeReceived: status != Received
+        precondition purchaseOrderCannotBeClosed: status != Closed
         status := Cancelled
       }
 
@@ -83,7 +84,7 @@ subdomain Procurement {
         qty: int
         unitCost: Money
         derived lineTotal: decimal = unitCost.amount * qty
-        invariant qty > 0
+        invariant lineQuantityMustBePositive: qty > 0
       }
 
       test "adding a line accrues the provenanced total" verifies TC-PROC-1 {
@@ -103,10 +104,11 @@ subdomain Procurement {
 
     aggregate GoodsReceipt with crudish {
       poId: PurchaseOrder id
-      warehouseRef: string
+      warehouseRef: string check warehouseIsRequired: warehouseRef.trim().length > 0
       receivedAt: datetime managed
       notes: string?
       derived display: string = warehouseRef
+      invariant notesAreTooLong: notes == null || notes.length <= 2000
     }
 
     criterion PendingApproval of PurchaseOrder = status == Draft

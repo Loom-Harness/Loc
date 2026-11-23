@@ -1,5 +1,6 @@
 // Auto-generated.
 using System;
+using System.Text.RegularExpressions;
 using CatalogApi.Domain.Common;
 
 namespace CatalogApi.Domain.ValueObjects;
@@ -12,8 +13,8 @@ public sealed record Money
     {
         Amount = amount;
         Currency = currency;
-        if (!(this.Amount >= 0m)) throw new ValueObjectInvariantException("Money", "Invalid value", "field.rule");
-        if (!(this.Currency.EnumerateRunes().Count() == 3)) throw new ValueObjectInvariantException("Money", "Invalid value", "field.rule");
+        if (!(this.Amount >= 0m)) throw new ValueObjectInvariantException("Money", "Amount cannot be negative", "Products.Money.rule.amountCannotBeNegative", new System.Collections.Generic.Dictionary<string, object?> { ["amount"] = this.Amount });
+        if (!(Regex.IsMatch(this.Currency, "^[A-Z]{3}$"))) throw new ValueObjectInvariantException("Money", "Currency must be three uppercase letters", "Products.Money.rule.currencyMustBeThreeUppercaseLetters", new System.Collections.Generic.Dictionary<string, object?> { ["currency"] = this.Currency });
     }
 
     /// <summary>Parameterless constructor reserved for EF Core / serializers.</summary>

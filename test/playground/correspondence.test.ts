@@ -114,7 +114,12 @@ describe("correspondence — `.ddd` position → generated files (across targets
     // recorder actually works at (the `operation` head line itself carries
     // only the enclosing aggregate's region, which is why the assertion
     // below is on a body line and not on the signature).
-    const at = correspondenceAt(map, dddPath, lineOf(source, "precondition qty > 0"), source);
+    const at = correspondenceAt(
+      map,
+      dddPath,
+      lineOf(source, "precondition quantityMustBePositive: qty > 0"),
+      source,
+    );
 
     expect(at).not.toBeNull();
     expect(at!.construct).toBe("Orders.Order.addLine");

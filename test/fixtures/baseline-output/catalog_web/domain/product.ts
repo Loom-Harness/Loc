@@ -44,7 +44,8 @@ export class Product {
   _applyVersion(next: number): void { this._rowVersion = next; }
 
   private _assertInvariants(): void {
-    if (!([...this._sku].length > 0)) throw new DomainError("Business rule violated", "invariant");
+    if (!([...this._sku.trim()].length > 0)) throw new DomainError("Sku is required", "invariant", "Products.Product.rule.skuIsRequired", "", { "sku": this._sku });
+    if (!(/^[A-Z0-9][A-Z0-9-]*$/.test(this._sku) && [...this._sku].length <= 40)) throw new DomainError("Sku must be up to forty uppercase letters digits or dashes", "invariant", "Products.Product.rule.skuMustBeUpToFortyUppercaseLettersDigitsOrDashes", "", { "sku": this._sku });
   }
 
   static _create(state: { id: Ids.ProductId; sku: string; price: Money; rowVersion: number }): Product {

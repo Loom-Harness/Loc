@@ -18,7 +18,7 @@ system InventorySystem {
 
       valueobject Quantity {
         value: int
-        invariant value >= 0
+        invariant quantityCannotBeNegative: value >= 0
       }
 
       event ItemReserved {
@@ -45,22 +45,22 @@ system InventorySystem {
       }
 
       aggregate Warehouse with crudish {
-        code: string
+        code: string check warehouseCodeIsRequired: code.trim().length > 0
         contains stocks: Stock[]
 
         function totalUnits(): int = stocks.sum(s => s.onHand.value)
 
         operation reserve(sku: string, qty: int) {
-          precondition qty > 0
+          precondition reservedQuantityMustBePositive: qty > 0
           emit ItemReserved { warehouse: id, sku: sku, qty: qty }
         }
 
         entity Stock {
-          sku: string
+          sku: string check stockSkuIsRequired: sku.trim().length > 0
           onHand: Quantity
           reserved: Quantity
           derived available: Quantity = Quantity { value: onHand.value - reserved.value }
-          invariant onHand.value >= reserved.value
+          invariant cannotReserveMoreThanIsOnHand: onHand.value >= reserved.value
         }
         derived display: string = code
       }
@@ -76,8 +76,8 @@ system InventorySystem {
       //   { warehouseId, sku, qty }
       workflow recordReservation {
         create(warehouseId: Warehouse id, sku: string, qty: int) {
-          precondition qty > 0
-          precondition sku.length > 0
+          precondition quantityMustBePositive: qty > 0
+          precondition skuIsRequired: sku.trim().length > 0
           let warehouse = Warehouses.get(warehouseId)
           warehouse.reserve(sku, qty)
         }

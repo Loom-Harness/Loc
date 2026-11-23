@@ -24,21 +24,21 @@ system SalesAdminApp {
       valueobject Money {
         amount: decimal
         currency: string
-        invariant amount >= 0
-        invariant currency.length == 3
+        invariant amountCannotBeNegative: amount >= 0
+        invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
       }
 
       event OrderConfirmed { order: Order id, at: datetime }
 
       aggregate Customer with crudish {
-        name: string
+        name: string check nameIsRequired: name.trim().length > 0
         email: string
-        invariant email.length > 0
+        invariant emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
         derived display: string = name
       }
 
       aggregate Product with crudish {
-        sku: string
+        sku: string check skuIsRequired: sku.trim().length > 0
         price: Money
         derived display: string = sku
       }
@@ -49,14 +49,14 @@ system SalesAdminApp {
         placedAt: datetime
         contains lines: OrderLine[]
 
-        invariant lines.count > 0 when status == Confirmed
+        invariant confirmedOrderMustHaveLines: lines.count > 0 when status == Confirmed
         derived display: string = string(status)
 
         function isMutable(): bool = status == Draft
 
         operation confirm() {
-          precondition isMutable()
-          precondition lines.count > 0
+          precondition onlyDraftOrdersCanBeConfirmed: isMutable()
+          precondition orderMustHaveAtLeastOneLine: lines.count > 0
           status := Confirmed
           emit OrderConfirmed { order: id, at: now() }
         }
@@ -68,7 +68,7 @@ system SalesAdminApp {
         entity OrderLine {
           productId: Product id
           quantity: int
-          invariant quantity > 0
+          invariant lineQuantityMustBePositive: quantity > 0
         }
       }
 

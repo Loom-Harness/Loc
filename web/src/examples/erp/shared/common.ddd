@@ -13,15 +13,16 @@ enum ApprovalStatus { Draft, Submitted, Approved, Rejected }
 enum UnitOfMeasure { Each, Kilogram, Litre, Metre, Box, Pallet }
 
 valueobject PersonName {
-  first: string
-  last: string
-  invariant first.length > 0
-  invariant last.length > 0
+  first: string check firstNameIsTooLong: first.length <= 100
+  last: string check lastNameIsTooLong: last.length <= 100
+  invariant firstNameIsRequired: first.length > 0
+  invariant lastNameIsRequired: last.length > 0
   derived display: string = first + " " + last
 }
 
 valueobject ContactInfo {
-  email: string
+  email: string check emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
   phone: string?
-  invariant email.length > 0
+  invariant emailIsRequired: email.length > 0
+  invariant phoneMayContainOnlyDigitsSpacesAndSymbols: phone == null || phone.matches("^[-+0-9 ().]+$")
 }

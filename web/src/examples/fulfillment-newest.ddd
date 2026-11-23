@@ -46,23 +46,23 @@ system FulfillmentSystem {
       error   OrderRejected { reference: string, reason: string }
 
       aggregate Order with crudish {
-        reference: string
+        reference: string check referenceIsTooLong: reference.length <= 40
         status: OrderStatus
         priority: Priority         // the imported root-level enum
         total: Money               // the imported root-level value object
         placedAt: datetime
 
-        invariant reference.length > 0
+        invariant referenceIsRequired: reference.trim().length > 0
         derived display: string = reference
 
         operation escalate() {
-          precondition status == Pending
+          precondition onlyPendingOrdersCanBeEscalated: status == Pending
           priority := High
           emit OrderEscalated { order: id, at: now() }
         }
 
         operation ship() {
-          precondition status == Pending || status == Picking
+          precondition orderMustBePendingOrPickingToShip: status == Pending || status == Picking
           status := Shipped
         }
       }

@@ -22,6 +22,7 @@
 // Exit code is non-zero if any case errors, any test fails, or any
 // requirement is FAILING in the rollup.
 
+import { PROBE_RETURN_ENV } from "../support/oidc-code-flow.mjs";
 import { build, transform } from "esbuild";
 import { execFileSync, fork } from "node:child_process";
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
@@ -465,7 +466,7 @@ const corpus = [...features, ...shared, ...exampleCases].filter(
 // lets its boot-time `const ISSUER = process.env.OIDC_ISSUER` capture the mock.
 if (corpus.some((c) => /\n\s*auth\s*\{/.test(c.source))) {
   oidc = await startMockIssuer();
-  Object.assign(process.env, oidc.env);
+  Object.assign(process.env, oidc.env, PROBE_RETURN_ENV);
 }
 
 // Both tiers gate: `api` (emitted `test e2e`) and `unit` (emitted

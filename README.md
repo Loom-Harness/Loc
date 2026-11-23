@@ -99,14 +99,14 @@ system Acme {
       valueobject Money {
         amount: decimal
         currency: string
-        invariant amount >= 0
-        invariant currency.length == 3
+        invariant amountCannotBeNegative: amount >= 0
+        invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
       }
 
       event OrderConfirmed { order: Order id, at: datetime }
 
       aggregate Order with crudish {
-        customerId: string
+        customerId: string check customerIdIsRequired: customerId.trim().length > 0
         status: OrderStatus
         placedAt: datetime
         contains lines: OrderLine[]
@@ -114,19 +114,20 @@ system Acme {
         derived total: Money =
           Money { amount: lines.sum(l => l.subtotal.amount), currency: "USD" }
 
-        invariant lines.count > 0 when status == Confirmed
+        invariant confirmedOrderMustHaveLines: lines.count > 0 when status == Confirmed
 
         function isMutable(): bool = status == Draft
 
         operation confirm() {
-          precondition isMutable()
-          precondition lines.count > 0
+          precondition onlyDraftOrdersCanBeConfirmed: isMutable()
+          precondition orderMustHaveAtLeastOneLine: lines.count > 0
           status := Confirmed
           emit OrderConfirmed { order: id, at: now() }
         }
 
         operation addLine(productId: Product id, qty: int, price: Money) {
-          precondition isMutable()
+          precondition linesCanOnlyBeAddedToDraftOrders: isMutable()
+          precondition quantityMustBePositive: qty > 0
           lines += OrderLine { productId: productId, quantity: qty, unitPrice: price }
         }
 
@@ -136,7 +137,7 @@ system Acme {
           unitPrice: Money
           derived subtotal: Money =
             Money { amount: unitPrice.amount * quantity, currency: unitPrice.currency }
-          invariant quantity > 0
+          invariant lineQuantityMustBePositive: quantity > 0
         }
       }
 
@@ -147,7 +148,7 @@ system Acme {
   subdomain Catalog {
     context Products {
       aggregate Product with crudish {
-        sku: string
+        sku: string check skuIsRequired: sku.trim().length > 0
         price: Money
         derived display: string = sku
       }

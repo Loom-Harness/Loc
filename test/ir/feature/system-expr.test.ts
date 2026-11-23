@@ -218,7 +218,7 @@ describe("structured expression editor — model", () => {
   it("lists invariants (by predicate) and derived props (by name)", () => {
     expect(listInvariants(owner<ValueObject>(parse(sales), "ValueObject", "Money"))).toEqual([
       "amount >= 0",
-      "currency.length == 3",
+      'currency.matches("^[A-Z]{3}$")',
     ]);
     expect(listDerived(owner<Aggregate>(parse(sales), "Aggregate", "Order"))).toContain("total");
   });
@@ -230,9 +230,9 @@ describe("structured expression editor — slot edits", () => {
 
   it("edits an invariant predicate when the result parses", () => {
     const out = editExprSlot(sales, inv0, "amount > 0")!;
-    expect(out).toMatch(/invariant amount > 0/);
+    expect(out).toMatch(/invariant amountCannotBeNegative: amount > 0/);
     // The other invariant is untouched.
-    expect(out).toMatch(/invariant currency\.length == 3/);
+    expect(out).toMatch(/invariant currencyMustBeThreeUppercaseLetters: currency\.matches/);
   });
 
   it("edits a function body expression", () => {
@@ -280,7 +280,7 @@ describe("structured expression editor — operation statement slots", () => {
         { kind: "stmtExpr", owner: "Order", op: "addLine", index: 1 },
         "qty >= 1",
       ),
-    ).toMatch(/precondition qty >= 1/);
+    ).toMatch(/precondition quantityMustBePositive: qty >= 1/);
   });
 
   it("offers operation params (and the aggregate's names) as candidates", () => {

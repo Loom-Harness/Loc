@@ -328,3 +328,139 @@ describe("finalizeJavaUnit — project references (the symbol plan's Java ambien
     );
   });
 });
+
+describe("finalizeJavaUnit — a platform name a type of the unit's own takes", () => {
+  const index = indexJavaProject([
+    ["a/String.java", "package com.loom.d.domain.valueobjects;\n\npublic record String() {}\n"],
+    ["a/Money.java", "package com.loom.d.domain.valueobjects;\n\npublic record Money() {}\n"],
+    ["b/Holder.java", "package com.loom.d.features.holders;\n\npublic class Holder {}\n"],
+    ["c/List.java", "package com.loom.d.features.lists;\n\npublic class List {}\n"],
+    ["c/ListRepo.java", "package com.loom.d.features.lists;\n\npublic interface ListRepo {}\n"],
+    ["c/Table.java", "package com.loom.d.features.lists;\n\npublic class Table {}\n"],
+    ["d/Paged.java", "package com.loom.d.domain.common;\n\npublic record Paged<T>() {}\n"],
+    ["e/Paged.java", "package com.loom.d.features.pageds;\n\npublic class Paged {}\n"],
+    [
+      "f/DomainException.java",
+      "package com.loom.d.domain.common;\n\npublic class DomainException {}\n",
+    ],
+    [
+      "g/DomainException.java",
+      "package com.loom.d.domain.valueobjects;\n\npublic record DomainException() {}\n",
+    ],
+  ]);
+  const fin = (...lines: string[]): string => finalizeJavaUnit(unit(...lines), { index });
+
+  it("a shadowed java.lang name the emitters spell bare is java.lang's, spelled java.lang.X", () => {
+    const out = fin(
+      "package com.loom.d.domain.valueobjects;",
+      "",
+      JAVA_IMPORTS,
+      "",
+      "public record String(String v) {",
+      "    public String {",
+      "    }",
+      "    public String(int n) { this(String.valueOf(n)); }",
+      "    @Override public String toString() { return v; }",
+      "}",
+    );
+    expect(out).toBe(
+      unit(
+        "package com.loom.d.domain.valueobjects;",
+        "",
+        "public record String(java.lang.String v) {",
+        "    public String {",
+        "    }",
+        "    public String(int n) { this(java.lang.String.valueOf(n)); }",
+        "    @Override public java.lang.String toString() { return v; }",
+        "}",
+      ),
+    );
+  });
+
+  it("an unshadowed unit keeps every bare java.lang name", () => {
+    const text = unit(
+      "package com.loom.d.features.holders;",
+      "",
+      "public class Holder { String label; Object o; }",
+    );
+    expect(finalizeJavaUnit(text, { index })).toBe(text);
+  });
+
+  it("a project reference to the shadowing type is spelled fully qualified, the bare name java.lang's", () => {
+    const out = fin(
+      "package com.loom.d.features.holders;",
+      "",
+      JAVA_IMPORTS,
+      "",
+      `class A { ${javaProjectRef("String", "valueobject")} v; String s; }`,
+    );
+    expect(out).toContain("class A { com.loom.d.domain.valueobjects.String v; String s; }");
+  });
+
+  it("a type annotation follows the qualifier", () => {
+    const out = fin(
+      "package com.loom.d.domain.valueobjects;",
+      "",
+      JAVA_IMPORTS,
+      "",
+      "record Money(@NotNull @NoNulChar String a, List<@NoNulChar String> b) {}",
+    );
+    expect(out).toContain(
+      "record Money(@NotNull java.lang.@NoNulChar String a, List<java.lang.@NoNulChar String> b) {}",
+    );
+  });
+
+  it("a framework import a type of the unit's package shadows is qualified, not imported, when the unit declares it", () => {
+    const out = fin(
+      "package com.loom.d.features.lists;",
+      "",
+      "import java.util.List;",
+      "",
+      "public class List { List<String> xs; }",
+    );
+    expect(out).toBe(
+      unit(
+        "package com.loom.d.features.lists;",
+        "",
+        "public class List { java.util.List<String> xs; }",
+      ),
+    );
+  });
+
+  it("a framework on-demand member a type of the unit's package takes is qualified", () => {
+    const out = fin(
+      "package com.loom.d.features.lists;",
+      "",
+      "import jakarta.persistence.*;",
+      "",
+      "@Entity interface ListRepo { @Table Object t; }",
+    );
+    expect(out).toContain("import jakarta.persistence.Entity;");
+    expect(out).toContain("@Entity interface ListRepo { @jakarta.persistence.Table Object t; }");
+  });
+
+  it("two project types of one simple name: the explicit-package and the domain reference both resolve", () => {
+    const out = fin(
+      "package com.loom.d.features.pageds;",
+      "",
+      JAVA_IMPORTS,
+      "",
+      `interface R { ${javaRef("com.loom.d.domain.common", "Paged")}<${javaProjectRef("Paged")}> all(); }`,
+    );
+    expect(out).toContain("interface R { com.loom.d.domain.common.Paged<Paged> all(); }");
+  });
+
+  it("a value-object reference whose name a generated runtime type shares resolves to the value object", () => {
+    const out = fin(
+      "package com.loom.d.features.holders;",
+      "",
+      "import com.loom.d.domain.common.DomainException;",
+      "",
+      `class A { ${javaProjectRef("DomainException", "valueobject")} v; DomainException e; }`,
+    );
+    expect(out).toContain("import com.loom.d.domain.common.DomainException;");
+    expect(out).toContain(
+      "class A { com.loom.d.domain.valueobjects.DomainException v; DomainException e; }",
+    );
+  });
+});

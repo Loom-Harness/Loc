@@ -18,6 +18,13 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import {
+  RETURN_ORIGINS_ENV,
+  RETURN_TO_COOKIE,
+  RETURN_TO_PARAM,
+  RETURN_TO_PATH_PATTERN,
+  RETURN_TO_URL_PATTERN,
+} from "../../util/return-to.js";
 import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV } from "../../util/security-headers.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
@@ -1415,10 +1422,18 @@ defmodule ${webModule}.AuthController do
 
   @scopes ${elixirString(scopes)}
 
+  # Where a sign-in returns to: a same-origin path, or an absolute URL whose
+  # origin is exactly one of ${RETURN_ORIGINS_ENV}.  The patterns are held as
+  # strings and compiled where used.
+  @return_path_pattern ${elixirString(RETURN_TO_PATH_PATTERN)}
+  @return_url_pattern ${elixirString(RETURN_TO_URL_PATTERN)}
+
 ${me}
 
   @doc "GET /auth/login — redirect to the IdP's authorization endpoint."
   def login(conn, _params) do
+    conn = fetch_query_params(conn)
+
     case discovery() do
       {:ok, %{"authorization_endpoint" => authorize}} ->
         state = :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
@@ -1441,6 +1456,7 @@ ${me}
         conn
         |> put_resp_cookie("oidc_state", state, cookie_opts())
         |> put_resp_cookie("oidc_verifier", verifier, cookie_opts())
+        |> keep_return_to(conn.query_params[${elixirString(RETURN_TO_PARAM)}])
         |> redirect(external: authorize <> "?" <> query)
 
       _ ->
@@ -1452,6 +1468,7 @@ ${me}
   def callback(conn, %{"code" => code, "state" => state}) do
     conn = fetch_cookies(conn)
     verifier = conn.cookies["oidc_verifier"]
+    return_to = conn.cookies[${elixirString(RETURN_TO_COOKIE)}]
 
     if state != "" and state == conn.cookies["oidc_state"] and is_binary(verifier) do
       case exchange_code(code, verifier) do
@@ -1460,7 +1477,8 @@ ${me}
           |> store_tokens(tokens)
           |> delete_resp_cookie("oidc_state")
           |> delete_resp_cookie("oidc_verifier")
-          |> redirect_post_login()
+          |> delete_resp_cookie(${elixirString(RETURN_TO_COOKIE)})
+          |> redirect_after_login(return_to)
 
         _ ->
           conn |> put_status(401) |> json(%{error: "token_exchange_failed"})
@@ -1542,6 +1560,45 @@ ${me}
     do: System.get_env("OIDC_REDIRECT_URI", "http://localhost:${port}${AUTH_BASE_PATH}/callback")
 
   defp post_login, do: System.get_env("OIDC_POST_LOGIN_REDIRECT", "/")
+
+  # An acceptable returnTo rides an HttpOnly cookie across the IdP round trip
+  # (same options as the state cookie); an unacceptable one clears any earlier.
+  defp keep_return_to(conn, value) do
+    if return_to_ok?(value),
+      do: put_resp_cookie(conn, ${elixirString(RETURN_TO_COOKIE)}, value, cookie_opts()),
+      else: delete_resp_cookie(conn, ${elixirString(RETURN_TO_COOKIE)})
+  end
+
+  # The callback re-checks the cookie value; its own query is never read.
+  defp redirect_after_login(conn, value) do
+    cond do
+      not return_to_ok?(value) -> redirect_post_login(conn)
+      String.starts_with?(value, "/") -> redirect(conn, to: value)
+      true -> redirect(conn, external: value)
+    end
+  end
+
+  # Acceptable: a same-origin path, or an absolute URL whose origin is, character
+  # for character, one of the comma-separated ${RETURN_ORIGINS_ENV} entries.
+  defp return_to_ok?(value) when is_binary(value) do
+    path = Regex.compile!(@return_path_pattern)
+    url = Regex.compile!(@return_url_pattern)
+
+    Regex.match?(path, value) or
+      case Regex.run(url, value) do
+        [_, origin | _] -> origin in return_origins()
+        _ -> false
+      end
+  end
+
+  defp return_to_ok?(_), do: false
+
+  defp return_origins do
+    System.get_env(${elixirString(RETURN_ORIGINS_ENV)}, "")
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
 
   # The IdP's own session lives at its end-session endpoint, which the SPA can
   # link to directly; here we only clear the local cookie and bounce home.

@@ -29,6 +29,11 @@ import { formatTokens, ISO_SLICE, patternFromRenderedLiteral } from "../../util/
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { tsCodePointLength, tsCodePointSubstring } from "./code-point.js";
 export const JS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+  // The parse service's host conversions run only on text its checks accepted.
+  "string.uncheckedInt": (recv) => `Number(${recv})`,
+  "string.uncheckedLong": (recv) => `Number(${recv})`,
+  "string.uncheckedDecimal": (recv) => `Number(${recv})`,
+  "string.uncheckedDate": (recv) => `(${recv})`,
   "string.trim": (recv) => `${recv}.trim()`,
   "string.toUpper": (recv) => `${recv}.toUpperCase()`,
   "string.toLower": (recv) => `${recv}.toLowerCase()`,

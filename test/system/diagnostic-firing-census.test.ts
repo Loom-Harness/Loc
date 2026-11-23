@@ -2312,6 +2312,14 @@ system FmtPattern {
     }
   } }
 }`,
+  // The built-in parse declarations' names are reserved.
+  "loom.intrinsic-parse": `
+system ParseName {
+  subdomain S { context Sales {
+    error ParseError { input: string }
+    aggregate Order with crudish { qty: int }
+  } }
+}`,
   "loom.invariant-guard-not-bool": orderTypes("invariant total > 0 when total"),
   "loom.invariant-not-bool": orderTypes("invariant name"),
 

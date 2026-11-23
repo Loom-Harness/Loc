@@ -1,4 +1,5 @@
 import type { TypeIR } from "../../../ir/types/loom-ir.js";
+import { javaProjectRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaCalendarDateWire, javaInstantWire } from "../codec-spelling.js";
 import { J } from "../java-symbols.js";
@@ -127,7 +128,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
     case "id":
       return javaIdValueType();
     case "enum":
-      return t.name;
+      return javaProjectRef(t.name, "enum");
     case "valueobject":
       return `${t.name}${dir}`;
     case "entity":
