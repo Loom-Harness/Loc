@@ -84,7 +84,7 @@ export function migrationsMark(ctx: LayoutCtx): Mark | null {
 
 /** Runtime: booted. */
 export function runtimeMark(ctx: LayoutCtx): Mark | null {
-  return ctx.ddl ? { colour: "green", label: "booted" } : null;
+  return ctx.ddl !== null ? { colour: "green", label: "booted" } : null;
 }
 
 /** Agent: the last turn finished. */

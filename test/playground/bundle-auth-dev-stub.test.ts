@@ -3,9 +3,12 @@ import {
   bootEntryFor,
   devStubEntryFor,
   makeEntryStdin,
+  schemaEntryFor,
   schemaPathFor,
 } from "../../web/src/bundle/plugin.js";
+import { postProcessNpmBundle } from "../../web/src/engine/npm/postprocess.js";
 import { generateSystemFiles } from "../_helpers/index.js";
+import { mockSystem } from "../_helpers/mock-system.js";
 
 // ---------------------------------------------------------------------------
 // The playground's synthesised bundle entry registers the emitted DEV-STUB
@@ -102,6 +105,42 @@ describe("makeEntryStdin", () => {
         "",
       ].join("\n"),
     );
+  });
+});
+
+// A backend with no database layer (a `mock` deployable): no `db/schema.ts`,
+// so its entry re-exports neither the schema nor drizzle/PGlite, which its
+// project does not install.
+describe("the entry of a backend with no database layer", () => {
+  it("omits the schema and the drizzle/PGlite re-exports", () => {
+    expect(makeEntryStdin(HONO_ENTRY, undefined, undefined, "d/boot.ts")).toBe(
+      [
+        'export { bootApp } from "./d/boot.ts";',
+        'export { createApp } from "./d/http/index.ts";',
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("is what a generated mock deployable gets", async () => {
+    const files = await generateSystemFiles(mockSystem("mock"));
+    const vfs = new Map([...files].map(([p, c]) => [`/${p}`, c]));
+    expect(schemaEntryFor(vfs, "api/http/index.ts")).toBeUndefined();
+    const node = await generateSystemFiles(mockSystem("node"));
+    const nodeVfs = new Map([...node].map(([p, c]) => [`/${p}`, c]));
+    expect(schemaEntryFor(nodeVfs, "api/http/index.ts")).toBe("api/db/schema.ts");
+  });
+});
+
+describe("postProcessNpmBundle", () => {
+  it("prepares a bundle with no PGlite: the shims, and no PGlite assertion", () => {
+    const out = postProcessNpmBundle("export const x = 1;", { pglite: false });
+    expect(out.endsWith("export const x = 1;")).toBe(true);
+    expect(out).toContain("globalThis.setImmediate");
+  });
+
+  it("still refuses a database bundle whose PGlite shape it does not know", () => {
+    expect(() => postProcessNpmBundle("export const x = 1;")).toThrow(/import\.meta\.url/);
   });
 });
 

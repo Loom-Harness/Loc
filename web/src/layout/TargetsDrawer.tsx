@@ -16,7 +16,7 @@
 import { Alert, Badge, Button, Drawer, Group, Select, Stack, Text } from "@mantine/core";
 import { useMemo, useState } from "react";
 import { applyPatches } from "../../../src/language/model-patch.js";
-import { unsupportedPlatformOf } from "../build/deployables.js";
+import { isMockDeployable, unsupportedPlatformOf } from "../build/deployables.js";
 import { parseDdd } from "../builder/parse.js";
 import { isParseOk } from "../builder/pane-write.js";
 import {
@@ -31,11 +31,16 @@ import {
 } from "./targets-patch.js";
 import type { LayoutCtx } from "./ctx";
 import { unsupportedPlatformLabel, type UnsupportedPlatform } from "./ctx";
-import { PARSE_ERROR, TARGETS } from "./vocabulary";
+import { MOCK, PARSE_ERROR, TARGETS } from "./vocabulary";
 
 type Ctx = Pick<
   LayoutCtx,
-  "getSource" | "onSourceChange" | "scheduleAutoGenerate" | "sourcesWritable" | "unsupportedDeployables"
+  | "getSource"
+  | "onSourceChange"
+  | "scheduleAutoGenerate"
+  | "sourcesWritable"
+  | "unsupportedDeployables"
+  | "mockDeployables"
 >;
 
 interface Props {
@@ -129,6 +134,7 @@ export function TargetsDrawer({ ctx, opened, onClose }: Props): JSX.Element {
             target={target}
             disabled={busy || !ctx.sourcesWritable}
             unsupportedAs={unsupportedPlatformOf(ctx.unsupportedDeployables, target.name)}
+            mock={isMockDeployable(ctx.mockDeployables, target.name)}
             onChange={(axis, value) => void apply(target, axis, value)}
           />
         ))}
@@ -141,10 +147,12 @@ interface RowProps {
   target: TargetDeployable;
   disabled: boolean;
   unsupportedAs: UnsupportedPlatform | null;
+  /** The target is a mock backend (rules not simulated). */
+  mock: boolean;
   onChange: (axis: TargetAxis, value: string) => void;
 }
 
-function TargetRow({ target, disabled, unsupportedAs, onChange }: RowProps): JSX.Element {
+function TargetRow({ target, disabled, unsupportedAs, mock, onChange }: RowProps): JSX.Element {
   const packs = designPackMenu(target);
   return (
     <Stack
@@ -187,6 +195,11 @@ function TargetRow({ target, disabled, unsupportedAs, onChange }: RowProps): JSX
           data-testid={`target-design-${target.name}`}
           onChange={(v) => v && onChange("design", v)}
         />
+      )}
+      {mock && (
+        <Text size="xs" c="dimmed" title={MOCK.detail} data-testid={`target-mock-${target.name}`}>
+          {MOCK.label}
+        </Text>
       )}
       {unsupportedAs && (
         <Text size="xs" c="dimmed" data-testid={`target-unsupported-${target.name}`}>

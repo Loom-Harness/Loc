@@ -1,0 +1,48 @@
+// A React back-office over a `mock` backend.  The mock serves the same
+// routes, schemas and statuses a `node` backend would for this model, from an
+// in-memory store of generated rows: it starts with sample products, keeps
+// what the form creates, pages, sorts and answers 404/409/422 like the real
+// thing.  It runs no domain logic: invariants, permissions, tenancy and
+// workflows are not simulated, and it has no database.
+//
+// The playground boots it in a worker like any Hono backend, with no
+// storage, and labels it "mock: rules not simulated".  The API e2e suite
+// below is listed in the Tests tab but not run against the mock: its answers
+// are not the backend's behaviour.  Switch `catalogApi` to `platform: node`
+// to run it for real.
+
+system MockedCatalog {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Product with crudish {
+        sku: string check skuIsTooLong: sku.length <= 64
+        name: string check nameIsRequired: name.trim().length > 0
+        invariant skuIsRequired: sku.trim().length > 0
+        derived display: string = sku
+      }
+    }
+  }
+
+  ui Backoffice with scaffold(subdomains: [Catalog]) {
+  }
+
+  // The api's contract, answered from generated rows.
+  deployable catalogApi {
+    platform: mock
+    contexts: [Catalog]
+    port: 3000
+  }
+
+  deployable backoffice {
+    platform: web
+    targets: catalogApi
+    ui: Backoffice
+    port: 3001
+  }
+
+  test e2e "a created product reads back" against catalogApi {
+    let p = api.products.create({ sku: "WIDGET-1", name: "Widget" })
+    let read = api.products.getById(p)
+    expect(read.sku).toBe("WIDGET-1")
+  }
+}

@@ -194,8 +194,8 @@ function DesktopShellView({ ctx }: Props): JSX.Element {
     switch (reactBundleStatus.kind) {
       case "ok":
         return (
-          <Text size="xs" c={ddl ? "green" : "dimmed"}>
-            {ddl ? "live" : `needs ${STAGE.boot}`}
+          <Text size="xs" c={ddl !== null ? "green" : "dimmed"}>
+            {ddl !== null ? "live" : `needs ${STAGE.boot}`}
           </Text>
         );
       case "fail":

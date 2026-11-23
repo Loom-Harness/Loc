@@ -479,6 +479,9 @@ export interface LayoutCtx {
    *  systems; the FooterBar + PreviewPane reference this to explain
    *  why those deployables are file-pane-only. */
   unsupportedDeployables: ReadonlyArray<UnsupportedDeployable>;
+  /** The slugs of the booted backends that are mocks (rules not simulated) —
+   *  labelled wherever deployables are listed. */
+  mockDeployables: ReadonlyArray<string>;
 
   // ---------------------------------------------------------------------
   // M-T8.20 — the `.loom/` bundle as views, the output diff, and the

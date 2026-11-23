@@ -84,6 +84,9 @@ export interface BackendBundle {
   slug: string;
   entry: string;
   bundle: BundleResult;
+  /** False when the deployable's project has no database layer (no
+   *  `db/schema.ts`): it boots on no storage.  Unset means it has one. */
+  database?: false;
 }
 
 /** One frontend deployable's bundle. */

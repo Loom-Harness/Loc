@@ -1,4 +1,5 @@
 import { Badge, Group, Select, Stack, Text, Tooltip } from "@mantine/core";
+import { MOCK } from "../layout/vocabulary";
 import type { DeployableRow, DeployableState } from "./deployable-rows";
 
 // What the playground emulates, named once so every surface says the same
@@ -16,7 +17,8 @@ const STATE_COLOUR: Record<DeployableState, string> = {
 };
 
 /** Per-deployable boot state, replacing the single-backend status line when
- *  the system has several.  Every deployable here runs emulated. */
+ *  the system has several or any is a mock.  Every deployable here runs
+ *  emulated. */
 export function DeploymentStatus({ rows }: { rows: readonly DeployableRow[] }): JSX.Element {
   return (
     <Stack gap={4} data-testid="deployable-status">
@@ -38,6 +40,13 @@ export function DeploymentStatus({ rows }: { rows: readonly DeployableRow[] }): 
               emulated
             </Badge>
           </Tooltip>
+          {r.mock && (
+            <Tooltip label={MOCK.detail} multiline w={260} withArrow>
+              <Badge size="xs" variant="outline" color="yellow" data-testid={`deployable-mock-${r.slug}`}>
+                {MOCK.label}
+              </Badge>
+            </Tooltip>
+          )}
           {r.storage && (
             <Text size="xs" c="dimmed" data-testid={`deployable-storage-${r.slug}`}>
               storage {r.storage}

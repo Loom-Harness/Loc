@@ -76,7 +76,10 @@ export interface TsconfigAliasEntry {
 // `entryPath` and `schemaPath` are forward-slash paths relative to
 // the virtual fs root (e.g. "http/index.ts", "db/schema.ts" for
 // legacy mode; "<slug>/http/index.ts" / "<slug>/db/schema.ts" for
-// system mode).
+// system mode).  `schemaPath` is undefined for a backend with no database
+// layer (no `db/schema.ts`, e.g. a `mock` deployable): its entry re-exports
+// neither the schema nor drizzle/PGlite, which its project does not depend
+// on, and the worker boots it with no storage.
 //
 // `bootPath` — the emitted `boot.ts`, the deployable's start-up sequence
 // (`bootApp(db, opts) → { app, stop }`): seeds, the user verifier, the
@@ -95,7 +98,7 @@ export interface TsconfigAliasEntry {
 // preview dies with "createApp failed: No user verifier is registered".
 export function makeEntryStdin(
   entryPath: string,
-  schemaPath: string,
+  schemaPath: string | undefined,
   devStubPath?: string,
   bootPath?: string,
 ): string {
@@ -108,11 +111,15 @@ export function makeEntryStdin(
       : []),
     ...(bootPath ? [`export { bootApp } from "./${bootPath}";`] : []),
     `export { createApp } from "./${entryPath}";`,
-    `export * as schema from "./${schemaPath}";`,
-    `export { drizzle } from "drizzle-orm/pglite";`,
-    `export { PGlite } from "@electric-sql/pglite";`,
-    `export { is, Table } from "drizzle-orm";`,
-    `export { getTableConfig } from "drizzle-orm/pg-core";`,
+    ...(schemaPath
+      ? [
+          `export * as schema from "./${schemaPath}";`,
+          `export { drizzle } from "drizzle-orm/pglite";`,
+          `export { PGlite } from "@electric-sql/pglite";`,
+          `export { is, Table } from "drizzle-orm";`,
+          `export { getTableConfig } from "drizzle-orm/pg-core";`,
+        ]
+      : []),
     "",
   ].join("\n");
 }
@@ -123,6 +130,17 @@ export function makeEntryStdin(
 export function schemaPathFor(entryPath: string): string {
   const segs = entryPath.split("/");
   return [...segs.slice(0, -2), "db", "schema.ts"].join("/");
+}
+
+// The deployable's `db/schema.ts`, or `undefined` when the emitter produced
+// none: a backend with no database layer.  Keyed like `devStubEntryFor`, for
+// the same reason.
+export function schemaEntryFor(
+  files: ReadonlyMap<string, string | Uint8Array>,
+  entryPath: string,
+): string | undefined {
+  const path = schemaPathFor(entryPath);
+  return files.has(`/${path}`) ? path : undefined;
 }
 
 // The deployable's `auth/dev-stub.ts` — same replacement rule as

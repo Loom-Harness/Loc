@@ -132,8 +132,9 @@ export type LoadResult = { ok: true; ddl?: string } | { ok: false; message: stri
 
 /** A deployable worker's second boot step: connect to its storage over the
  *  storage port (transferred with the request, ahead of the infra port) and
- *  start the app on it. */
-export type StartRequest = Record<string, never>;
+ *  start the app on it.  `storage: false` is a deployable with no database
+ *  layer: no storage port is transferred, and the app starts on none. */
+export type StartRequest = { storage?: false };
 
 export type StartResult = { ok: true } | { ok: false; message: string };
 
@@ -163,7 +164,9 @@ export interface BootPlan {
   backends: Array<{
     slug: string;
     bundleCode: string;
-    storage: string;
+    /** The storage it reads and writes; unset for a deployable with no
+     *  database layer, which boots on none. */
+    storage?: string;
     /** The process env this deployable boots with — its compose service's
      *  `environment:`.  Per worker, so two deployables never see each
      *  other's values. */
@@ -179,7 +182,8 @@ export interface BootPlan {
 /** A serving deployable and the `StorageBootPlan.key` it reads and writes. */
 export interface DeployableBootInfo {
   slug: string;
-  storage: string;
+  /** Unset for a deployable with no database layer. */
+  storage?: string;
 }
 
 /** Where a failed boot stopped, when it stopped at one deployable or storage. */

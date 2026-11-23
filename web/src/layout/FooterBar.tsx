@@ -6,6 +6,7 @@ import {
   type LayoutCtx,
 } from "./ctx";
 import { trackedCtx } from "./ctx-store";
+import { MOCK } from "./vocabulary";
 
 interface Props {
   ctx: LayoutCtx;
@@ -16,7 +17,7 @@ interface Props {
 // the right-side details collapse onto the same line — Mantine `Group`
 // with `wrap="wrap"` handles overflow gracefully.
 function FooterBarView({ ctx }: Props): JSX.Element {
-  const { isDesktop, generateResult, honoBundleResult, unsupportedDeployables } = ctx;
+  const { isDesktop, generateResult, honoBundleResult, unsupportedDeployables, mockDeployables } = ctx;
   return (
     <Group h="100%" px="md" gap="md" justify="space-between" wrap="wrap">
       {isDesktop && (
@@ -35,6 +36,11 @@ function FooterBarView({ ctx }: Props): JSX.Element {
         {unsupportedDeployables.length > 0 && (
           <Text size="xs" c="yellow">
             files-only: {formatUnsupportedDeployables(unsupportedDeployables)}
+          </Text>
+        )}
+        {mockDeployables.length > 0 && (
+          <Text size="xs" c="yellow" title={MOCK.detail} data-testid="footer-mocks">
+            {mockDeployables.join(", ")} ({MOCK.label})
           </Text>
         )}
         <Text size="xs" c="dimmed">

@@ -16,10 +16,20 @@ import type {
   SerializedRequest,
 } from "../runtime/protocol.js";
 import type { VirtualFile } from "../build/protocol.js";
+import { MOCK } from "../layout/vocabulary.js";
 
 /** TS→JS transpile (strip types).  In the app this is esbuild-wasm
  *  `transform`; in tests it can be a passthrough for plain JS. */
 export type TsCompile = (ts: string) => Promise<string>;
+
+/** Why the API suite does not run, or null when it does.  The suite's
+ *  requests go to the default dispatch target (`target`: the booted backend
+ *  the first frontend talks to); when that is a mock, its answers come from
+ *  generated rows with no rules applied, so assertions on behaviour would
+ *  fail for a reason that is not the model's. */
+export function apiSuiteRefusal(target: string | null, mocks: readonly string[]): string | null {
+  return target !== null && mocks.includes(target) ? MOCK.apiRefusal(target) : null;
+}
 
 /** The generated API e2e suite within a generated file tree, if the
  *  source declared any `test e2e … against <backend>` blocks. */

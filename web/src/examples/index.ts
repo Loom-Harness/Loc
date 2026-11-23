@@ -7,6 +7,7 @@ import storefrontElixirSource from "./storefront-elixir.ddd?raw";
 import salesSystemSource from "./sales-system.ddd?raw";
 import crossDeployableSystemSource from "./cross-deployable-system.ddd?raw";
 import sharedStorageSystemSource from "./shared-storage-system.ddd?raw";
+import mockSystemSource from "./mock-system.ddd?raw";
 import multiFrontendSystemSource from "./multi-frontend-system.ddd?raw";
 import brokerChannelsSystemSource from "./broker-channels-system.ddd?raw";
 import resourceFakesSystemSource from "./resource-fakes-system.ddd?raw";
@@ -293,6 +294,13 @@ export const examples: LoomExample[] = [
       "Two Node backends bound to one `storage`: both boot, each in its own worker, on one database — a product written through `admin` is listed by `storefront`.",
   },
   {
+    id: "mock-system",
+    label: "Mock backend (React over a `mock` deployable)",
+    source: mockSystemSource,
+    blurb:
+      "A React back-office over a `platform: mock` backend: the node backend's routes and schemas, answered from generated rows with no database. Rules, permissions, tenancy and workflows are not simulated, so the API e2e suite is listed but not run.",
+  },
+  {
     id: "multi-frontend-system",
     label: "Four frontends (React, Angular, Vue, SvelteKit; two Hono backends)",
     source: multiFrontendSystemSource,
@@ -442,6 +450,7 @@ export const EXAMPLE_CONCEPTS: Readonly<Record<string, ExampleConcept>> = {
   "pokemon-world": "crud",
   "subform-showcase": "crud",
   "multifile-store": "crud",
+  "mock-system": "crud",
   "banking-system": "workflows",
   "inventory-system": "workflows",
   "fulfillment-newest": "workflows",

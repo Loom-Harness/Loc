@@ -34,7 +34,7 @@ import {
   bootEntryFor,
   devStubEntryFor,
   makeEntryStdin,
-  schemaPathFor,
+  schemaEntryFor,
 } from "../bundle/plugin.js";
 import { engineRegistry } from "./registry.js";
 import type {
@@ -231,10 +231,12 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     // every install after the first is served from the install cache.
     const backends: BackendBundle[] = [];
     for (const entry of input.backendEntries) {
+      const schema = schemaEntryFor(generatedFiles, entry);
       backends.push({
         slug: entry.split("/").slice(0, -2).join("/"),
         entry,
-        bundle: await this.bundleBackend(run, generatedFiles, entry, input.sourcemap),
+        bundle: await this.bundleBackend(run, generatedFiles, entry, schema, input.sourcemap),
+        ...(schema ? {} : { database: false }),
       });
     }
 
@@ -297,17 +299,20 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     run: EsbuildRun,
     generatedFiles: Map<string, string | Uint8Array>,
     entry: string,
+    schema: string | undefined,
     sourcemap: boolean | undefined,
   ): Promise<BundleResult> {
     const honoRun = await run({
       generatedFiles,
+      // The runtime PGlite pin rides along only for a backend whose entry
+      // re-exports it — one with a database layer.
       rootDeps: {
         ...harvestDeps(generatedFiles, entry),
-        "@electric-sql/pglite": RUNTIME_VERSIONS["@electric-sql/pglite"],
+        ...(schema ? { "@electric-sql/pglite": RUNTIME_VERSIONS["@electric-sql/pglite"] } : {}),
       },
       stdinContents: makeEntryStdin(
         entry,
-        schemaPathFor(entry),
+        schema,
         // Registered by the entry only when there is no `boot.ts` (whose
         // `bootApp` registers the verifier itself).
         devStubEntryFor(generatedFiles, entry),
@@ -323,7 +328,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       return { ok: false, diagnostics: [{ severity: "error", message: honoRun.message }] };
     }
     try {
-      const code = postProcessNpmBundle(honoRun.code);
+      const code = postProcessNpmBundle(honoRun.code, { pglite: schema !== undefined });
       return {
         ok: true,
         kind: "hono",
@@ -378,11 +383,12 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     // Import every bundle.  A storage without a recorded chain (a source
     // without a system: one deployable) takes its schema from that
     // deployable's Drizzle tables.
+    // A deployable with no database layer (`storage` unset) binds none.
     const synthDdl = new Map<string, string>();
     for (const b of plan.backends) {
-      const st = plan.storages.find((s) => s.key === b.storage);
-      if (!st) return this.failed({ ok: false, message: `Deployable "${b.slug}" binds no booted storage.` });
-      const wantsDdl = st.migrations.kind === "unversioned" && !synthDdl.has(st.key);
+      const st = b.storage === undefined ? null : plan.storages.find((s) => s.key === b.storage);
+      if (st === undefined) return this.failed({ ok: false, message: `Deployable "${b.slug}" binds no booted storage.` });
+      const wantsDdl = st !== null && st.migrations.kind === "unversioned" && !synthDdl.has(st.key);
       const res = await this.rt(b.slug).load({
         bundleCode: b.bundleCode,
         synthDdl: wantsDdl,
@@ -391,7 +397,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
         ...(b.verifier ? { verifier: b.verifier } : {}),
       });
       if (!res.ok) return this.failed(res, b.slug);
-      if (wantsDdl) synthDdl.set(st.key, res.ddl ?? "");
+      if (wantsDdl && st) synthDdl.set(st.key, res.ddl ?? "");
     }
 
     const storages: StorageBootInfo[] = [];
@@ -411,14 +417,15 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     for (const b of plan.backends) {
       // The deployable's storage port, and its line to the infra services
       // (its channel bindings ride the emulated broker over it).
-      const storagePort = await infra.attachStorage(b.storage, b.slug);
+      const storagePort = b.storage === undefined ? null : await infra.attachStorage(b.storage, b.slug);
       const port = await infra.connect(b.slug);
       const res = await this.rt(b.slug).start(storagePort, port);
       if (!res.ok) return this.failed(res, b.slug);
     }
 
     this.booted = plan;
-    const persistent = storages.every((s) => s.persistent);
+    // Nothing persists across a reload when no storage was opened.
+    const persistent = storages.length > 0 && storages.every((s) => s.persistent);
     this.lastBoot = { plan, persistent };
     return {
       ok: true,
@@ -431,7 +438,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       applied: storages.flatMap((s) => s.applied),
       storages,
       backends: plan.backends.map((b) => b.slug),
-      deployables: plan.backends.map((b) => ({ slug: b.slug, storage: b.storage })),
+      deployables: plan.backends.map((b) => ({ slug: b.slug, ...(b.storage === undefined ? {} : { storage: b.storage }) })),
     };
   }
 
@@ -460,7 +467,8 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       ...(b.verifier ? { verifier: b.verifier } : {}),
     });
     if (!loaded.ok) return loaded;
-    return rt.start(await this.infra.attachStorage(b.storage, slug), await this.infra.connect(slug));
+    const storagePort = b.storage === undefined ? null : await this.infra.attachStorage(b.storage, slug);
+    return rt.start(storagePort, await this.infra.connect(slug));
   }
 
   /** A boot that stopped: name the deployable or storage it stopped at when
@@ -507,7 +515,12 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   }
   query(sql: string, storage?: string): Promise<QueryResult> {
     const key = storage ?? this.booted?.storages[0]?.key;
-    if (!key || !this.infra) return Promise.resolve({ ok: false, message: "Runtime not booted — boot first." });
+    if (!key || !this.infra) {
+      // Booted with no storage: every deployable is one with no database layer.
+      const message =
+        this.booted && this.infra ? "No database — no booted deployable binds a storage." : "Runtime not booted — boot first.";
+      return Promise.resolve({ ok: false, message });
+    }
     return this.infra.query(key, sql);
   }
   async wipe(storage?: string): Promise<WipeResult> {

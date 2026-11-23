@@ -147,7 +147,7 @@ function deriveBoot(c: StageInputs): StageView {
       enabled: true,
     };
   }
-  if (c.ddl) {
+  if (c.ddl !== null) {
     return { ...base, state: "ok", count: null, blocker: null, hint: "Booted — click to reboot.", enabled: true };
   }
   return { ...base, state: "idle", count: null, blocker: null, enabled: true };

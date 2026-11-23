@@ -114,6 +114,38 @@ describe("bootPlan", () => {
     expect(islands).toEqual(["primary"]);
   });
 
+  it("a backend with no database layer binds no storage, and a storage only it would bind stays closed", () => {
+    const { plan, islands } = bootPlan(
+      [
+        { slug: "api", entry: "api/http/index.ts", bundle: ok("m"), database: false },
+        { slug: "writer", entry: "writer/http/index.ts", bundle: ok("w") },
+      ],
+      chain,
+      [
+        { key: "primary", deployables: ["writer"], plan: chain },
+        { key: "mocked", deployables: ["api"], plan: chain },
+      ],
+      (key) => ({ dataDir: `opfs-ahp://loom-${key}`, island: key }),
+    );
+    expect(plan.storages.map((s) => s.key)).toEqual(["primary"]);
+    expect(plan.backends).toEqual([
+      { slug: "api", bundleCode: "m" },
+      { slug: "writer", bundleCode: "w", storage: "primary" },
+    ]);
+    expect(islands).toEqual(["primary"]);
+  });
+
+  it("a system whose only backend has no database layer opens no storage", () => {
+    const { plan } = bootPlan(
+      [{ slug: "api", entry: "api/http/index.ts", bundle: ok("m"), database: false }],
+      chain,
+      [],
+      () => ({ dataDir: ":memory:", island: null }),
+    );
+    expect(plan.storages).toEqual([]);
+    expect(plan.backends).toEqual([{ slug: "api", bundleCode: "m" }]);
+  });
+
   it("a source without a system boots its one backend on the default storage", () => {
     const { plan, islands } = bootPlan(
       [{ slug: "", entry: "http/index.ts", bundle: ok("x") }],

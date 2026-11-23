@@ -1376,7 +1376,7 @@ export default function App(): JSX.Element {
     if (reactBundle) setPreviewBundle({ frontend: previewFrontend, bundle: reactBundle });
   }, [reactBundle, previewFrontend]);
   useEffect(() => {
-    if (ddl) setPreviewBooted(true);
+    if (ddl !== null) setPreviewBooted(true);
   }, [ddl]);
   const previewProblem =
     previewBundle != null &&
@@ -3240,6 +3240,7 @@ export default function App(): JSX.Element {
   const buildClient = buildClientRef.current;
   const engine = engineRef.current;
   const unsupportedDeployables = deployableAnalysis.unsupported;
+  const mockDeployables = deployableAnalysis.mocks;
   const activeSourcePath = sources.activePath;
   const sourceFiles = sources.files;
   const sourceEpoch = sources.epoch;
@@ -3306,6 +3307,7 @@ export default function App(): JSX.Element {
       selectedFile,
       selectedPath,
       unsupportedDeployables,
+      mockDeployables,
       apiSurface,
       sourceMap,
       outputDiff,
@@ -3420,6 +3422,7 @@ export default function App(): JSX.Element {
       selectedFile,
       selectedPath,
       unsupportedDeployables,
+      mockDeployables,
       apiSurface,
       sourceMap,
       outputDiff,
