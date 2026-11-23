@@ -219,6 +219,22 @@ export function judgeStaysOnRecord(page, id) {
     : [`after the update the page left the record: ${path}`];
 }
 
+/** An absent optional field shows as empty text on the detail page, never as
+ *  the word `undefined` or `null` (`region` was cleared by the update).  The
+ *  page is reloaded so it shows the stored record. */
+export async function judgeAbsentShowsEmpty(page, origin, id) {
+  await page.goto(`${origin}/policies/${id}`);
+  const cell = page.locator('[data-testid="policies-detail-region"]').first();
+  const text = await cell
+    .waitFor({ timeout: 20000 })
+    .then(() => cell.innerText())
+    .catch(() => null);
+  if (text === null) return ["absent optional: the detail page shows no region row"];
+  return /\b(?:undefined|null|None)\b/.test(text)
+    ? [`absent optional: the cleared region shows as ${JSON.stringify(text)}`]
+    : [];
+}
+
 /** A fresh create form shows no field error before the user touched anything. */
 export async function judgeNoEarlyErrors(page, origin) {
   await page.goto(`${origin}/policies/new`);

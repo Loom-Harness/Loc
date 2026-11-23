@@ -62,6 +62,7 @@ import {
   judgeNoEarlyErrors,
   judgePartTable,
   judgeStaysOnRecord,
+  judgeAbsentShowsEmpty,
   judgeTransportFailure,
   judgeTypedText,
   judgeUntouchedCreate,
@@ -321,6 +322,7 @@ async function formSpecProbe(origin, themeFont) {
     }
     why.push(...judgeFormSpec(before, after));
     why.push(...judgeStaysOnRecord(page, before.id));
+    if (why.length === 0) why.push(...(await judgeAbsentShowsEmpty(page, origin, before.id)));
     if (why.length === 0) {
       await driveAddVehicle(page, origin, before.id);
       for (let i = 0; i < 30; i++) {

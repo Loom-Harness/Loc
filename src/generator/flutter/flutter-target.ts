@@ -1183,8 +1183,14 @@ export const flutterTarget: WalkerTarget = {
   // Child-position interpolation → a `Text(…)` widget.  A provably-string value
   // is passed straight; anything else is coerced via Dart string interpolation
   // (`Text('${expr}')`), which stringifies any type.
-  renderInterpolation: (jsExpr: string, exprType?: TypeIR) =>
-    isStringType(exprType) ? `Text(${jsExpr})` : `Text('\${${jsExpr}}')`,
+  // An optional value is nullable in Dart: `null` renders as empty text,
+  // never as the word `null`.
+  renderInterpolation: (jsExpr: string, exprType?: TypeIR, absent?: boolean) =>
+    absent
+      ? `Text('\${${jsExpr} ?? ''}')`
+      : isStringType(exprType)
+        ? `Text(${jsExpr})`
+        : `Text('\${${jsExpr}}')`,
   // A dynamic attribute → a named widget argument (leading space, camelCased
   // name so a hyphenated source attr stays a legal Dart identifier).
   renderAttrBinding: (name: string, jsExpr: string) => ` ${dartIdent(name)}: ${jsExpr}`,

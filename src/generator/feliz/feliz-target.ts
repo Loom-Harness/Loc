@@ -1309,8 +1309,14 @@ export const felizTarget: WalkerTarget = {
   // call site knows is already a `string` (a string literal, a Yes/No ternary
   // of string literals) skips the redundant wrap.  A field read keeps the cast
   // until scaffold accessors carry real types (see `provableStringType`).
-  renderInterpolation: (js: string, exprType?: TypeIR) =>
-    isStringType(exprType) ? `Html.text (${js})` : `Html.text (string (${js}))`,
+  // An optional value is an F# option: `None` renders as empty text, never
+  // as `string None`.
+  renderInterpolation: (js: string, exprType?: TypeIR, absent?: boolean) =>
+    absent
+      ? `Html.text (${js} |> Option.map string |> Option.defaultValue "")`
+      : isStringType(exprType)
+        ? `Html.text (${js})`
+        : `Html.text (string (${js}))`,
   renderAttrBinding: (name: string, js: string) => `prop.custom("${name}", ${js})`,
   // An F# string literal — how a user-visible string reaching the pack as a
   // VALUE (`localizedNamedValue`, D-I18N-ATTR) is spelled with i18n off.

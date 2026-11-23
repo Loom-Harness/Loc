@@ -984,8 +984,14 @@ export interface WalkerTarget {
    *  Feliz reads it to drop a redundant `string (…)` coercion when the
    *  value is already a `string` (`Html.text` needs a string, so
    *  non-string leaves keep the wrap).  Optional — an omitted/unknown
-   *  type means "coerce". */
-  renderInterpolation(jsExpr: string, exprType?: TypeIR): string;
+   *  type means "coerce".
+   *
+   *  `absent` is true when the value's declared type is optional, so it may
+   *  be absent at run time.  An absent value renders as empty text on every
+   *  target: the JSX family, Vue and Angular already render `undefined` as
+   *  nothing, while Feliz's `string` and Dart's interpolation would print
+   *  `undefined` / `null`, so those targets read it. */
+  renderInterpolation(jsExpr: string, exprType?: TypeIR, absent?: boolean): string;
 
   /** A RICH-TEXT sentence in child position — `Text { "Read the ", Bold { "terms" },
    *  " first" }`.  The message is ONE catalog entry whose emphasis is carried as

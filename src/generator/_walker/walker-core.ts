@@ -1177,8 +1177,13 @@ export function walk(
       // `provableStringType` is `undefined` for a member (its resolved
       // type is unreliable for untyped scaffold accessors), so a
       // text-coercing target keeps its cast — safe today, and the site
-      // widens to the real type once accessors are typed.
-      return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
+      // widens to the real type once accessors are typed.  A member declared
+      // optional may be absent, which every target renders as empty text.
+      return ctx.target.renderInterpolation(
+        emitExpr(expr, ctx),
+        provableStringType(expr),
+        expr.memberType.kind === "optional",
+      );
     case "method-call":
       // An intrinsic call in markup-child position — `KeyValueRow { "Note",
       // note.toUpper() }`.  Identical in kind to `member` above: a VALUE
@@ -2982,8 +2987,13 @@ export function renderTextContent(expr: ExprIR, ctx: WalkContext): string | unde
   }
   // A structurally-provable string (a bare literal, a Yes/No conditional of
   // string literals) lets a text-coercing target (Feliz) drop a redundant cast;
-  // `undefined` — including every member/ref read — means "coerce".
-  return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
+  // `undefined` — including every member/ref read — means "coerce".  A member
+  // declared optional may be absent, which every target renders as empty text.
+  return ctx.target.renderInterpolation(
+    emitExpr(expr, ctx),
+    provableStringType(expr),
+    expr.kind === "member" && expr.memberType.kind === "optional",
+  );
 }
 
 // The page-file shell (renderCustomLayoutPage, the form-wiring renderers,
