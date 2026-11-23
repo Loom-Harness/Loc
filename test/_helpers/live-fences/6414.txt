@@ -1,0 +1,1 @@
+node: aggregate User duplicates the generated principal type User in domain/repository-ports.ts

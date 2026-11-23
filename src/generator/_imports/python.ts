@@ -301,7 +301,25 @@ const FIXED_FIRST_PARTY = new Set([
   "app.obs.log",
 ]);
 
+/** A fixed first-party module that also declares the model's own types, with
+ *  the members the generator fixes there: `app.domain.events` declares every
+ *  event class beside its dispatcher runtime, so an event imported from it is
+ *  model-side and keeps its bare name. */
+const MIXED_FIRST_PARTY: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    "app.domain.events",
+    new Set([
+      "DomainEvent",
+      "DomainEventDispatcher",
+      "NoopDomainEventDispatcher",
+      "PostCommitDispatcher",
+    ]),
+  ],
+]);
+
 function isFramework(s: ImportSymbol): boolean {
+  const fixed = MIXED_FIRST_PARTY.get(s.module);
+  if (fixed && s.name !== undefined && /^[A-Z]/.test(s.name)) return fixed.has(s.name);
   return section(s.module) !== 3 || FIXED_FIRST_PARTY.has(s.module);
 }
 

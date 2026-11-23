@@ -194,7 +194,9 @@ export function csFieldInvalidProblem(
   variable?: string,
 ): string {
   const head =
-    variable === undefined ? "new ProblemDetails" : `var ${variable} = new ProblemDetails`;
+    variable === undefined
+      ? `new ${CS_NAME.ProblemDetails}`
+      : `var ${variable} = new ${CS_NAME.ProblemDetails}`;
   return [
     head,
     `{`,

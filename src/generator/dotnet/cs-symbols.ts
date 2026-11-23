@@ -33,7 +33,8 @@ export const CS = {
 /** The types every generated project declares for itself that a domain type
  *  may be named like, each with its namespace below the root namespace.  The
  *  units outside that namespace name them through {@link CS_NAME};
- *  `ProblemDetailsError` is named only inside its own. */
+ *  `ProblemDetailsError` is named only inside its own, and the log formatter
+ *  (`DOTNET_RUNTIME.jsonLineFormatter`) only fully qualified from Program.cs. */
 export const CS_PROJECT_TYPE_HOME = {
   AggregateNotFoundException: "Domain.Common",
   DisallowedException: "Domain.Common",
@@ -42,6 +43,7 @@ export const CS_PROJECT_TYPE_HOME = {
   RequestContext: "Domain.Common",
   WireFormatException: "Domain.Common",
   HttpMetrics: "Observability",
+  JsonLineFormatter: "Observability",
   ProblemDetailsError: "Api",
 } as const;
 
@@ -55,6 +57,8 @@ const project = <N extends keyof typeof CS_PROJECT_TYPE_HOME>(name: N): string =
 export const CS_NAME = {
   DateTime: csNameRef("System", "DateTime"),
   Array: csNameRef("System", "Array"),
+  Exception: csNameRef("System", "Exception"),
+  ProblemDetails: csNameRef("Microsoft.AspNetCore.Mvc", "ProblemDetails"),
   AggregateNotFoundException: project("AggregateNotFoundException"),
   DisallowedException: project("DisallowedException"),
   DomainException: project("DomainException"),

@@ -73,6 +73,7 @@ const TS_SYM = {
   auditActor: tsNamed("~/audit/actor", "auditActor"),
   AuditRecordRow: tsNamed("~/db/entities", "AuditRecordRow"),
   sql: tsNamed("drizzle-orm", "sql"),
+  SQL: tsNamed("drizzle-orm", "SQL"),
   schema: tsNamespace("~/db/schema", "schema"),
   NodePgDatabase: tsNamed("drizzle-orm/node-postgres", "NodePgDatabase"),
   AnyPgColumn: tsNamed("drizzle-orm/pg-core", "AnyPgColumn"),

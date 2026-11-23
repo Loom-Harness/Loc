@@ -659,7 +659,7 @@ export interface BoundedContext extends langium.AstNode {
     readonly $container: Model | Subdomain | System;
     readonly $type: 'BoundedContext';
     members: Array<ContextMember>;
-    name: string;
+    name: ContextName;
     withClause?: WithClause;
 }
 
@@ -1033,6 +1033,12 @@ export const ContextMember = {
 
 export function isContextMember(item: unknown): item is ContextMember {
     return reflection.isInstance(item, ContextMember.$type);
+}
+
+export type ContextName = 'permissions' | string;
+
+export function isContextName(item: unknown): item is ContextName {
+    return item === 'permissions' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
 export interface Create extends langium.AstNode {
