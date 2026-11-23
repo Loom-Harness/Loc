@@ -33,6 +33,10 @@
 import { expect, test } from "./fixtures";
 import { WidgetDetailPage, WidgetListPage } from "./pages/widget";
 
+/** The dev stub's built-in principal: one type-shaped value per declared `user`
+ *  field, so its `guid` id is the zero uuid. */
+const DEV_PRINCIPAL = "00000000-0000-0000-0000-000000000000";
+
 test("create → list → detail round-trips through the rendered LiveView", async ({ page }) => {
   const list = await new WidgetListPage(page).goto();
   const before = await list.rowCount();
@@ -139,6 +143,28 @@ test("a create form refuses typed text the rule refuses and saves an accepted on
   await expect(page.getByTestId("meters-detail-fee")).toContainText("120.5");
 });
 
+// `auditable` stamps `createdBy` / `updatedBy` from the request principal at the
+// WRITE seam, so both LiveView write handlers have to hand the context the
+// socket's principal — a nil actor binds null into those NOT NULL columns, the
+// write raises, and the LiveView dies instead of saving (the form remounts
+// blank on `/meters/new`).
+test("the LiveView create and update stamp the session principal", async ({ page }) => {
+  await page.goto("/meters/new");
+  await page.getByTestId("meters-new-input-reading").fill("5");
+  await page.getByTestId("meters-new-input-fee").fill("9");
+  await page.getByTestId("meters-new-submit").click();
+  await expect(page).toHaveURL(/\/meters\/[0-9a-f-]{8,}$/i);
+  await expect(page.getByTestId("meters-detail-createdBy")).toContainText(DEV_PRINCIPAL);
+
+  // The merge-patch update seam, through the detail page's own update form.
+  await page.getByRole("button", { name: "Update" }).first().click();
+  const modal = page.locator("#meter-op-update-modal");
+  await modal.locator('input[name="update[reading]"]').fill("6");
+  await modal.locator('button[type="submit"]').click();
+  await expect(page.getByTestId("meters-detail-reading")).toContainText("6");
+  await expect(page.getByTestId("meters-detail-updatedBy")).toContainText(DEV_PRINCIPAL);
+});
+
 // The theme names a web font (`heex-ui.ddd`): the asset pipeline bundles its
 // Fontsource stylesheets into app.css and copies the files they name beside it.
 // A face the browser could not fetch never reaches `loaded`, so a missing copy
@@ -220,4 +246,6 @@ test("a create form opens pre-filled from the clock and the session and stores w
   const row = await res.json();
   expect(Date.parse(row.readAt), "the stored readAt is the shown one").toBe(opened);
   expect(row.readBy, "the stored readBy is the shown one").toBe(shownAs);
+  // `auditable` stamps the creator from the LiveView's session principal.
+  expect(row.createdBy, "the stored createdBy is the session principal").toBe(DEV_PRINCIPAL);
 });

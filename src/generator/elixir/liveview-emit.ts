@@ -95,6 +95,7 @@ import {
 } from "./vanilla/audit-history-emit.js";
 import { renderGateCondition, updateSeamGates } from "./vanilla/gate.js";
 import { isRelationalRowAgg, servesRefLabel, servesRefLabels } from "./vanilla/ref-label.js";
+import { stampUsesPrincipal, stampUsesPrincipalFor } from "./vanilla/stamp-emit.js";
 import { workflowThreadsActor } from "./vanilla/workflow-execution-emit.js";
 
 /** One router entry the orchestrator splices into router.ex. */
@@ -2145,6 +2146,14 @@ function renderOperationEventClauses(
           updateSeamGates(
             aggregatesByName.get(fb.name)?.operations.find((o) => o.name === "update"),
           ).length > 0;
+        // An `onUpdate` stamp that reads the principal (`auditable`'s
+        // `updatedBy := currentUser`) is filled at the write seam from the
+        // threaded actor, so the merge-patch submit passes it whether or not a
+        // gate reads it — a nil actor stamps nil into a NOT NULL column and the
+        // update raises instead of saving.
+        const updateAgg = aggregatesByName.get(fb.name);
+        const updateStampsActor =
+          !fb.callsOp && !!updateAgg && stampUsesPrincipalFor(updateAgg, ["update"]);
         // The record lives under the assign the page's QueryView bound its data
         // lambda param to (`customer`, `data`, …) — validate reads it, submit
         // reads and rewrites it.
@@ -2161,7 +2170,7 @@ function renderOperationEventClauses(
               ?.actorArgs,
           });
         }
-        const submitCall = `${ctxModule}.update_${aggSnake}(socket.assigns.${rec}, params${updateGated ? ", Map.get(socket.assigns, :current_user)" : ""})`;
+        const submitCall = `${ctxModule}.update_${aggSnake}(socket.assigns.${rec}, params${updateGated || updateStampsActor ? ", Map.get(socket.assigns, :current_user)" : ""})`;
         const errorArm = updateGated
           ? `
 
@@ -2525,9 +2534,19 @@ function renderCreateEventClauses(
   // and the form stays on screen.
   const eventSourced = createAgg?.persistedAs === "eventLog";
   const gated = lifecycleGates(canonicalCreate(createAgg)).length > 0;
-  const usesUser = lifecycleGatesUseCurrentUser(canonicalCreate(createAgg));
+  // A principal-valued lifecycle stamp (`auditable`'s `createdBy := currentUser`)
+  // is filled at the WRITE seam from the actor the caller threads, and
+  // `create_<agg>` carries the trailing actor arg whenever a stamp reads it —
+  // so this handler must pass the socket's principal even when nothing gates
+  // the create.  Passing nothing stamps nil into a NOT NULL column: the insert
+  // raises, the LiveView process dies, and the form remounts blank on
+  // `/<aggs>/new` with no error on screen.  Same predicate the controller's
+  // create action threads on.
+  const stampsActor = !!createAgg && stampUsesPrincipal(createAgg);
+  const usesUser = lifecycleGatesUseCurrentUser(canonicalCreate(createAgg)) || stampsActor;
+  const takesActor = gated || stampsActor;
   const body = `    socket = assign(socket, :form_error, nil)
-${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}    case ${ctxModule}.create_${aggSnake}(params${gated ? (usesUser ? ", current_user" : ", nil") : ""}) do
+${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}    case ${ctxModule}.create_${aggSnake}(params${takesActor ? (usesUser ? ", current_user" : ", nil") : ""}) do
       {:ok, ${okBinding}} ->
         {:noreply,
          socket

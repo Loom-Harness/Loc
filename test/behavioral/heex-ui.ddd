@@ -67,8 +67,10 @@ system HeexUiSystem {
       // is sent; an accepted one is saved as typed.  The form opens with the
       // defaults the server would otherwise fill pre-filled and editable —
       // `readAt` the server's clock at mount, `readBy` the session principal's
-      // role — and stores what it showed (D-FORM-PREFILL).
-      aggregate Meter with crudish {
+      // role — and stores what it showed (D-FORM-PREFILL).  `auditable`
+      // stamps `createdBy` from the principal, so the LiveView create has to
+      // hand the context its session principal even though no gate reads it.
+      aggregate Meter with crudish, auditable {
         reading: int
         fee: money
         spare: int?
