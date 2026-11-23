@@ -8,6 +8,8 @@
 // renders its route declarations through the Hono builders' schema helpers.
 // ---------------------------------------------------------------------------
 
+import { assertNoMarkers } from "../../generator/_imports/symbol.js";
+import { finalizeTsModule } from "../../generator/_imports/ts.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import type { DeployableIR, EnrichedBoundedContextIR, SystemIR } from "../../ir/types/loom-ir.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
@@ -116,5 +118,13 @@ export function generateMockProject(args: {
   out.set("tsup.config.ts", renderTsupConfig());
   out.set("Dockerfile", renderDockerfile());
   out.set(".dockerignore", DOCKERIGNORE);
+  // The Hono builders reference library and runtime names through `ref()`
+  // markers; the finalizer spells each one and imports what no hand-written
+  // import already provides, exactly as the node backend's emitter does.  A
+  // marker left in any file fails generation rather than the project's build.
+  for (const [path, content] of out) {
+    if (path.endsWith(".ts")) out.replace(path, finalizeTsModule(content, { path }));
+    assertNoMarkers(path, out.get(path)!);
+  }
   return out;
 }
