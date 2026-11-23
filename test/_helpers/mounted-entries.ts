@@ -18,6 +18,8 @@
 //           FastAPI's default `/openapi.json`.
 //   elixir  the Phoenix router's `scope "…"` blocks and their verb and `live`
 //           lines.
+//   gateway the nginx `location` blocks the gateway answers itself, in its
+//           compose project and in its in-cluster workload's ConfigMap.
 //
 // A route that serves the bound ui (the embedded bundle's catch-all, a
 // LiveView page) is tagged `host`.  A framework page that documents the api
@@ -439,4 +441,38 @@ export function startedEntries(
     }
   }
   return { workers, events };
+}
+
+// ---------------------------------------------------------------------------
+// gateway / nginx
+// ---------------------------------------------------------------------------
+
+/** The paths a gateway's nginx answers itself: every `location` that neither
+ *  proxies (a gathered part, their backend), redirects (a part's trailing
+ *  slash) nor refuses (`return 404`).  Each is a `GET`, the only method a
+ *  static nginx location answers here.  `conf` is one nginx `server` block. */
+export function nginxOwnRoutes(conf: string, file: string): MountedRoute[] {
+  const routes: MountedRoute[] = [];
+  for (const m of conf.matchAll(/^\s*location\s+(?:(=|\^~)\s+)?(\S+)\s*\{([^}]*)\}/gm)) {
+    const body = m[3]!;
+    if (/\bproxy_pass\b/.test(body) || /\breturn\s+(301|302|404)\b/.test(body)) continue;
+    routes.push({ method: "get", path: m[2]!, file });
+  }
+  return routes;
+}
+
+/** What a gateway deployable answers itself, in each place it runs:
+ *
+ *  - `compose` — its own project's `nginx.conf`;
+ *  - `cluster` — the nginx config its in-cluster workload's ConfigMap carries
+ *    (`k8s/<name>-gateway.yaml`), when it has one.  A gateway with no apps
+ *    list runs no workload in a cluster: its Ingress is the whole front door. */
+export function gatewayRoutes(
+  own: ReadonlyMap<string, string>,
+  k8sWorkload: string | undefined,
+): { compose: MountedRoute[]; cluster?: MountedRoute[] } {
+  const compose = nginxOwnRoutes(own.get("nginx.conf") ?? "", "nginx.conf");
+  if (k8sWorkload === undefined) return { compose };
+  const conf = /default\.conf: \|\n((?: {4}.*\n?)+)/.exec(k8sWorkload)?.[1] ?? "";
+  return { compose, cluster: nginxOwnRoutes(conf, "k8s ConfigMap default.conf") };
 }

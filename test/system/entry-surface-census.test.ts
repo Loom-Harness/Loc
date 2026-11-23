@@ -22,6 +22,10 @@
 // tracks it; a waiver that no longer matches anything fails the census, so the
 // fix deletes it.
 //
+// A gateway is held the same way: the paths its nginx answers itself (its
+// compose project, and its in-cluster workload when it runs one) against the
+// plan's gateway entries.  Whatever it proxies is a gathered part's entry.
+//
 // A framework page that documents the api and reads no data (Swagger UI,
 // ReDoc) is not an entry; the readers report it apart and the census only
 // checks it is one of `DOC_PAGES`.
@@ -37,6 +41,7 @@ import {
 } from "../../src/ir/plan/entry-surface.js";
 import type { EnrichedLoomModel } from "../../src/ir/types/loom-ir.js";
 import { routeSlot } from "../../src/ir/util/api-surface.js";
+import { kName } from "../../src/system/kubernetes.js";
 import { serviceSlug } from "../../src/util/service-slug.js";
 import { expectReach } from "../_helpers/census-reach.js";
 import { dddSourceOf, REPO_ROOT, trackedDddFiles } from "../_helpers/ddd-corpus.js";
@@ -44,6 +49,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 import { buildLoomModel } from "../_helpers/ir.js";
 import {
   deployableFiles,
+  gatewayRoutes,
   type MountedBackend,
   mountedRoutes,
   startedEntries,
@@ -51,6 +57,13 @@ import {
 
 const BACKENDS: readonly MountedBackend[] = ["node", "dotnet", "java", "python", "elixir"];
 const isBackend = (p: string): p is MountedBackend => (BACKENDS as readonly string[]).includes(p);
+
+/** The entry kinds only a gateway has: the paths it answers itself under its
+ *  reserved prefix.  A backend never reaches them; a gateway reaches only them. */
+const GATEWAY_KINDS: readonly EntryKind[] = ["gatewayHealth", "gatewayApps"];
+
+/** Where a gateway runs: its compose project, and its in-cluster workload. */
+type GatewayPlace = "gateway" | "gateway-cluster";
 
 /** Framework documentation pages, per backend (they render the OpenAPI
  *  document and read nothing else). */
@@ -129,7 +142,7 @@ function cells(): Cell[] {
 
 interface Finding {
   readonly where: string;
-  readonly backend: MountedBackend;
+  readonly backend: MountedBackend | GatewayPlace;
   readonly slot: string;
   readonly kind?: EntryKind;
   readonly file?: string;
@@ -141,6 +154,9 @@ interface Sweep {
   readonly badDocPages: string[];
   readonly deployables: number;
   readonly kindsSeen: Map<MountedBackend, Set<EntryKind>>;
+  /** Gateway deployables compared, and the entry kinds reached on them. */
+  readonly gateways: number;
+  readonly gatewayKindsSeen: Set<EntryKind>;
   readonly waiverHits: Set<string>;
 }
 
@@ -153,7 +169,9 @@ function sweep(): Promise<Sweep> {
     const badDocPages: string[] = [];
     const kindsSeen = new Map<MountedBackend, Set<EntryKind>>();
     const waiverHits = new Set<string>();
+    const gatewayKindsSeen = new Set<EntryKind>();
     let deployables = 0;
+    let gateways = 0;
     for (const cell of cells()) {
       let files: Map<string, string>;
       let loom: EnrichedLoomModel;
@@ -165,9 +183,47 @@ function sweep(): Promise<Sweep> {
         // Not generatable standalone — `ddd-source-census.test.ts` owns that.
         continue;
       }
+      // A gateway's in-cluster workload is in the k8s output only, generated
+      // on demand for the sources that declare a gateway.
+      let k8s: Map<string, string> | undefined;
       for (const sys of loom.systems) {
         const contexts = sys.subdomains.flatMap((s) => s.contexts);
         for (const d of sys.deployables) {
+          if (d.gathers !== undefined) {
+            k8s ??= await generateSystemFiles(cell.source, { emitKubernetes: true });
+            gateways++;
+            const where = `${cell.ddd} → ${d.name}`;
+            const ddd = cell.templated ? cell.ddd : `${cell.ddd} [gateway]`;
+            const waived = (what: "unlisted" | "unmounted", slot: string): boolean => {
+              const key = `${ddd} ${what} ${slot}`;
+              if (!DISAGREEMENTS[key]) return false;
+              waiverHits.add(key);
+              return true;
+            };
+            const plan = httpEntries(entrySurface({ deployable: d, contexts: [], sys }));
+            const planned = new Map(
+              plan.map((e) => [routeSlot(e.trigger.method, e.trigger.path), e.kind]),
+            );
+            const mounted = gatewayRoutes(
+              deployableFiles(files, serviceSlug(d.name)),
+              k8s.get(`k8s/${kName(d.name)}-gateway.yaml`),
+            );
+            const places: [GatewayPlace, typeof mounted.compose][] = [["gateway", mounted.compose]];
+            if (mounted.cluster) places.push(["gateway-cluster", mounted.cluster]);
+            for (const [place, routes] of places) {
+              const slots = new Map(routes.map((r) => [routeSlot(r.method, r.path), r.file]));
+              for (const [slot, file] of slots) {
+                if (planned.has(slot) || waived("unlisted", slot)) continue;
+                unlisted.push({ where, backend: place, slot, file });
+              }
+              for (const [slot, kind] of planned) {
+                if (slots.has(slot)) gatewayKindsSeen.add(kind);
+                else if (!waived("unmounted", slot))
+                  unmounted.push({ where, backend: place, slot, kind });
+              }
+            }
+            continue;
+          }
           if (!isBackend(d.platform)) continue;
           const own = deployableFiles(files, serviceSlug(d.name));
           if (own.size === 0) continue;
@@ -259,8 +315,17 @@ function sweep(): Promise<Sweep> {
         }
       }
     }
-    if (ONLY) console.log(`deployables: ${deployables}`);
-    return { unlisted, unmounted, badDocPages, deployables, kindsSeen, waiverHits };
+    if (ONLY) console.log(`deployables: ${deployables}, gateways: ${gateways}`);
+    return {
+      unlisted,
+      unmounted,
+      badDocPages,
+      deployables,
+      kindsSeen,
+      gateways,
+      gatewayKindsSeen,
+      waiverHits,
+    };
   })();
   return SWEEP;
 }
@@ -309,10 +374,20 @@ describe("entry-surface census", () => {
     const s = await sweep();
     // `uiHost` is served by static middleware, not a declared route, on node,
     // .NET and Java, so only the backends that declare it can reach it.
-    const kinds = (Object.keys(ENTRY_KINDS) as EntryKind[]).filter((k) => k !== "uiHost");
+    const kinds = (Object.keys(ENTRY_KINDS) as EntryKind[]).filter(
+      (k) => k !== "uiHost" && !GATEWAY_KINDS.includes(k),
+    );
     const missing = BACKENDS.flatMap((b) =>
       kinds.filter((k) => !s.kindsSeen.get(b)?.has(k)).map((k) => `${b} ${k}`),
     );
     expect(missing, "entry kinds no fixture reaches on that backend").toEqual([]);
+  });
+
+  it("every gateway entry kind is reached on a gateway", { timeout: 1_800_000 }, async () => {
+    if (ONLY) return;
+    const s = await sweep();
+    expectReach("gateway deployables", s.gateways, 1);
+    const missing = GATEWAY_KINDS.filter((k) => !s.gatewayKindsSeen.has(k));
+    expect(missing, "gateway entry kinds no fixture reaches").toEqual([]);
   });
 });
