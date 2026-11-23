@@ -36,7 +36,7 @@ const call = async (method: string, path: string, body?: unknown, headers: Recor
   const text = await res.text();
   let json: unknown = text;
   try { json = JSON.parse(text); } catch {}
-  return { status: res.status, contentType: res.headers.get("content-type"), mock: res.headers.get("x-loom-mock"), etag: res.headers.get("etag"), json };
+  return { status: res.status, contentType: res.headers.get("content-type"), mock: res.headers.get("x-mock"), etag: res.headers.get("etag"), json };
 };
 out.openapi = (await call("GET", "/openapi.json")).json;
 if (process.argv[2] === "mock") {

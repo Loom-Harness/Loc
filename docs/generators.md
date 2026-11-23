@@ -1462,7 +1462,7 @@ read and write wire rows in an in-memory store.
 
 | File | Holds |
 |---|---|
-| `http/index.ts` | `createApp(db?, events?)` — the `node` backend's factory signature, arguments ignored.  Mounts every router, `GET /health`, `GET /ready`, the plain-text notice at `GET /`, and the `x-loom-mock: rules-not-simulated` header on every response. |
+| `http/index.ts` | `createApp(db?, events?)` — the `node` backend's factory signature, arguments ignored.  Mounts every router, `GET /health`, `GET /ready`, the plain-text notice at `GET /`, and the `x-mock: rules-not-simulated` header on every response. |
 | `http/<agg>.routes.ts` | One aggregate's routes and schemas, plus the store's description of its row (`<Agg>Model`). |
 | `http/<api>-routes.ts`, `http/workflows.ts`, `http/projections.ts` | Explicit api routes, workflow start and instance routes, projection reads. |
 | `http/auth.ts` | With `auth: required`: `/api/auth/me` answers the one `DEFAULT_USER` (every declared permission), `/refresh`, `/login` and `/logout` succeed. |
