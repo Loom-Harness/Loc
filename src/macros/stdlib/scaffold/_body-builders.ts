@@ -749,6 +749,23 @@ function buildDataCardParts(
   const rows: Array<{ name?: string; value: Expression }> = [];
   const collectionCards: Expression[] = [];
   for (const f of userFacingProperties(agg)) {
+    // A field typed on an entity part (`lines: QuoteLine[]`) is a part on the
+    // wire, as `contains lines: QuoteLine[]` is, and shows as the same card.
+    const part = entityPartTarget(f.type);
+    if (part) {
+      if (!f.type.optional) {
+        collectionCards.push(
+          relatedCard(
+            agg.name,
+            { name: String(f.name), collection: !!f.type.array },
+            part,
+            cellVar,
+            slug,
+          ),
+        );
+      }
+      continue;
+    }
     if (f.type.array) {
       const shown = collectionDetail(agg.name, f, cellVar, slug);
       if (shown?.row) rows.push({ value: shown.row });
@@ -821,7 +838,9 @@ function buildDataCardParts(
   for (const c of agg.members.filter((m): m is Containment => m.$type === "Containment")) {
     const part = c.partType.ref;
     if (!part) continue;
-    related.push(relatedCard(agg.name, c, part, cellVar, slug));
+    related.push(
+      relatedCard(agg.name, { name: c.name, collection: !!c.collection }, part, cellVar, slug),
+    );
   }
 
   return { card: callExpr("Card", [{ value: callExpr("Stack", rows) }]), related };
@@ -897,7 +916,7 @@ function collectionDetail(
  *  collection, or a labelled `KeyValueRow` stack for a single part. */
 function relatedCard(
   aggName: string,
-  c: Containment,
+  c: { name: string; collection: boolean },
   part: EntityPart,
   cellVar: string,
   slug: string,
@@ -1036,6 +1055,14 @@ function valueObjectRows(
 
 /** The `ValueObject` a field's type points at, or `undefined` when it isn't a
  *  value-object reference. */
+/** The entity part `type` names (a single part or a collection of them). */
+function entityPartTarget(type: TypeRef): EntityPart | undefined {
+  const base = type.base;
+  if (base.$type !== "NamedType") return undefined;
+  const ref = base.target.ref;
+  return ref?.$type === "EntityPart" ? ref : undefined;
+}
+
 function valueObjectTarget(type: TypeRef): ValueObject | undefined {
   if (type.array) return undefined;
   const base = type.base;
