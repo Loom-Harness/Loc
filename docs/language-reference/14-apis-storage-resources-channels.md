@@ -179,6 +179,20 @@ A record a workflow `create` catches cannot be routed this way yet (`loom.route-
 
 An optional **binding block** after the record takes named fields from elsewhere in the request, so the record stays free of HTTP: `send Hooks.ReceiveHook { payload: raw body, signature: header "X-Signature" }`. Each named field must be on the record, and at most one takes `raw body` (`loom.route-send-binding`). Binding the raw body needs the `bytes` type, so a route that uses the block is refused for now (`loom.route-send-binding-unsupported`).
 
+#### The dispatch entry
+
+A handler that is the one catcher of its record is reached through one generated dispatch entry per backend. The route builds the record and calls it, and any other in-process caller calls the same entry:
+
+| backend | entry for `ShipOrder` | route call |
+|---|---|---|
+| node | `dispatchShipOrder(db, events, record, currentUser?)` in `http/<api>-routes.ts` | `await dispatchShipOrder(db, events, cmd)` |
+| .NET | the Mediator request `ShipOrderHandlerCommand`, fields in record order | `await _mediator.Send(new ShipOrderHandlerCommand(new OrderId(id), body.Carrier))` |
+| java | `OrderingDispatch.shipOrder(ShipOrder record)` on a `@Service` bean, with `record ShipOrder(OrderId id, String carrier)` | `orderingDispatch.shipOrder(new ShipOrder(new OrderId(id), body.carrier()))` |
+| python | `dispatch_ship_order(session, record, current_user=None)` with `@dataclass(frozen=True) class ShipOrder` in the handler module | `await dispatch_ship_order(session, ShipOrder(id=OrderId(id), carrier=body.carrier))` |
+| elixir | `D.Ordering.Dispatch.ship_order(record, current_user \\ nil)`, the record as its string-keyed wire map | `respond(conn, D.Ordering.Dispatch.ship_order(params))` |
+
+On node the entry exists for a routed handler. A handler whose result is an expected failure (`T or E`), an `extern` handler, and a `paged` query handler keep their route-local call.
+
 ### `serves:` and the OpenAPI document
 
 `serves: OrdersApi` on a backend deployable mounts that api's explicit routes and pins its contract identity. It does **not** gate the spec document: every backend publishes its own OpenAPI 3.1 spec at `GET /openapi.json` whether or not a `serves:` clause exists (Hono `app.doc`, Swashbuckle with the document name pinned to `/openapi.json`, FastAPI, springdoc's `api-docs.path`, and a Phoenix `OpenapiController`). Python and Java additionally serve a Swagger UI (`/docs`, `springdoc.swagger-ui`), both gated by `OPENAPI_UI`.

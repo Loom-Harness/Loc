@@ -166,6 +166,30 @@ export function handlerTargets(ctx: BoundedContext): HandlerTarget[] {
   return out;
 }
 
+/** The served aggregates whose every row a `List<Aggs>` query handler pages
+ *  through (`let r = <Repo>.all()  return r`): the single-table relational
+ *  ones, whose list read orders and slices in SQL.  An event-log, a
+ *  non-relational saving shape, an inheritance member or an abstract base is
+ *  left to the criterion and retrieval runs (`loom.paged-query-handler-shape`
+ *  refuses the bare read there). */
+export function listReadTargets(
+  ctx: BoundedContext,
+): readonly { readonly agg: Aggregate; readonly repo: Repository }[] {
+  return partitionAggregates(ctx).served.filter(
+    ({ agg }) =>
+      agg.persistedAs !== "eventLog" &&
+      (agg.shape ?? "relational") === "relational" &&
+      !agg.superType &&
+      !agg.isAbstract,
+  );
+}
+
+/** `List<Aggs>` — the list read's handler name (the record-name scheme: the
+ *  verb, then the plural aggregate). */
+export function listHandlerName(agg: Pick<Aggregate, "name">): string {
+  return `List${plural(agg.name)}`;
+}
+
 /** A target as a request contract sees it: the same kinds, without the
  *  repository a handler body loads through. */
 export type RequestTarget =

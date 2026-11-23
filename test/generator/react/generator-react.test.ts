@@ -470,12 +470,14 @@ describe("react generator", () => {
       // Every generated React app ships with a baseline theme so it
       // looks like a coherent product rather than untouched Mantine
       // defaults.  When the DSL declares no `theme {}`, we fall back
-      // to a tasteful indigo / Inter / md-radius preset.
+      // to an indigo / system-font / md-radius preset: no web font unless
+      // the theme names one.
       const theme = files.get("web/src/theme.ts")!;
       expect(theme).toBeDefined();
       expect(theme).toMatch(/primaryColor: "brand"/);
       expect(theme).toMatch(/defaultRadius: "md"/);
-      expect(theme).toMatch(/Inter/);
+      expect(theme).toMatch(/fontFamily: "system-ui, /);
+      expect(theme).not.toMatch(/Inter/);
       // main.tsx always wires the theme — provider gets `theme={theme}`.
       const main = files.get("web/src/main.tsx")!;
       expect(main).toMatch(/from "\.\/theme"/);

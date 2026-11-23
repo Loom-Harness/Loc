@@ -243,6 +243,10 @@ describe("scaffoldHandlers handlers CONSUME the contract records (byte-identical
             let o = Orders.get(id)
             o.cancel()
           }
+          queryHandler ListOrders(): Order paged {
+            let r = Orders.all()
+            return r
+          }
         }
       }
       api SalesApi from Sales {
