@@ -193,11 +193,19 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   return [
     `<.simple_form for={@form} phx-submit="${submitEvent}"${testidAttr}>`,
     ...inputs,
+    formErrorMarkup("form_error", testidNs),
     `  <:actions>`,
     `    <.button type="submit"${submitTestid}>${submitText}</.button>`,
     `  </:actions>`,
     `</.simple_form>`,
   ].join("\n");
+}
+
+/** The slot a form shows its non-changeset refusal in: one alert inside the
+ *  form, addressed `<ns>-error`, empty until a submit is refused. */
+export function formErrorMarkup(assign: string, testidNs: string | undefined): string {
+  const tid = testidNs ? ` data-testid="${escapeHeexAttr(`${testidNs}-error`)}"` : "";
+  return `  <p :if={@${assign}} role="alert"${tid} class="text-sm font-semibold text-red-600"><%= @${assign} %></p>`;
 }
 
 /** A call's LITERAL `testid:` value, or `undefined` when absent or dynamic.

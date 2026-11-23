@@ -3480,6 +3480,7 @@ system S {
   // Three rules, nine sites: the kind must suit the storage's type, a knob
   // must suit the kind, and a knob must suit the storage.  One fixture per
   // CODE; the `#slug`s are the individual knobs.
+  "loom.reserved-type-name": repoOnly(`    valueobject Promise { v: string }`),
   "loom.resource-kind-storage-mismatch": resourced("resource bad { for: C, kind: state, use: kv }"),
   "loom.resource-knob-kind-mismatch": resourced(
     "resource ttlBad { for: C, kind: state, use: pg, ttl: 60 }",

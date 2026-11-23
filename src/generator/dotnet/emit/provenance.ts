@@ -6,6 +6,7 @@ import {
   PROVENANCE_VALUE_FIELD,
 } from "../../_payload/provenanced-wire.js";
 import { csJsonSqlType, csProvWireClass } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 
 /** The generic wire-carrier record's C# name — `Provenanced<int> Total`. */
 export const PROVENANCED_CS_RECORD = "Provenanced";
@@ -136,7 +137,7 @@ export function renderProvenanceRecord(ns: string): string {
       "    public string Field { get; set; } = default!;",
       "    public string Inputs { get; set; } = default!;",
       "    public string? ComputedValue { get; set; }",
-      "    public DateTime At { get; set; }",
+      `    public ${CS_NAME.DateTime} At { get; set; }`,
       "    public string? CorrelationId { get; set; }",
       "    public string? ScopeId { get; set; }",
       "    public string? ActorId { get; set; }",

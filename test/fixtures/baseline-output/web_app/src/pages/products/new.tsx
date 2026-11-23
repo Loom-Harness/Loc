@@ -4,6 +4,7 @@ import { CreateProductRequest, type CreateProductFormState, useCreateProduct } f
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
+import { FormFailure } from "../../lib/form-failure";
 import { zodResolver } from "../../lib/zod-resolver";
 import { Anchor, Breadcrumbs, Button, Card, Fieldset, Group, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
@@ -31,12 +32,7 @@ export default function ProductNew() {
                     notifications.show({ color: "green", message: t("chrome.created.Product", "Product created") });
                     navigate(`/products/${out.id}`);
                   } catch (e) {
-                    const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-                    if (outcome.kind === "global") {
-                      notifications.show({ color: "red", message: outcome.title });
-                    } else if (outcome.kind === "unhandled") {
-                      notifications.show({ color: "red", message: (e as Error).message });
-                    }
+                    applyServerErrors({ error: e, setError, fieldMap: {} as const });
                   }
                 })} data-testid="products-new">
           <Stack gap="md">
@@ -57,6 +53,7 @@ export default function ProductNew() {
               </Stack>
             </Fieldset>
     
+            <FormFailure error={errors.root?.submit} testid="products-new-error" />
             <Group justify="flex-end" gap="xs" mt="md">
               <Button type="submit" loading={ create.isPending } data-testid="products-new-submit">{t("Products.Product.op.create", "Create")}</Button>
             </Group>

@@ -56,6 +56,7 @@ import { maskedHistoryFields, unmaskedHistoryFields } from "../../../ir/util/aud
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { csInstantWire } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { renderCsExpr } from "../render-expr.js";
 
 /** The JSON key a wire field occupies inside a STORED .NET snapshot.
@@ -353,7 +354,7 @@ export function renderHistoryEntryMapperLines(
       `${pad}// \`${f.name}\`: \`mask unless\` — the change entry is DROPPED, not redacted.`,
       `${pad}// A redacted-but-present entry would still disclose that it changed, when,`,
       `${pad}// and by whom, which is the disclosure the mask exists to prevent.`,
-      `${pad}if (RequestContext.Current?.CurrentUser is { } ${user} && (${pred}))`,
+      `${pad}if (${CS_NAME.RequestContext}.Current?.CurrentUser is { } ${user} && (${pred}))`,
       `${pad}{`,
       `${pad}    var __b${i} = AuditSnapshot.Value(row.Before, ${key});`,
       `${pad}    var __a${i} = AuditSnapshot.Value(row.After, ${key});`,

@@ -55,6 +55,7 @@ export { checkPolicyFns } from "./policy-fn.js";
 export { checkRepoKeyLookups } from "./repo-key-lookup.js";
 export { checkRepoVerbs } from "./repo-verbs.js";
 export { checkReadGates } from "./repository.js";
+export { checkReservedTypeNames } from "./reserved-type-names.js";
 export { checkSeeds } from "./seed.js";
 export {
   checkAssignOrCall,

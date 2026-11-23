@@ -347,6 +347,7 @@ describe("finalizeJavaUnit — a platform name a type of the unit's own takes", 
       "g/DomainException.java",
       "package com.loom.d.domain.valueobjects;\n\npublic record DomainException() {}\n",
     ],
+    ["h/Instant.java", "package com.loom.d.domain.events;\n\npublic record Instant() {}\n"],
   ]);
   const fin = (...lines: string[]): string => finalizeJavaUnit(unit(...lines), { index });
 
@@ -448,6 +449,20 @@ describe("finalizeJavaUnit — a platform name a type of the unit's own takes", 
       `interface R { ${javaRef("com.loom.d.domain.common", "Paged")}<${javaProjectRef("Paged")}> all(); }`,
     );
     expect(out).toContain("interface R { com.loom.d.domain.common.Paged<Paged> all(); }");
+  });
+
+  // Wiring no booted tier names: no corpus fixture declares an event named
+  // like a platform type the aggregate unit also imports.
+  it("an event reference is the project's: the platform type of its name keeps its import", () => {
+    const out = fin(
+      "package com.loom.d.features.holders;",
+      "",
+      JAVA_IMPORTS,
+      "",
+      `class A { ${javaRef("java.time", "Instant")} at; Object e = new ${javaProjectRef("Instant", "event")}(); }`,
+    );
+    expect(out).toContain("import java.time.Instant;");
+    expect(out).toContain("Object e = new com.loom.d.domain.events.Instant();");
   });
 
   it("a value-object reference whose name a generated runtime type shares resolves to the value object", () => {

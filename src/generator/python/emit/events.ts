@@ -32,7 +32,10 @@ export function renderPyEvents(ctx: BoundedContextIR): string {
     "",
     "",
     hasEvents
-      ? `DomainEvent = ${ctx.events.map((e) => e.name).join(" | ")}`
+      ? // The module's own event classes, as markers: a framework name an
+        // event shares (`Callable`, `ValueError`) is renamed in this module,
+        // and a marker is never mistaken for that framework use.
+        `DomainEvent = ${ctx.events.map((e) => pyRef(EVENTS_MODULE, e.name)).join(" | ")}`
       : `DomainEvent = ${PY.Never}`,
     "",
     "",
@@ -60,6 +63,8 @@ export function renderPyEvents(ctx: BoundedContextIR): string {
  *  list per HTTP request, runs it after `session.commit()` and drops it on a
  *  rollback; off the request path (seeds, the outbox relay, the scheduler, a
  *  broker consumer) it is `None`, and dispatch stays immediate. */
+/** This module's own dotted path. */
+const EVENTS_MODULE = "app.domain.events";
 const CONTEXT_VAR = pyRef("contextvars", "ContextVar");
 const CALLABLE = pyRef("collections.abc", "Callable");
 const AWAITABLE = pyRef("collections.abc", "Awaitable");

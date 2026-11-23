@@ -26,6 +26,7 @@ import { anchors as eventing } from "./code-docs/eventing.js";
 import { anchors as frontends } from "./code-docs/frontends.js";
 import { anchors as migration } from "./code-docs/migration.js";
 import { anchors as model } from "./code-docs/model.js";
+import { anchors as names } from "./code-docs/names.js";
 import { anchors as page } from "./code-docs/page.js";
 import { anchors as persistence } from "./code-docs/persistence.js";
 import { anchors as projection } from "./code-docs/projection.js";
@@ -61,6 +62,7 @@ export const CODE_DOCS_FAMILIES = {
   behavior,
   types,
   model,
+  names,
   workflow,
   timer,
   eventing,
@@ -94,6 +96,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   ...behavior,
   ...types,
   ...model,
+  ...names,
   ...workflow,
   ...timer,
   ...eventing,

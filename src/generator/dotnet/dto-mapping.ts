@@ -35,7 +35,7 @@ import {
   csInstantWire,
   csMoneyMaxExclusive,
 } from "./codec-spelling.js";
-import { CS } from "./cs-symbols.js";
+import { CS, CS_NAME } from "./cs-symbols.js";
 import { csProvSibling, PROVENANCED_CS_RECORD } from "./emit/provenance.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import { renderCsExpr } from "./render-expr.js";
@@ -93,7 +93,7 @@ function maskWrap(
   if (!t.endsWith("?")) t = `${t}?`;
   const maskUser = names.next();
   const pred = renderCsExpr(wf.maskUnless, { thisName: "this", currentUserExpr: maskUser });
-  return `(RequestContext.Current?.CurrentUser is { } ${maskUser} && (${pred})) ? (${t})(${valueExpr}) : null`;
+  return `(${CS_NAME.RequestContext}.Current?.CurrentUser is { } ${maskUser} && (${pred})) ? (${t})(${valueExpr}) : null`;
 }
 
 // ---------------------------------------------------------------------------

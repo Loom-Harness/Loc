@@ -39,6 +39,7 @@ import type {
 import { lines } from "../../../util/code-builder.js";
 import { plural } from "../../../util/naming.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { CS_NAME } from "../cs-symbols.js";
 import {
   claimGuidHelperLines,
   collectFilterPrincipalRefs,
@@ -55,7 +56,7 @@ import { csStateHolderOf } from "./state-holder.js";
 
 const N = DOMAIN_NAMES.csharp;
 
-const AMBIENT = "RequestContext.Current!.CurrentUser!";
+const AMBIENT = `${CS_NAME.RequestContext}.Current!.CurrentUser!`;
 
 interface ConcreteShape {
   agg: EnrichedAggregateIR;

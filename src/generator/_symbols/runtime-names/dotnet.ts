@@ -18,4 +18,10 @@ export const DOTNET_RUNTIME = {
   envelopePartitionKey: "PartitionKey",
   /** The local `ChannelEnvelopes.ForData` computes the partition key into. */
   partitionKeyLocal: "partitionKey",
+  /** The Dapper repositories' and stores' private static mapping a read row to
+   *  its domain object.  The model's types are spelled bare inside that class,
+   *  so in an expression (`Status.Open`, `Map.From(…)`) a type of the member's
+   *  name would resolve to the method (CS0119); `Create` is a name no domain
+   *  type may take (`loom.reserved-type-name`), so the two never meet. */
+  rowMapper: "Create",
 } as const;

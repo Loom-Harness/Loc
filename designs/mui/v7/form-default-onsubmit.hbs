@@ -4,11 +4,6 @@
                 enqueueSnackbar({{{successMessage}}}, { variant: "success" });
                 {{{redirectStmt}}};
               } catch (e) {
-                const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-                if (outcome.kind === "global") {
-                  enqueueSnackbar(outcome.title, { variant: "error" });
-                } else if (outcome.kind === "unhandled") {
-                  enqueueSnackbar((e as Error).message, { variant: "error" });
-                }
+                applyServerErrors({ error: e, setError, fieldMap: {} as const });
               }
             }

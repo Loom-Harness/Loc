@@ -1022,7 +1022,7 @@ export function renderUpdate(
   // and `perform` would drop it — the form would sit pending, with nothing said.
   // It lands as the form-level message instead.
   const submitCmd = (task: string, arg: string, resultMsg: string): string =>
-    `Cmd.OfAsync.either ${task} ${arg} ${resultMsg} (fun ex -> ${resultMsg} (Error (ServerErrors.formLevel ex.Message)))`;
+    `Cmd.OfAsync.either ${task} ${arg} ${resultMsg} (fun _ -> ${resultMsg} (Error ServerErrors.unreachable))`;
   // The in-flight bracket: set at submit, cleared by the result.
   const pendingOn = (f: FormRecord): string => `${formPendingField(f.formField)} = true`;
   const pendingOff = (f: FormRecord): string => `${formPendingField(f.formField)} = false`;

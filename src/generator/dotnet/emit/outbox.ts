@@ -19,6 +19,7 @@ import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { OUTBOX_RELAY } from "../../_channels/delivery-policy.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { csJsonSqlType } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 
 /** The EF entity + configuration mapped onto `_outbox` (the table
  *  itself ships via the shared MigrationsIR — EF only maps it). */
@@ -35,12 +36,12 @@ namespace ${ns}.Infrastructure.Persistence;
 public sealed class OutboxMessage
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public DateTime OccurredAt { get; set; } = DateTime.UtcNow;
+    public ${CS_NAME.DateTime} OccurredAt { get; set; } = ${CS_NAME.DateTime}.UtcNow;
     public string Type { get; set; } = "";
     public string Payload { get; set; } = "";
-    public DateTime? DispatchedAt { get; set; }
+    public ${CS_NAME.DateTime}? DispatchedAt { get; set; }
     public int Attempts { get; set; }
-    public DateTime? DeadAt { get; set; }
+    public ${CS_NAME.DateTime}? DeadAt { get; set; }
 }
 
 public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage>
@@ -92,12 +93,12 @@ export function outboxRetentionMembers(purge: string): string {
   return `    private static readonly TimeSpan PurgeInterval = TimeSpan.FromSeconds(${OUTBOX_PURGE_INTERVAL_SECONDS});
     private static readonly int RetentionDays =
         int.TryParse(Environment.GetEnvironmentVariable("${OUTBOX_RETENTION_ENV}"), out var days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS};
-    private DateTime _lastPurge = DateTime.UtcNow;
+    private ${CS_NAME.DateTime} _lastPurge = ${CS_NAME.DateTime}.UtcNow;
 
     private async Task MaybePurgeAsync(CancellationToken cancellationToken)
     {
-        if (DateTime.UtcNow - _lastPurge < PurgeInterval) return;
-        _lastPurge = DateTime.UtcNow;
+        if (${CS_NAME.DateTime}.UtcNow - _lastPurge < PurgeInterval) return;
+        _lastPurge = ${CS_NAME.DateTime}.UtcNow;
         var cutoff = _lastPurge.AddDays(-RetentionDays);
         try
         {
@@ -418,7 +419,7 @@ ${outboxExecuteLoop()}
             {
                 var ev = Deserialize(row.Type, row.Payload);${originFrame}
                 ${dispatchBlock}
-                row.DispatchedAt = DateTime.UtcNow;
+                row.DispatchedAt = ${CS_NAME.DateTime}.UtcNow;
             }
             catch (OperationCanceledException)
             {
@@ -429,7 +430,7 @@ ${outboxExecuteLoop()}
                 row.Attempts++;
                 if (row.Attempts >= MaxAttempts)
                 {
-                    row.DeadAt = DateTime.UtcNow;
+                    row.DeadAt = ${CS_NAME.DateTime}.UtcNow;
                     ${outboxDeadLetteredLog({ id: "row.Id", type: "row.Type", attempts: "row.Attempts" })}
                 }
             }

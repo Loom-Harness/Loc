@@ -105,29 +105,32 @@ function invalidGuard(form: {
   const hasValidators =
     form.controls.some((c) => c.validators && c.validators.length > 0) ||
     formTextPlan([], form.fieldGroups ?? [], form.fieldArrays ?? []) !== undefined;
+  const clear = `    this.${form.formVar}Failure.set(null);`;
   return hasValidators
-    ? `    if (this.${form.formVar}.invalid) { this.${form.formVar}.markAllAsTouched(); return; }`
-    : `    if (this.${form.formVar}.invalid) return;`;
+    ? `${clear}\n    if (this.${form.formVar}.invalid) { this.${form.formVar}.markAllAsTouched(); return; }`
+    : `${clear}\n    if (this.${form.formVar}.invalid) return;`;
 }
 
 /** A form submit's mutate-then-follow-up lines, wrapped so a rejection lands on
  *  the form: `placeServerErrors` (`src/lib/server-errors.ts`) puts each 422
- *  `errors[]` entry on the control its pointer names and rethrows whatever no
- *  control can show to the app-level error handler.  The follow-up (navigate /
- *  close) runs only on success. */
+ *  `errors[]` entry on the control its pointer names and answers the one
+ *  message everything else becomes, which the form's `<formVar>Failure` signal
+ *  holds and its markup renders.  Nothing is rethrown to the app-level error
+ *  handler.  The follow-up (navigate / close) runs only on success. */
 function submitBody(formVar: string, lines: readonly string[]): string[] {
   return [
     "    try {",
     ...lines.map((l) => `  ${l}`),
     "    } catch (e) {",
-    `      placeServerErrors(e, this.${formVar});`,
+    `      this.${formVar}Failure.set(placeServerErrors(e, this.${formVar}));`,
     "    }",
   ];
 }
 
-/** The getter + add/remove member lines a form's dynamic-row fields contribute,
- *  including the arrays nested in its value-object groups (empty when the form
- *  has none). */
+/** The member lines a form contributes besides its `FormGroup`: the signal
+ *  holding its failure message (`failureMarkup`) and the getter + add/remove
+ *  lines of its dynamic-row fields, including the arrays nested in its
+ *  value-object groups. */
 function formArrayMemberLines(
   formVar: string,
   form: {
@@ -136,6 +139,7 @@ function formArrayMemberLines(
   },
 ): string[] {
   return [
+    `  readonly ${formVar}Failure = signal<string | null>(null);`,
     ...(form.fieldArrays ?? []).flatMap((fa) => fieldArrayMembers(formVar, fa)),
     ...(form.fieldGroups ?? []).flatMap(groupArrayMembers),
   ];
@@ -652,6 +656,10 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   // register the core import before the import lines are built (the spec block
   // that consumes them runs further down).
   if (sink.modals.length > 0) coreSymbols.add("signal");
+  // Every form holds its failure message in a signal.
+  if (sink.forms.length + sink.workflowForms.length + sink.opForms.length > 0) {
+    coreSymbols.add("signal");
+  }
 
   const imports: string[] = [
     `import { ${[...coreSymbols].sort().join(", ")} } from "@angular/core";`,

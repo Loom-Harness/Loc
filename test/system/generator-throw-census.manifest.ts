@@ -199,29 +199,31 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Which classes an emitter imports statically on demand is emitter code, not input (JUnit's Assertions); no .ddd input moves it, and the explicit-imports census generates every corpus fixture on java. (src/generator/_imports/java.ts:370)",
   },
+  "src/generator/_imports/python.ts#collisionAliases": {
+    deferred:
+      "Two model-side symbols binding one name in a module (e.g. a value object `Base` whose wire model `BaseModel` meets a value object `BaseModel`) cannot be aliased — neither side is the framework's; refused here instead of emitting an F811 module. The fix is a `loom.*` diagnostic on the derived-name pair or a per-target rename; then re-classify guardedBy or delete the throw.",
+    mission: "#4562",
+    reviewUntil: "2027-01-31",
+  },
   "src/generator/_imports/python.ts#finalizePyModule": {
     invariant:
-      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:286)",
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:444)",
   },
   "src/generator/_imports/python.ts#finalizePyModule$2": {
     invariant:
-      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:291)",
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:449)",
   },
   "src/generator/_imports/python.ts#finalizePyModule$3": {
-    deferred:
-      "A user name equal to an imported symbol (e.g. a value object named `Decimal` beside a `decimal` field, or an aggregate named `Request`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The fix aliases one import (the per-target symbol plan) or refuses the name with a `loom.*` diagnostic; then re-classify guardedBy or delete the throw.",
-    mission: "#4562",
-    reviewUntil: "2027-01-31",
+    invariant:
+      "Aliasing a framework member to `_<module>_<name>` binds a private name no model type can spell, so the post-alias re-check cannot find a collision; it fails closed on a finalizer defect. No .ddd input moves it. (src/generator/_imports/python.ts:516)",
   },
   "src/generator/_imports/python.ts#finalizePyModule$4": {
-    deferred:
-      "A user name equal to an imported symbol (e.g. a value object named `Decimal` beside a `decimal` field, or an aggregate named `Request`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The fix aliases one import (the per-target symbol plan) or refuses the name with a `loom.*` diagnostic; then re-classify guardedBy or delete the throw.",
-    mission: "#4562",
-    reviewUntil: "2027-01-31",
+    invariant:
+      "`declares` is an emitter-authoring option no emitter passes; the module-defines-a-name case is handled by aliasing before this check. No .ddd input moves it. (src/generator/_imports/python.ts:522)",
   },
   "src/generator/_imports/python.ts#finalizePyModule$5": {
     invariant:
-      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:336)",
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:532)",
   },
 
   "src/generator/_imports/python.ts#parseStatement": {

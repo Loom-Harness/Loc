@@ -43,6 +43,7 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { HOOK_CONTRACT_NOTE } from "../../_hatch-note.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
@@ -161,28 +162,6 @@ export function renderAggregate(
   // only what REMAINS of an operation body can pull the principal in here.
   const usesUser = agg.operations.some(operationBodyUsesCurrentUser);
   const usesMoney = aggregateUsesMoney(agg);
-  // The errors-module imports are conditional on what the body emits
-  // (see render-stmt.ts and the invariant renderer below):
-  //   DomainError    — invariants (root + parts) and `precondition` statements
-  //   ForbiddenError — `requires` statements (RBAC preconditions)
-  // Keeps the import line free of dead names per Loom's "ok generated code" gate.
-  const usesDomain =
-    agg.invariants.length > 0 ||
-    agg.parts.some((p) => p.invariants.length > 0) ||
-    agg.operations.some((op) => op.statements.some((s) => s.kind === "precondition"));
-  // Only NON-leading `requires` statements still render here — the leading run
-  // is hoisted to the calling handler, which owns the 403 (op-gates.ts).  An
-  // aggregate whose every gate hoisted drops the `ForbiddenError` import with
-  // the last statement that threw it.
-  const usesForbidden = agg.operations.some((op) =>
-    operationBody(op).some((s) => s.kind === "requires"),
-  );
-  // DisallowedError — the `when` state gate.  Emitted at the DOMAIN-METHOD
-  // entry, not only at the route layer: a workflow step / saga cascade / extern
-  // handler calls the domain method directly and would otherwise slip past the
-  // gate, landing the refused write silently.  So the import follows any
-  // `when`-carrying operation.
-  const usesDisallowed = agg.operations.some((op) => !!op.when);
   // Render the body up front so the value-object import can be narrowed
   // to `import type` when no operation constructs a VO (`new Money(...)`),
   // and dropped entirely when no VO appears in any type position either.
@@ -199,22 +178,6 @@ export function renderAggregate(
   // uses `new <Vo>(` (value-object construction) or `<Name>.<member>` (enum
   // value access). Type-only positions (annotation, `as <Name>`) qualify
   // for `type <Name>` inline. Symbols never referenced are dropped.
-  // Each declarative flag above is OR-ed with a reference scan of the rendered
-  // body: a raise site the flags do not enumerate (an event-sourced `create`'s
-  // `precondition`, which renders into `_init`, not an operation) still pulls
-  // its import — otherwise the class throws an undeclared `DomainError`
-  // (TS2304).  Same body-scan the python twin uses.
-  // `new X(` or a static factory `X.f(` — the checked-int guard throws
-  // `DomainError.arithmeticOverflow()`.
-  const throwsError = (n: string): boolean =>
-    new RegExp(`\\bnew\\s+${n}\\(|\\b${n}\\.\\w+\\(`).test(body);
-  const errorsImportList = [
-    (usesDisallowed || throwsError("DisallowedError")) && "DisallowedError",
-    (usesDomain || throwsError("DomainError")) && "DomainError",
-    (usesForbidden || throwsError("ForbiddenError")) && "ForbiddenError",
-  ]
-    .filter(Boolean)
-    .join(", ");
   const isValueUsed = (n: string): boolean => new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(body);
   const usedVoOrEnum = [...valueObjectAliases, ...enumAliases].filter((n) =>
     new RegExp(`\\b${n}\\b`).test(body),
@@ -255,7 +218,11 @@ export function renderAggregate(
       voEnumImport,
       serviceImport,
       'import type * as Events from "./events";',
-      errorsImportList ? `import { ${errorsImportList} } from "./errors";` : null,
+      // The errors the body throws: each reference is a symbol, so the import
+      // names exactly those the body spells.
+      tsImportSlot("~/domain/errors", {
+        order: ["DisallowedError", "DomainError", "ForbiddenError"],
+      }),
       hasProv ? 'import { type ProvLineage } from "./provenance";' : null,
       hasDomainTrace ? 'import { requestLog } from "../obs/als";' : null,
       usesUser ? 'import type { User } from "../auth/user-types";' : null,
@@ -648,7 +615,7 @@ function renderEntity(
   // to such an operation (`loom.exists-outside-query#guarded-call`).
   const whenGate = (op: (typeof e.operations)[number]): string | null =>
     op.when && !readsRepository(op.when)
-      ? `    if (!(${renderTsExpr(op.when)})) throw new DisallowedError(${JSON.stringify(
+      ? `    if (!(${renderTsExpr(op.when)})) throw new ${T.DisallowedError}(${JSON.stringify(
           disallowedDetail(op.name, e.name),
         )});`
       : null;
@@ -798,7 +765,7 @@ function renderEntity(
       const check = inv.guard
         ? `if ((${renderTsExpr(inv.guard)}) && !(${renderTsExpr(inv.expr)}))`
         : `if (!(${renderTsExpr(inv.expr)}))`;
-      return `    ${check} throw new DomainError(${exprSrc});`;
+      return `    ${check} throw new ${T.DomainError}(${exprSrc});`;
     }
     const ok = `__inv_${i}_ok`;
     const traceLine = `requestLog().trace({ event: "invariant_evaluated", aggregate: "${e.name}", op: __op, expr: ${JSON.stringify(inv.source)}, passed: ${ok} });`;
@@ -807,14 +774,14 @@ function renderEntity(
         `    if (${renderTsExpr(inv.guard)}) {`,
         `      const ${ok} = (${renderTsExpr(inv.expr)});`,
         `      ${traceLine}`,
-        `      if (!${ok}) throw new DomainError(${exprSrc});`,
+        `      if (!${ok}) throw new ${T.DomainError}(${exprSrc});`,
         `    }`,
       ].join("\n");
     }
     return [
       `    const ${ok} = (${renderTsExpr(inv.expr)});`,
       `    ${traceLine}`,
-      `    if (!${ok}) throw new DomainError(${exprSrc});`,
+      `    if (!${ok}) throw new ${T.DomainError}(${exprSrc});`,
     ].join("\n");
   });
 

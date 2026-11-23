@@ -37,7 +37,11 @@ import {
   e2ePackageJson,
   e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
-import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
+import {
+  ERROR_CODE_HELPERS_TS,
+  errorCodeTBinding,
+  submitFailureTs,
+} from "../_frontend/error-codes.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
@@ -658,7 +662,7 @@ export function generateVueFromContract(
     "src/lib/form.ts",
     renderShell(pack, "loom-form", {
       tBinding: errorCodeTBinding(i18nEnabled, "./locale"),
-      helpers: ERROR_CODE_HELPERS_TS,
+      helpers: `${ERROR_CODE_HELPERS_TS}\n${submitFailureTs(i18nEnabled)}`,
       issueCodeKey: TS_RUNTIME.issueCode,
     }),
   );

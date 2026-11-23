@@ -393,7 +393,7 @@ function withServerErrors(
   if (!hasRecord) {
     return {
       inputs,
-      formError: [`(View.serverFormError ${errs} [] "${base}-server-error")`],
+      formError: [`(View.serverFormError ${errs} [] "${base}-error")`],
     };
   }
   return {
@@ -402,7 +402,7 @@ function withServerErrors(
       return `${inputs[i]}; (View.serverError ${errs} "${key}" "${base}-server-error-${key.replaceAll(".", "-")}")`;
     }),
     formError: [
-      `(View.serverFormError ${errs} [ ${fields.map((f) => `"${formFieldServerKey(f)}"`).join("; ")} ] "${base}-server-error")`,
+      `(View.serverFormError ${errs} [ ${fields.map((f) => `"${formFieldServerKey(f)}"`).join("; ")} ] "${base}-error")`,
     ],
   };
 }

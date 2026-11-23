@@ -173,7 +173,7 @@ describe("HEEx `WorkflowForm` — the `run_<wf>` handler (F61)", () => {
     expect(sweep).not.toContain("__wf_param");
   });
 
-  it("flashes a coded domain-floor denial's `detail`, not its `inspect`ed map (L1-E / E5)", async () => {
+  it("shows a coded domain-floor denial's `detail` in the form, not its `inspect`ed map (L1-E / E5)", async () => {
     const { live } = await emitted();
     // A named precondition in an operation the workflow runs denies with
     // `{:precondition_failed, %{detail: …, code: …, pointer: …}}`
@@ -181,7 +181,8 @@ describe("HEEx `WorkflowForm` — the `run_<wf>` handler (F61)", () => {
     // `Place order failed: {:precondition_failed, %{code: "msg.…", …}}`.
     const clause = live.indexOf("{:error, {_kind, %{detail: detail}}} when is_binary(detail) ->");
     expect(clause, "no clause for the coded domain-floor map").toBeGreaterThan(-1);
-    // It must sit BEFORE the inspect fallback, or it never matches.
-    expect(clause).toBeLessThan(live.indexOf("#{inspect(reason)}"));
+    // It must sit BEFORE the catch-all refusal, or it never matches.
+    expect(clause).toBeLessThan(live.indexOf("{:error, _reason} ->"));
+    expect(live).not.toContain("#{inspect(reason)}");
   });
 });
