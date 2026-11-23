@@ -27,7 +27,7 @@ import { upperFirst } from "../../../util/naming.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { timerClaimSql, timerPollMs } from "../../../util/timer.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
-import { CS } from "../cs-symbols.js";
+import { CS, CS_NAME } from "../cs-symbols.js";
 
 /** The `cron:` timers of a set — run on Hangfire. */
 export function cronTimers(timers: readonly TimerSourceIR[]): TimerSourceIR[] {
@@ -54,9 +54,9 @@ function tickFieldValue(field: FieldIR): string {
   if (t.kind === "primitive") {
     switch (t.name) {
       case "datetime":
-        return "DateTime.UtcNow";
+        return `${CS_NAME.DateTime}.UtcNow`;
       case "date":
-        return "DateOnly.FromDateTime(DateTime.UtcNow)";
+        return `DateOnly.FromDateTime(${CS_NAME.DateTime}.UtcNow)`;
       case "int":
         return "0";
       case "long":

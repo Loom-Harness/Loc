@@ -371,7 +371,7 @@ export function renderHttpIndex(
         `    if (!(file instanceof File)) {`,
         // A missing part is the same malformed-request 400 every unreadable body
         // earns: the root \`onError\` renders an \`HTTPException\` as problem+json.
-        `      throw new HTTPException(${wireStatus("malformed-body")}, { message: ${JSON.stringify(MISSING_FILE_PART_DETAIL)} });`,
+        `      throw new ${T.HTTPException}(${wireStatus("malformed-body")}, { message: ${JSON.stringify(MISSING_FILE_PART_DETAIL)} });`,
         `    }`,
         `    const key = ${T.randomUUID}();`,
         `    const bytes = new Uint8Array(await file.arrayBuffer());`,
@@ -447,23 +447,23 @@ export function renderHttpIndex(
     // cast bridge as the sub-routers use.
     `    const trace_id = c.get("requestId") ?? "";`,
     `    const problem = (status: ${rootProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
-    "    if (err instanceof ForbiddenError) {",
+    `    if (err instanceof ${T.ForbiddenError}) {`,
     `      ${renderHonoBaseLogCall("forbidden", `message: err.message, status: ${rootForbiddenStatus}`)}`,
     '      recordDomainFault("forbidden");',
     // `err.detail` (ruling D4): the constant `Forbidden`, never the gate source.
     `      return problem(${rootForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))});`,
     "    }",
-    "    if (err instanceof DisallowedError) {",
+    `    if (err instanceof ${T.DisallowedError}) {`,
     `      ${renderHonoBaseLogCall("disallowed", `message: err.message, status: ${rootDisallowedStatus}`)}`,
     '      recordDomainFault("disallowed");',
     `      return problem(${rootDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
     "    }",
-    "    if (err instanceof DomainError) {",
+    `    if (err instanceof ${T.DomainError}) {`,
     `      ${renderHonoBaseLogCall("domainError", `message: err.message, status: ${rootDomainStatus}`)}`,
     '      recordDomainFault("domain_error");',
     `      return problem(${rootDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode);`,
     "    }",
-    "    if (err instanceof AggregateNotFoundError) {",
+    `    if (err instanceof ${T.AggregateNotFoundError}) {`,
     `      ${renderHonoBaseLogCall("notFound", `status: ${rootNotFoundStatus}`)}`,
     '      recordDomainFault("not_found");',
     `      return problem(${rootNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
@@ -481,14 +481,14 @@ export function renderHttpIndex(
       : []),
     ...(rootNeedsConcurrency
       ? [
-          "    if (err instanceof ConcurrencyError) {",
+          `    if (err instanceof ${T.ConcurrencyError}) {`,
           `      ${renderHonoBaseLogCall("conflict", `message: err.message, status: ${rootConcurrencyStatus}`)}`,
           '      recordDomainFault("conflict");',
           `      return problem(${rootConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
           "    }",
         ]
       : []),
-    "    if (err instanceof ExternHandlerError) {",
+    `    if (err instanceof ${T.ExternHandlerError}) {`,
     `      ${renderHonoBaseLogCall("externHandlerThrew", "aggregate: err.aggName, op: err.opName, error: err.message")}`,
     // RS-28 — sanitized: the operator gets op + aggregate + the inner message on
     // the log line; the wire gets the same "internal" every other 500 sends.
@@ -552,12 +552,12 @@ export function renderHttpIndex(
       // from `db` (a later default param may reference an earlier one); a caller
       // can still pass an explicit dispatcher (e.g. a broker publisher).
       `  events: ${TT.DomainEventDispatcher} = ${defaultEventsExpr},`,
-      "): OpenAPIHono {",
+      `): ${T.OpenAPIHono} {`,
       authVerifyAssert,
       ...(options?.byIdCache
         ? [`  ${ref(tsNamed("~/cache/by-id-cache", "installByIdCacheEviction"))}();`]
         : []),
-      "  const app = new OpenAPIHono();",
+      `  const app = new ${T.OpenAPIHono}();`,
       "  // Per-request correlation id + structured request_start /",
       "  // request_end JSON log lines.  Mounted FIRST so every",
       "  // downstream handler + onError sees the id; honours an",
@@ -730,7 +730,7 @@ export function renderHttpIndex(
       // a genuine server fault and must not put its message on the wire.
       // LAST among the typed arms, exactly as in the per-router ladders, so no
       // domain class it might subclass loses its own mapping.
-      "    if (err instanceof HTTPException) {",
+      `    if (err instanceof ${T.HTTPException}) {`,
       "      return frameworkProblem(c, err.status as ContentfulStatusCode, err.message);",
       "    }",
       "    const message = err instanceof Error ? err.message : String(err);",

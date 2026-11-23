@@ -22,6 +22,17 @@
 // usage decides — so it cannot drift from the code it imports for.  A needed
 // namespace with no slot is appended after the region's last plain `using`.
 //
+// A PLATFORM NAME A PROJECT TYPE TAKES.  A reference marker is spelled
+// `global::<Ns>.<Name>` instead of `<Name>` when the generated project declares
+// a domain type of the same simple name (`FinalizeCsOptions.project`, the
+// decision `dotnetPlatformNameTaken` in the symbol plan): the domain type keeps
+// the bare name — aliased where an import would make it ambiguous
+// (`dotnet/bcl-collision.ts`) — and the platform reference cannot be captured
+// by it.  `csProjectRef` names a type the generated project itself declares
+// (`DomainException`, `RequestContext`); it is spelled the same way, below the
+// project's root namespace, and derives no `using` (the headers write theirs).
+// A project without such a collision spells every reference bare.
+//
 // A namespace needs no derived line when the unit already writes it, when the
 // unit's own `namespace` is it or nested inside it, or when the SDK's
 // `<ImplicitUsings>` imports it into every file of every generated project
@@ -30,6 +41,7 @@
 // renders for an implicit namespace: it is the header's explicit choice.
 // ---------------------------------------------------------------------------
 
+import { dotnetPlatformNameTaken } from "../_symbols/plan.js";
 import { CLOSE, type ImportSymbol, OPEN, ref, resolveMarkers, spelling } from "./symbol.js";
 
 /** A type `<name>` in namespace `<ns>`, optionally bound under `alias`. */
@@ -45,6 +57,41 @@ export function csNamespace(ns: string): ImportSymbol {
 /** Shorthand: the marker for type `<ns>.<name>`. */
 export function csRef(ns: string, name: string, alias?: string): string {
   return ref(csType(ns, name, alias));
+}
+
+/** The module prefix of a {@link csProjectRef}: what follows it is the
+ *  declaring namespace below the project's root namespace. */
+const PROJECT_MODULE = "loom.project";
+/** The module prefix of a {@link csNameRef}: what follows it is the declaring
+ *  namespace. */
+const NAME_MODULE = "loom.name";
+
+/** A reference to platform type `<ns>.<name>` in a unit whose `using` lines
+ *  the emitter writes itself: spelled bare, or `global::<ns>.<name>` when a
+ *  domain type takes the name.  Unlike {@link csRef} it derives no `using`. */
+export function csNameRef(ns: string, name: string): string {
+  return ref({ lang: "cs", module: `${NAME_MODULE}.${ns}`, name });
+}
+
+/** A reference to a type the generated project declares, in namespace
+ *  `<root>.<rel>` (`csProjectRef("Domain.Common", "DomainException")`): spelled
+ *  bare, or `global::<root>.<rel>.<name>` when a domain type takes the name. */
+export function csProjectRef(rel: string, name: string): string {
+  return ref({ lang: "cs", module: `${PROJECT_MODULE}.${rel}`, name });
+}
+
+/** The namespace a spelling-only reference names — below the root for a
+ *  {@link csProjectRef}, absolute for a {@link csNameRef} — or `undefined` for
+ *  a symbol that derives a `using`. */
+function spellingOnly(s: ImportSymbol): { project: boolean; ns: string } | undefined {
+  for (const [prefix, project] of [
+    [PROJECT_MODULE, true],
+    [NAME_MODULE, false],
+  ] as const) {
+    if (s.module.startsWith(`${prefix}.`))
+      return { project, ns: s.module.slice(prefix.length + 1) };
+  }
+  return undefined;
 }
 
 /** Shorthand: the (empty-spelling) marker for namespace `<ns>`'s extensions. */
@@ -77,10 +124,36 @@ const USING_RE = /^using\s+([\w.]+)\s*;\s*$/;
 const ALIAS_RE = /^using\s+(\w+)\s*=\s*([\w.<>, ]+?)\s*;\s*$/;
 const NAMESPACE_RE = /^namespace\s+([\w.]+)\s*[;{]?/m;
 
-const csSpelling = (s: ImportSymbol): string => (s.name === undefined ? "" : spelling(s));
+/** The project a unit belongs to: its root namespace — where a
+ *  {@link csProjectRef} resolves — and the simple names its domain types take,
+ *  for which a platform or project reference is spelled `global::`-qualified. */
+export interface CsProjectSpelling {
+  readonly root: string;
+  readonly projectTypes: ReadonlySet<string>;
+}
 
 export interface FinalizeCsOptions {
   readonly path?: string;
+  /** Absent: every reference is spelled bare. */
+  readonly project?: CsProjectSpelling;
+}
+
+/** How the unit spells one marker. */
+function csSpelling(project: CsProjectSpelling | undefined): (s: ImportSymbol) => string {
+  const taken = (name: string): boolean =>
+    project !== undefined && dotnetPlatformNameTaken(name, project.projectTypes);
+  return (s) => {
+    if (s.name === undefined) return "";
+    const only = spellingOnly(s);
+    if (only !== undefined) {
+      if (!taken(s.name)) return s.name;
+      return only.project
+        ? `global::${project!.root}.${only.ns}.${s.name}`
+        : `global::${only.ns}.${s.name}`;
+    }
+    if (s.alias === undefined && taken(s.name)) return `global::${s.module}.${s.name}`;
+    return spelling(s);
+  };
 }
 
 /**
@@ -101,7 +174,12 @@ export function finalizeCsUnit(text: string, opts: FinalizeCsOptions = {}): stri
     if (m) slotAt.set(i, m[1]!);
   });
   const body = raw.map((l, i) => (slotAt.has(i) ? "" : l)).join("\n");
-  const { text: spelled, used } = resolveMarkers(body, () => false, csSpelling);
+  const { text: spelled, used: referenced } = resolveMarkers(
+    body,
+    () => false,
+    csSpelling(opts.project),
+  );
+  const used = referenced.filter((s) => spellingOnly(s) === undefined);
   const lines = spelled.split("\n");
 
   // What the unit's text needs: a namespace per symbol, plus an alias line per

@@ -1,6 +1,7 @@
 import { lines } from "../../../util/code-builder.js";
 import { csRef, csUsing } from "../../_imports/dotnet.js";
 import { csJsonSqlType } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Per-operation audit runtime — .NET counterpart of the Hono `audit_records`
@@ -59,7 +60,7 @@ export function renderAuditRecord(ns: string): string {
       // holding one on a POCO does not drag CA1001 in under `/warnaserror`.
       "    public JsonNode? Before { get; set; }",
       "    public JsonNode? After { get; set; }",
-      "    public DateTime At { get; set; }",
+      `    public ${CS_NAME.DateTime} At { get; set; }`,
       "    public string Status { get; set; } = default!;",
       "    public string? CorrelationId { get; set; }",
       "    public string? ScopeId { get; set; }",

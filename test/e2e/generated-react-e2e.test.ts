@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { withoutRefusedThemeTokens } from "../_helpers/theme.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 import { installPlaywrightChromium } from "./support/playwright-install.js";
 
@@ -53,6 +54,10 @@ function run(cmd: string, cwd: string): string {
 // back to injecting into a `deployable <name> { … }` block when no slot
 // exists.  Mirrors the react-build / svelte-e2e helpers.
 function injectDesign(src: string, qualified: string): string {
+  return withoutRefusedThemeTokens(retargetDesign(src, qualified), qualified.split("@")[0]!);
+}
+
+function retargetDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
   const multiLine = /(deployable \w+ \{)([^}]*?)\n(\s*)\}/;

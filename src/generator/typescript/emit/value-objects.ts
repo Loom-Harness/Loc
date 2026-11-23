@@ -6,6 +6,7 @@ import { tsImportSlot } from "../../_imports/ts.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
+import { T } from "../ts-symbols.js";
 import { tsRuleParams } from "../wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -18,7 +19,6 @@ import { tsRuleParams } from "../wire-policy-ts.js";
 // ---------------------------------------------------------------------------
 
 export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
-  const needsDomainError = ctx.valueObjects.some((v) => v.invariants.length > 0);
   // The body is rendered FIRST so the import header can key on what it actually
   // spells.  Both importable symbols reach this file two ways, and a scan that
   // sees only one of them ships a file naming a symbol it never imports:
@@ -61,15 +61,10 @@ export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
       // correct for the body-scan half — an expression that renders `Ids.x()`
       // needs the runtime binding, which `import type` would erase.
       tsImportSlot("~/domain/ids"),
-      // A value object's invariant raises `ValueObjectInvariantError` (M-T5.1 —
-      // a DomainError the routers answer with an errors[] entry); a plain
-      // `DomainError` import survives only where the body still spells one.
-      needsDomainError || /\bnew DomainError\(|\bDomainError\.\w+\(/.test(scan)
-        ? `import { ${[
-            ...(/\bnew DomainError\(|\bDomainError\.\w+\(/.test(scan) ? ["DomainError"] : []),
-            ...(needsDomainError ? ["ValueObjectInvariantError"] : []),
-          ].join(", ")} } from "./errors";`
-        : null,
+      // A value object's invariant raises `ValueObjectInvariantError` (a
+      // DomainError the routers answer with an errors[] entry); a plain
+      // `DomainError` stays where the body still spells one.
+      tsImportSlot("~/domain/errors", { order: ["DomainError", "ValueObjectInvariantError"] }),
       "",
       ...body,
     ) + "\n"
@@ -165,7 +160,7 @@ function renderValueObject(v: ValueObjectIR): string[] {
     // so the errors[] entry a body-side breach answers can be localised too.
     const params = inv.message ? tsRuleParams(inv, renderTsExpr) : undefined;
     const tail = `, ${JSON.stringify(ruleCode(inv))}${params ? `, ${params}` : ""}`;
-    return `    ${check} throw new ValueObjectInvariantError(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${tail});`;
+    return `    ${check} throw new ${T.ValueObjectInvariantError}(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${tail});`;
   });
   const derived = v.derived.map(
     (d) =>

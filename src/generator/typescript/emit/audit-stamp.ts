@@ -34,6 +34,7 @@ import { stampsReadAggregate } from "../../../ir/util/stamp-self-read.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr, type TsRenderContext } from "../render-expr.js";
+import { T } from "../ts-symbols.js";
 
 /** The name every save site binds the domain instance to, and the helper's
  *  second parameter — stamp values reading the aggregate render against it. */
@@ -214,7 +215,7 @@ function renderAggregateStamps(agg: EnrichedAggregateIR): {
   // already in the values and the guard is decoration.
   const insertGuards = requiredClaimStamps(agg, "create").flatMap((stamp) => [
     `  if (currentUser.${stamp.claim} == null${stamp.claimIsString ? ` || currentUser.${stamp.claim} === ""` : ""}) {`,
-    `    throw new ForbiddenError(${JSON.stringify(missingClaimMessage(stamp))});`,
+    `    throw new ${T.ForbiddenError}(${JSON.stringify(missingClaimMessage(stamp))});`,
     "  }",
   ]);
   // Each as a leading `, <field>: <value>` fragment so an empty set leaves the

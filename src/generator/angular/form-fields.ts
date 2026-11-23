@@ -248,6 +248,13 @@ function enumOptionLabels(
 /** Render one form submit/cancel/action button, Material- or plain-styled per
  *  the active pack.  Material registers `MatButtonModule`; plain packs use the
  *  `.app-button` classes from their theme (no module to register). */
+/** The one element a form shows for a failed submit that no field owns: the
+ *  text of its `<formVar>Failure` signal (`placeServerErrors`), announced as an
+ *  alert, test id `<form test id>-error`. */
+export function formFailureMarkup(formVar: string, testid: string): string {
+  return `@if (${formVar}Failure(); as failure) {<p role="alert" data-testid="${testid}-error">{{ failure }}</p>}`;
+}
+
 export function formButton(
   ctx: WalkContext,
   opts: {

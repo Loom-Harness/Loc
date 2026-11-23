@@ -40,6 +40,7 @@ import type { DeployableIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
+import { CS_NAME } from "../cs-symbols.js";
 
 /** Where the module lives, relative to the project root. */
 export const BY_ID_CACHE_PATH = "Infrastructure/Caching/ByIdCache.cs";
@@ -260,12 +261,12 @@ export function renderByIdCacheModule(
     "{",
     `    public const int MaxEntries = ${IN_MEMORY_CACHE_MAX_ENTRIES};`,
     "",
-    "    private readonly ConcurrentDictionary<string, (string Value, DateTime ExpiresAt)> _entries = new();",
+    `    private readonly ConcurrentDictionary<string, (string Value, ${CS_NAME.DateTime} ExpiresAt)> _entries = new();`,
     "",
     "    public Task<string?> GetAsync(string key)",
     "    {",
     "        if (!_entries.TryGetValue(key, out var entry)) return Task.FromResult<string?>(null);",
-    "        if (entry.ExpiresAt <= DateTime.UtcNow)",
+    `        if (entry.ExpiresAt <= ${CS_NAME.DateTime}.UtcNow)`,
     "        {",
     "            _entries.TryRemove(key, out _);",
     "            return Task.FromResult<string?>(null);",
@@ -277,12 +278,12 @@ export function renderByIdCacheModule(
     "    {",
     "        if (!_entries.ContainsKey(key) && _entries.Count >= MaxEntries)",
     "        {",
-    "            var now = DateTime.UtcNow;",
+    `            var now = ${CS_NAME.DateTime}.UtcNow;`,
     "            foreach (var (k, e) in _entries)",
     "                if (e.ExpiresAt <= now) _entries.TryRemove(k, out _);",
     "            if (_entries.Count >= MaxEntries) return Task.CompletedTask;",
     "        }",
-    "        _entries[key] = (value, DateTime.UtcNow.AddSeconds(ttlSeconds));",
+    `        _entries[key] = (value, ${CS_NAME.DateTime}.UtcNow.AddSeconds(ttlSeconds));`,
     "        return Task.CompletedTask;",
     "    }",
     "",

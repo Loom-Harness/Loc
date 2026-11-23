@@ -6,11 +6,12 @@
 
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { humanize, snake } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { opDialogChrome } from "../_walker/i18n-chrome.js";
 import { paramLabelOwner } from "../_walker/model-text-sites.js";
 import { gateActionButton } from "./heex-action.js";
-import { renderFieldInputForField } from "./heex-form.js";
+import { formErrorMarkup, renderFieldInputForField } from "./heex-form.js";
 import { testIdAttr } from "./heex-markup.js";
 import { homeOf, opLabelCall } from "./heex-model-text.js";
 import {
@@ -220,6 +221,7 @@ ${heading}${childrenHeex}
     `  <:title>${heading}</:title>`,
     `  <.simple_form for={@${formAssign}} phx-change="validate_${opSnake}" phx-submit="submit_${opSnake}">`,
     ...inputs,
+    formErrorMarkup(`${formAssign}_error`, `${routeSegmentFor(ofName)}-op-${opSnake}`),
     `    <:actions>`,
     `      <.button type="submit"${submitDisabled}>${heading}</.button>`,
     `    </:actions>`,

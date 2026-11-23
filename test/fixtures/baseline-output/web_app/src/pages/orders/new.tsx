@@ -4,6 +4,7 @@ import { CreateOrderRequest, useCreateOrder } from "../../api/order";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
+import { FormFailure } from "../../lib/form-failure";
 import { zodResolver } from "../../lib/zod-resolver";
 import { Anchor, Breadcrumbs, Button, Card, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
@@ -31,12 +32,7 @@ export default function OrderNew() {
                     notifications.show({ color: "green", message: t("chrome.created.Order", "Order created") });
                     navigate(`/orders/${out.id}`);
                   } catch (e) {
-                    const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-                    if (outcome.kind === "global") {
-                      notifications.show({ color: "red", message: outcome.title });
-                    } else if (outcome.kind === "unhandled") {
-                      notifications.show({ color: "red", message: (e as Error).message });
-                    }
+                    applyServerErrors({ error: e, setError, fieldMap: {} as const });
                   }
                 })} data-testid="orders-new">
           <Stack gap="md">
@@ -52,6 +48,7 @@ export default function OrderNew() {
     
             <TextInput label={ t("Orders.Order.field.placedAt", "Placed At") } {...register("placedAt")} data-testid="orders-new-input-placedAt" type="datetime-local" error={fieldErrorText(errors.placedAt)} />
     
+            <FormFailure error={errors.root?.submit} testid="orders-new-error" />
             <Group justify="flex-end" gap="xs" mt="md">
               <Button type="submit" loading={ create.isPending } data-testid="orders-new-submit">{t("Orders.Order.op.create", "Create")}</Button>
             </Group>

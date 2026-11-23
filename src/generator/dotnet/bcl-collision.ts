@@ -40,7 +40,10 @@ import {
   dotnetAmbientClash,
   dotnetImportedNamespaces,
   isDotnetAmbientTypeName,
+  isDotnetRootNamespace,
 } from "../_symbols/plan.js";
+import { rewriteCode } from "./cs-code-scan.js";
+import { CS_NAME, CS_PROJECT_TYPE_HOME } from "./cs-symbols.js";
 
 /** BCL type names this backend's emitted `using` set brings into scope, so a
  *  same-named domain type is ambiguous rather than merely shadowed.
@@ -279,10 +282,12 @@ export function typeMemberNames(
 }
 
 /** A BCL static receiver for an expression-position reference: the bare name
- *  normally (byte-identical), `global::<namespace>.<Name>` when a member of
- *  that name is in scope. */
+ *  normally, `global::<namespace>.<Name>` when a member of that name is in
+ *  scope.  `DateTime` is a name reference (`CS_NAME`), so a domain TYPE named
+ *  `DateTime` qualifies it too. */
 export function csBcl(name: CsBclReceiver, scope: CsMemberScope | undefined): string {
-  return scope?.members.has(name) ? `global::${CS_BCL_RECEIVER_HOME[name]}.${name}` : name;
+  if (scope?.members.has(name)) return `global::${CS_BCL_RECEIVER_HOME[name]}.${name}`;
+  return name === "DateTime" ? CS_NAME.DateTime : name;
 }
 
 /** The `System` namespace root for an expression-position qualified
@@ -295,13 +300,15 @@ export function csSystemRoot(scope: CsMemberScope | undefined): string {
 /** A project-declared static class (`DomainLog`, `RequestContext`, a domain
  *  service, `<Wf>Functions`) living in `<ns>.<nsSuffix>`: the bare name
  *  normally, `global::<ns>.<nsSuffix>.<Name>` when a member of that name is in
- *  scope. */
+ *  scope.  `RequestContext` is a name reference (`CS_NAME`), so a domain TYPE
+ *  named `RequestContext` qualifies it too. */
 export function csProjectType(
   name: string,
   nsSuffix: string,
   scope: CsMemberScope | undefined,
 ): string {
-  return scope?.members.has(name) ? `global::${scope.ns}.${nsSuffix}.${name}` : name;
+  if (scope?.members.has(name)) return `global::${scope.ns}.${nsSuffix}.${name}`;
+  return name === "RequestContext" ? CS_NAME.RequestContext : name;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,8 +364,9 @@ export function csParamIdent(name: string, scope: CsMemberScope | undefined): st
 // ---------------------------------------------------------------------------
 
 /** Every type name a hosted context declares into the project's `using` set —
- *  the names a root namespace must not equal. */
-function declaredTypeNames(
+ *  the names a root namespace must not equal, and the names a platform
+ *  reference is spelled `global::`-qualified for (`_imports/dotnet.ts`). */
+export function declaredTypeNames(
   contexts: ReadonlyArray<
     Pick<
       BoundedContextIR,
@@ -420,32 +428,52 @@ export function dotnetRootNamespace(
 }
 
 // ---------------------------------------------------------------------------
-// Domain types named like a generated LAYER namespace.
+// Domain types whose simple name something else owns in a unit.
 //
-// Every project file lives under `<Root>.<Layer>…` (`Shop.Api`,
-// `Shop.Application.…`, `Shop.Domain.…`, `Shop.Infrastructure.…`, …).  A
-// hosted type spelled like one of those layers — `aggregate Application` —
-// is then unreachable by its simple name from every other file: lookup from
-// `namespace Shop.Infrastructure.Repositories` walks out through `Shop`, whose
-// MEMBER namespace `Application` wins before the compilation unit's
-// `using Shop.Domain.Applications;` is ever consulted (measured under
-// `dotnet build /warnaserror`, sdk:10.0):
+// A hosted type is reached from the project's other units by its simple name,
+// and four things can own that name first:
 //
-//     error CS0118: 'Application' is a namespace but is used like a type
+//   - a NAMESPACE the unit's enclosing namespaces contain.  Every project file
+//     lives under `<Root>.<Layer>…`, so `aggregate Application` is
+//     unreachable from `namespace Shop.Infrastructure.Repositories`: lookup
+//     walks out through `Shop`, whose member namespace `Application` wins
+//     before the compilation unit's `using Shop.Domain.Applications;` is ever
+//     consulted.  The same holds for a deeper namespace (`aggregate
+//     Persistence` beside `<Root>.Infrastructure.Persistence`, from every unit
+//     under `<Root>.Infrastructure`) and for the root namespace of a
+//     referenced assembly (`System`, `OpenTelemetry`), which the global
+//     namespace contains (measured under `dotnet build /warnaserror`,
+//     sdk:10.0):
 //
-// Its id type has the sibling defect: `ApplicationId` is also
-// `System.ApplicationId`, so every file importing both `System` and
-// `<Root>.Domain.Ids` is CS0104-ambiguous.
+//         error CS0118: 'Application' is a namespace but is used like a type
+//
+//   - a type the project GENERATES for itself (`DomainException`,
+//     `RequestContext`, `HttpMetrics`): a unit importing both its namespace
+//     and the domain type's is CS0104-ambiguous;
+//   - a type an imported framework namespace exports (`_symbols/plan.ts`);
+//   - for an aggregate's id, a `System` type (`ApplicationId`).
 //
 // THE FIX: an alias declared INSIDE the file's namespace declaration
 // (`namespace Shop.Api; using Application = global::Shop.Domain.Applications.Application;`)
 // is looked up at that namespace's level — ahead of both the enclosing
-// `Shop` namespace's members and the compilation unit's wildcard usings — so
-// it repairs both shapes.  It is appended to the namespace line itself so no
-// generated line moves (sourcemaps and `#line` stay exact), and only on a
-// collision, so every other model is byte-identical.  A file whose namespace
-// declares the type, or has a member namespace of that name (CS0576), is
-// skipped.
+// namespaces' members and the compilation unit's wildcard usings — so the
+// domain type keeps its bare name in every unit.  What the alias displaces
+// is spelled `global::`: a generated type and a BCL type the emitters name
+// are reference markers that the finalizer already qualifies
+// (`_imports/dotnet.ts`), and a namespace the unit names as a qualifier
+// (`System.Globalization.CultureInfo`) is rewritten here, except where the
+// qualifier names a static member of the domain type (`Status.Active`).
+//
+// A unit whose own namespace declares a type of that name (the generated
+// type's namespace: `<Root>.Api` declares `ProblemDetailsError`), or holds a
+// member namespace of it, cannot take the alias (CS0576): there the generated
+// meaning keeps the bare name, and each bare reference that is the domain
+// type's — every bare one, since the project's own references are markers —
+// is spelled `global::` instead.  The file declaring the type is left alone.
+//
+// Every alias is appended to the namespace line itself so no generated line
+// moves (sourcemaps and `#line` stay exact), and only on a collision, so
+// every other model is byte-identical.
 // ---------------------------------------------------------------------------
 
 /** `System` types spelled `<Noun>Id` — the id class of a same-named
@@ -467,10 +495,44 @@ function perFileAliasedNames(contexts: Parameters<typeof declaredTypeNames>[0]):
   return new Set(contexts.flatMap((c) => c.aggregates.flatMap(collidingNamesOfAggregate)));
 }
 
-/** Alias every hosted type that collides with a generated layer namespace
- *  (or, for an aggregate id, a `System` type) inside each `<root>.…`
- *  namespace declaration of `out` — see the block above.  Returns the
- *  rewritten files; empty without a collision. */
+/** A type declaration of `t` at the start of a line. */
+const declares = (t: string): RegExp =>
+  new RegExp(`^(?:\\w+ )*(?:class|struct|record|interface|enum) ${t}\\b`, "m");
+
+/** `ns` and every namespace enclosing it, innermost first. */
+function enclosing(ns: string): string[] {
+  const segs = ns.split(".");
+  return segs.map((_, i) => segs.slice(0, segs.length - i).join("."));
+}
+
+/** The names a domain type's declaring file makes reachable through the type
+ *  (`<Type>.<Member>`): an enum's members, a class's static members. */
+function staticMembers(src: string, t: string): Set<string> {
+  const names = new Set<string>();
+  const decl = declares(t).exec(src);
+  if (!decl) return names;
+  const body = src.slice(decl.index);
+  if (/\benum\b/.test(decl[0])) {
+    const open = body.indexOf("{");
+    const close = body.indexOf("}", open);
+    for (const part of body.slice(open + 1, close).split(",")) {
+      const m = /([A-Za-z_]\w*)/.exec(part.replace(/\/\/.*$/gm, "").replace(/\[[^\]]*\]/g, ""));
+      if (m) names.add(m[1]!);
+    }
+    return names;
+  }
+  for (const m of body.matchAll(/\bstatic\b[^;{}=()]*?\b(\w+)\s*(?:<[^>]*>)?\s*(?:\(|=>|=|\{|;)/g))
+    names.add(m[1]!);
+  for (const m of body.matchAll(/\bconst\b[^;=]*?\b(\w+)\s*=/g)) names.add(m[1]!);
+  for (const m of body.matchAll(/\b(?:class|struct|record|interface|enum)\s+(\w+)/g))
+    names.add(m[1]!);
+  return names;
+}
+
+/** Alias every hosted type whose simple name something else owns (see the
+ *  block above) inside each `<root>.…` namespace declaration of `out`, and
+ *  spell what the alias displaces `global::`.  Returns the rewritten files;
+ *  empty without a collision. */
 export function layerClashAliases(
   out: ReadonlyMap<string, string>,
   root: string,
@@ -484,23 +546,41 @@ export function layerClashAliases(
     if (decl && (decl.ns === root || decl.ns.startsWith(`${root}.`)))
       files.push({ path, src, ...decl });
   }
-  // Every namespace the project declares, with its ancestors.
+  // Every namespace the project declares, with its ancestors, and for each
+  // simple name the namespaces that hold a member namespace of that name.
   const namespaces = new Set<string>();
-  for (const f of files) {
-    const segs = f.ns.split(".");
-    for (let i = 1; i <= segs.length; i++) namespaces.add(segs.slice(0, i).join("."));
+  for (const f of files) for (const n of enclosing(f.ns)) namespaces.add(n);
+  const parentsOf = new Map<string, Set<string>>();
+  for (const n of namespaces) {
+    const at = n.lastIndexOf(".");
+    if (at < 0 || !n.startsWith(`${root}.`)) continue;
+    const name = n.slice(at + 1);
+    if (!parentsOf.has(name)) parentsOf.set(name, new Set());
+    parentsOf.get(name)!.add(n.slice(0, at));
   }
-  const layers = new Set(
-    [...namespaces]
-      .filter((n) => n.startsWith(`${root}.`) && !n.slice(root.length + 1).includes("."))
-      .map((n) => n.slice(root.length + 1)),
-  );
+  /** The namespace named `t` that lookup from `ns` reaches first, if any. */
+  const shadowingNamespace = (t: string, ns: string): string | undefined => {
+    for (const p of enclosing(ns)) if (parentsOf.get(t)?.has(p)) return `${p}.${t}`;
+    return isDotnetRootNamespace(t) ? t : undefined;
+  };
+
   const candidates = declaredTypeNames(contexts);
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) candidates.add(`${agg.name}Id`);
   }
+  // The generated namespace of a project type a hosted type is named like.
+  const generatedHome = new Map<string, string>();
+  for (const [t, rel] of Object.entries(CS_PROJECT_TYPE_HOME)) {
+    if (candidates.has(t)) generatedHome.set(t, `${root}.${rel}`);
+  }
   const always = new Set(
-    [...candidates].filter((t) => layers.has(t) || BCL_COLLIDING_ID_NAMES.has(t)),
+    [...candidates].filter(
+      (t) =>
+        parentsOf.has(t) ||
+        isDotnetRootNamespace(t) ||
+        BCL_COLLIDING_ID_NAMES.has(t) ||
+        generatedHome.has(t),
+    ),
   );
   // A type an imported framework namespace also exports clashes only in the
   // units that import both (`_symbols/plan.ts`).  The aggregates and parts the
@@ -513,30 +593,96 @@ export function layerClashAliases(
   if (clashing.length === 0) return rewritten;
 
   // Where each clashing type is declared — read off the output, so the alias
-  // follows whichever directory layout placed it.  A name declared in more
-  // than one namespace has no single target and is left alone.
+  // follows whichever directory layout placed it.  The project's own type of
+  // that name is not a home; a name declared in more than one other
+  // namespace has no single target and is left alone.
   const home = new Map<string, string>();
+  const homeFile = new Map<string, string>();
   for (const t of clashing) {
-    const decl = new RegExp(`^(?:\\w+ )*(?:class|struct|record|interface|enum) ${t}\\b`, "m");
-    const homes = new Set(files.filter((f) => decl.test(f.src)).map((f) => f.ns));
-    if (homes.size === 1) home.set(t, [...homes][0]);
+    const homes = files.filter((f) => f.ns !== generatedHome.get(t) && declares(t).test(f.src));
+    const nss = new Set(homes.map((f) => f.ns));
+    if (nss.size === 1) {
+      home.set(t, [...nss][0]!);
+      homeFile.set(t, homes[0]!.src);
+    }
+  }
+  /** Namespaces declaring a type of each clashing name (the generated one's). */
+  const declaredIn = new Map<string, Set<string>>();
+  for (const t of home.keys()) {
+    declaredIn.set(t, new Set(files.filter((f) => declares(t).test(f.src)).map((f) => f.ns)));
   }
 
   for (const f of files) {
     const imported = dotnetImportedNamespaces(f.src);
     const sees = (t: string, ns: string): boolean =>
-      always.has(t) || (imported.includes(ns) && dotnetAmbientClash(t, imported));
-    const aliases = [...home]
-      .filter(
-        ([t, ns]) =>
-          f.ns !== ns &&
-          !namespaces.has(`${f.ns}.${t}`) &&
-          sees(t, ns) &&
-          new RegExp(`\\b${t}\\b`).test(f.src),
-      )
-      .map(([t, ns]) => ` using ${t} = global::${ns}.${t};`);
-    if (aliases.length === 0) continue;
-    rewritten.set(f.path, f.src.slice(0, f.insertAt) + aliases.join("") + f.src.slice(f.insertAt));
+      (always.has(t) &&
+        (generatedHome.has(t) ||
+          BCL_COLLIDING_ID_NAMES.has(t) ||
+          shadowingNamespace(t, f.ns) !== undefined)) ||
+      (imported.includes(ns) && dotnetAmbientClash(t, imported));
+    const aliases: string[] = [];
+    let body = f.src.slice(f.insertAt);
+    for (const [t, ns] of home) {
+      if (!new RegExp(`\\b${t}\\b`).test(f.src)) continue;
+      /** Spell the namespace the domain type displaces in this unit as
+       *  `global::<ns>.` wherever the unit names it as a qualifier. */
+      const unshadow = (): void => {
+        const shadowed = shadowingNamespace(t, f.ns);
+        if (shadowed === undefined) return;
+        const members = staticMembers(homeFile.get(t)!, t);
+        body = rewriteCode(body, new RegExp(`(?<![\\w.:@])${t}\\.(\\w+)`, "g"), (m) =>
+          members.has(m[1]!) ? undefined : `global::${shadowed}.${m[1]}`,
+        );
+      };
+      if (f.ns === ns || declares(t).test(f.src)) {
+        // The type's own namespace binds the name to it already.
+        unshadow();
+        continue;
+      }
+      if (!sees(t, ns)) continue;
+      const fq = `global::${ns}.${t}`;
+      if (namespaces.has(`${f.ns}.${t}`) || declaredIn.get(t)!.has(f.ns)) {
+        // No alias here (CS0576): the bare name keeps the generated meaning —
+        // the member namespace a qualifier names, or the generated type — and
+        // the domain type's references are spelled in full.
+        const members = staticMembers(homeFile.get(t)!, t);
+        body = rewriteCode(body, new RegExp(`(?<![\\w.:@])${t}(?!\\w)(\\.\\w+)?`, "g"), (m) => {
+          const member = m[1]?.slice(1);
+          if (member !== undefined && !members.has(member)) return undefined;
+          return `${fq}${m[1] ?? ""}`;
+        });
+        continue;
+      }
+      aliases.push(` using ${t} = ${fq};`);
+      unshadow();
+    }
+    const src = f.src.slice(0, f.insertAt) + aliases.join("") + body;
+    if (src !== f.src) rewritten.set(f.path, src);
+  }
+  return rewritten;
+}
+
+/** Drop a `using N;` line that repeats one above it in the leading using
+ *  block — two namespaces the emitters import can be one when a domain type
+ *  is named like a generated namespace (`aggregate Enum` lives in
+ *  `<Root>.Domain.Enums`), and a repeated directive is CS0105.  Returns the
+ *  rewritten files; empty without a repeat. */
+export function dedupeUsings(out: ReadonlyMap<string, string>): Map<string, string> {
+  const rewritten = new Map<string, string>();
+  for (const [path, src] of out) {
+    if (!path.endsWith(".cs")) continue;
+    const lines = src.split("\n");
+    const seen = new Set<string>();
+    const kept: string[] = [];
+    let inHeader = true;
+    for (const l of lines) {
+      if (inHeader && /^namespace\b/.test(l)) inHeader = false;
+      const m = inHeader ? /^using\s+([\w.]+)\s*;\s*$/.exec(l) : null;
+      if (m && seen.has(m[1]!)) continue;
+      if (m) seen.add(m[1]!);
+      kept.push(l);
+    }
+    if (kept.length !== lines.length) rewritten.set(path, kept.join("\n"));
   }
   return rewritten;
 }

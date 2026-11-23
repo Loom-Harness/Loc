@@ -9,6 +9,7 @@ import * as Ids from "../../domain/ids";
 import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";
 import type { DomainEventDispatcher } from "../../domain/events";
 import { requestLog } from "../../obs/als";
+import type { SQL } from "drizzle-orm";
 
 type Db = NodePgDatabase<typeof schema>;
 
@@ -82,7 +83,7 @@ export class CustomerRepository implements CustomerRepositoryPort {
 
   async all(page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Customer[]; page: number; pageSize: number; total: number; totalPages: number }> {
     const offset = (page - 1) * pageSize;
-    const sortColumns: Record<string, AnyPgColumn | ReturnType<typeof sql>> = { "id": schema.customers.id, "username": sql`${schema.customers.username} collate "C"`, "email": sql`${schema.customers.email} collate "C"`, "age": schema.customers.age };
+    const sortColumns: Record<string, AnyPgColumn | SQL> = { "id": schema.customers.id, "username": sql`${schema.customers.username} collate "C"`, "email": sql`${schema.customers.email} collate "C"`, "age": schema.customers.age };
     const sortColumn = Object.hasOwn(sortColumns, sort) ? sortColumns[sort]! : schema.customers.id;
     const orderBy = dir === "desc" ? desc(sortColumn) : asc(sortColumn);
     const countRows = await this.db.select({ value: count() }).from(schema.customers);

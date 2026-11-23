@@ -149,7 +149,7 @@ describe("feliz create forms", () => {
     );
     // `either`, not `perform`: a network exception lands as a form-level error.
     expect(app).toContain(
-      "  | SubmitProductCreateForm -> { model with ProductCreateFormServer = ServerErrors.empty; ProductCreateFormPending = true }, Cmd.OfAsync.either Api.createProduct model.ProductCreateForm ProductCreated (fun ex -> ProductCreated (Error (ServerErrors.formLevel ex.Message)))",
+      "  | SubmitProductCreateForm -> { model with ProductCreateFormServer = ServerErrors.empty; ProductCreateFormPending = true }, Cmd.OfAsync.either Api.createProduct model.ProductCreateForm ProductCreated (fun _ -> ProductCreated (Error ServerErrors.unreachable))",
     );
     // On success, reset the form and route to the NEW record's detail page
     // (`/products/<id>`) using the id the create resolved.

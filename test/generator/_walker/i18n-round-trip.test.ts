@@ -406,6 +406,14 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
   },
   {
     kind: "over-merge",
+    id: "O-unreachable",
+    targets: [...HEEX],
+    menus: BOTH,
+    key: /^chrome\.unreachable$/,
+    reason: "FORM_CHROME: a LiveView form has no connection to lose",
+  },
+  {
+    kind: "over-merge",
     id: "O-cancel",
     targets: [...VUE, "feliz", "flutter", ...HEEX],
     menus: BOTH,
@@ -652,7 +660,9 @@ function roundTrip(
    *  default is on the call's own line, so it never counts). */
   const rendersRaw = (k: string, textNodes = false): ((line: string) => boolean) => {
     const v = catalog[k]!;
-    const sameText = Object.keys(catalog).filter((o) => catalog[o] === v);
+    // The server-error codes count as keys carrying English too: the form-level
+    // failure message binds a code's text on its own `t("problem.…", "…")` line.
+    const sameText = Object.keys(all).filter((o) => all[o] === v);
     // An ICU message renders with its holes filled ("Delete {entity}" →
     // "Delete Product", case-folded by some emitters), so each hole matches any
     // run of text inside the same string/text node.

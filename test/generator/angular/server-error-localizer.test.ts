@@ -18,9 +18,8 @@ import {
   loadTs,
 } from "../_frontend/error-codes-fixture.js";
 
-type Outcome = { kind: string; title?: string };
 type Mod = {
-  applyServerErrors: (error: unknown, form: { get(p: string): unknown }) => Outcome;
+  placeServerErrors: (error: unknown, form: { get(p: string): unknown }) => string | null;
 };
 
 const load = (source: string, t: typeof frT) => loadTs(source, { "./locale": { t } }) as Mod;
@@ -44,42 +43,53 @@ describe("Angular — server errors and client rules localize by catalog code", 
     const files = await generateFor("angular");
     const source = fileOf(files, "web/src/lib/server-errors.ts");
     expect(source).toContain('import { t } from "./locale";');
-    const { applyServerErrors } = load(source, frT);
+    const { placeServerErrors } = load(source, frT);
 
     const { set, form } = controls();
-    expect(applyServerErrors({ body: FIELD_PROBLEM }, form)).toEqual({ kind: "fields" });
+    expect(placeServerErrors({ status: 422, body: FIELD_PROBLEM }, form)).toBeNull();
     expect(set.qty?.server).toBe("Quantité -1 refusée");
     expect(set.sku?.server).toBe(FR["field.rule"]);
 
-    expect(applyServerErrors({ body: GLOBAL_PROBLEM }, controls().form)).toEqual({
-      kind: "global",
-      title: FR["problem.not-found"],
-    });
+    expect(placeServerErrors({ status: 404, body: GLOBAL_PROBLEM }, controls().form)).toBe(
+      FR["problem.not-found"],
+    );
   });
 
   it("reads the problem off an HttpClient error, where the services' failures land", async () => {
     // The generated services call through `HttpClient`; a 422 rejects with an
     // `HttpErrorResponse`, whose parsed payload is `.error`, not `.body`.
     const files = await generateFor("angular");
-    const { applyServerErrors } = load(fileOf(files, "web/src/lib/server-errors.ts"), frT);
+    const { placeServerErrors } = load(fileOf(files, "web/src/lib/server-errors.ts"), frT);
     const { set, form } = controls();
     const httpError = { name: "HttpErrorResponse", status: 422, error: FIELD_PROBLEM };
-    expect(applyServerErrors(httpError, form)).toEqual({ kind: "fields" });
+    expect(placeServerErrors(httpError, form)).toBeNull();
     expect(set.qty?.server).toBe("Quantité -1 refusée");
   });
 
-  it("a body without a code stays unhandled; a pointer-less entry is global", async () => {
+  it("a refusal without a code is the code of its status; a pointer-less entry is the form's message", async () => {
     const files = await generateFor("angular");
-    const { applyServerErrors } = load(fileOf(files, "web/src/lib/server-errors.ts"), frT);
-    expect(applyServerErrors({ body: { detail: "boom" } }, controls().form)).toEqual({
-      kind: "unhandled",
-    });
+    const { placeServerErrors } = load(fileOf(files, "web/src/lib/server-errors.ts"), frT);
+    // No catalog entry for the status's code in this locale: the server's English.
+    expect(placeServerErrors({ status: 409, body: { detail: "boom" } }, controls().form)).toBe(
+      "boom",
+    );
     expect(
-      applyServerErrors(
-        { body: { errors: [{ message: "x", code: "problem.not-found" }] } },
+      placeServerErrors(
+        { status: 422, body: { errors: [{ message: "x", code: "problem.not-found" }] } },
         controls().form,
       ),
-    ).toEqual({ kind: "global", title: FR["problem.not-found"] });
+    ).toBe(FR["problem.not-found"]);
+  });
+
+  it("a call that got no answer is the unreachable sentence", async () => {
+    const files = await generateFor("angular");
+    const { placeServerErrors } = load(fileOf(files, "web/src/lib/server-errors.ts"), frT);
+    expect(placeServerErrors(new TypeError("Failed to fetch"), controls().form)).toBe(
+      "Could not reach the server. Try again.",
+    );
+    expect(placeServerErrors({ status: 0, error: null }, controls().form)).toBe(
+      "Could not reach the server. Try again.",
+    );
   });
 
   it("an app without a catalog shows the English the server sent", async () => {
@@ -87,13 +97,12 @@ describe("Angular — server errors and client rules localize by catalog code", 
     expect([...files.keys()].some((p) => p.endsWith("web/src/lib/i18n.ts"))).toBe(false);
     const source = fileOf(files, "web/src/lib/server-errors.ts");
     expect(source).not.toContain("./locale");
-    const { applyServerErrors } = load(source, () => {
+    const { placeServerErrors } = load(source, () => {
       throw new Error("no catalog to read");
     });
-    expect(applyServerErrors({ body: GLOBAL_PROBLEM }, controls().form)).toEqual({
-      kind: "global",
-      title: "Order 7 not found",
-    });
+    expect(placeServerErrors({ status: 404, body: GLOBAL_PROBLEM }, controls().form)).toBe(
+      "Order 7 not found",
+    );
   });
 
   it("a constrained field's client message is a render-time t() call keyed by its rule", async () => {

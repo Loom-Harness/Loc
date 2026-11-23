@@ -20,3 +20,120 @@
 .phx-loading {
   cursor: wait;
 }
+
+/* Semantic classes the HEEx walker and the pack's primitives emit that
+   daisyUI does not define (alert, badge, stat, stat-value, tabs, tab,
+   tab-active and skeleton come from the plugin).  The class-coverage census
+   (test/generator/elixir/heex-class-coverage.test.ts) fails on an emitted
+   class that is neither a utility, a daisyUI component nor defined here. */
+@layer components {
+  /* daisyUI's `.breadcrumbs` lays out its `ul`/`ol` CHILDREN and draws the
+     separators itself.  The walker puts the class on the `<ol>` and emits its
+     own `breadcrumb-sep` items, so the list is made a flex row here and daisyUI's
+     child selectors (and their pseudo-element separators) never match. */
+  .breadcrumbs {
+    @apply flex flex-wrap items-center gap-2 text-sm;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .breadcrumb-item {
+    @apply inline-flex items-center;
+  }
+  .breadcrumb-item a:hover {
+    text-decoration: underline;
+  }
+  .breadcrumb-sep {
+    opacity: 0.4;
+  }
+  .breadcrumb-current {
+    @apply font-medium;
+  }
+
+  .badge-enum {
+    color: hsl(var(--p));
+    border-color: hsl(var(--p));
+    background: transparent;
+  }
+  .btn-danger {
+    color: hsl(var(--erc));
+    border-color: hsl(var(--er));
+    background-color: hsl(var(--er));
+  }
+
+  .empty {
+    @apply py-8 text-center text-sm opacity-60;
+  }
+  .money {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .stat-label {
+    @apply text-sm opacity-60;
+  }
+
+  /* The walker wraps the tab bar and the panels in `.tabs`; daisyUI's
+     `.tabs` is a flex row of `.tab`s, which would put the panels beside the
+     bar. */
+  .tabs {
+    display: block;
+  }
+  .tab-bar {
+    @apply flex flex-wrap items-end border-b border-base-300;
+  }
+  .tab-panel {
+    @apply pt-4;
+  }
+
+  .key-value-row {
+    @apply flex flex-wrap items-baseline gap-2 py-1;
+  }
+  .key-value-label {
+    @apply text-sm font-medium opacity-60;
+  }
+  .key-value-value {
+    @apply text-sm;
+  }
+
+  .app-icon {
+    @apply inline-flex items-center;
+    vertical-align: -0.125em;
+  }
+  .app-chart {
+    @apply w-full;
+    margin: 0;
+  }
+  .app-code-block {
+    @apply overflow-x-auto rounded-md bg-base-200 p-3 text-sm;
+  }
+  .app-file-upload {
+    @apply flex flex-col gap-2;
+  }
+  .app-locale-switcher {
+    @apply rounded-md border border-base-300 bg-base-100 px-2 py-1 text-xs;
+  }
+  .app-provenance {
+    @apply text-sm;
+  }
+  .app-provenance-tree {
+    @apply mt-1 space-y-1 pl-3;
+  }
+  .app-timeline {
+    @apply space-y-3;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .app-timeline-entry {
+    @apply flex flex-wrap items-baseline gap-2 border-l-2 border-base-300 pl-3 text-sm;
+  }
+  .app-timeline-action {
+    @apply font-medium;
+  }
+  .app-timeline-actor {
+    @apply opacity-60;
+  }
+  .app-timeline-changes {
+    @apply w-full text-xs opacity-60;
+  }
+}

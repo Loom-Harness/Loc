@@ -7,6 +7,7 @@ import {
   eventToDataFn,
   rowToEventFn,
 } from "../../../generator/typescript/repository-eventsourced-builder.js";
+import { TT } from "../../../generator/typescript/ts-symbols.js";
 import {
   eventSourcedWorkflows,
   foldedEventNames,
@@ -181,7 +182,7 @@ export function emitWorkflowFoldHelpers(
   // table const.  `dbT` types every helper's `db` param accordingly.
   const mikro = opts.usingMikro === true;
   const eventRow = eventRowClassOf(owner);
-  const dbT = mikro ? "EntityManager" : "NodePgDatabase<typeof schema>";
+  const dbT = mikro ? "EntityManager" : `${TT.NodePgDatabase}<typeof schema>`;
   const out: string[] = [];
 
   // State type — every saga state field (the correlation key + folded state).
