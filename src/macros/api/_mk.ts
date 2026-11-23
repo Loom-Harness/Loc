@@ -32,9 +32,11 @@ import type {
   BinaryChain,
   BodyProp,
   BoolLit,
+  BuilderCall,
   BuilderEntry,
   CallArg,
   CallSuffix,
+  CanExpr,
   CommandHandler,
   Create,
   Destroy,
@@ -164,6 +166,14 @@ export function mkMemberSuffix(shape: AstLiteral<MemberSuffix>): MemberSuffix {
 
 export function mkBuilderEntry(shape: AstLiteral<BuilderEntry>): BuilderEntry {
   return mkAst<BuilderEntry>(shape);
+}
+
+export function mkBuilderCall(shape: AstLiteral<BuilderCall>): BuilderCall {
+  return mkAst<BuilderCall>(shape);
+}
+
+export function mkCanExpr(shape: AstLiteral<CanExpr>): CanExpr {
+  return mkAst<CanExpr>(shape);
 }
 
 export function mkCallSuffix(shape: AstLiteral<CallSuffix>): CallSuffix {

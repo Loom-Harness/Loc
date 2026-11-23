@@ -86,7 +86,7 @@ import {
   renderEntryResponders,
 } from "./entry-result-emit.js";
 import type { ElixirHelperUses } from "./helper-uses.js";
-import { renderProblemVariantHelper } from "./operation-returns-emit.js";
+import { opHasWhenGate, renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   PAGE_CALL_ARGS,
   PAGE_PARAM_HELPER,
@@ -969,6 +969,7 @@ ${respondErrorTail(
   false,
   loadsById,
   contexts.some((c) => aggregatesNeedConcurrency(c.aggregates)),
+  contexts.some((c) => c.aggregates.some((a) => (a.operations ?? []).some(opHasWhenGate))),
 )}
 
 ${

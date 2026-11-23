@@ -16,7 +16,7 @@ import {
   findUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
-import { operationGates } from "../../../ir/util/op-gates.js";
+import { isPermissionQueryOp, operationGates } from "../../../ir/util/op-gates.js";
 import { byIdRouteFind, isAlwaysDenyGate } from "../../../ir/util/read-gates.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { projectEntityExpr, projectionNamesDomainCommon } from "../dto-mapping.js";
@@ -67,7 +67,7 @@ export function emitCanOpQueriesAndHandlers(
   out: Map<string, string>,
   idClass: string = `${agg.name}Id`,
 ): void {
-  const gated = agg.operations.filter((op) => op.when && op.visibility === "public");
+  const gated = agg.operations.filter(isPermissionQueryOp);
   if (gated.length === 0) return;
   out.set(
     `Application/${aggFolder}/Responses/CanResponse.cs`,

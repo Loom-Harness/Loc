@@ -43,6 +43,7 @@ import { entryResult } from "../../../ir/util/entry-result.js";
 import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
+import { isPermissionQueryOp } from "../../../ir/util/op-gates.js";
 import { errorStatuses, type OpErrorKind, PROBLEM_JSON } from "../../../ir/util/openapi-errors.js";
 import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { routedErrorStatuses, routedParamSource } from "../../../ir/util/routed-handler.js";
@@ -477,9 +478,7 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
   // CanResponse `{ allowed }` — the side-effect-free `can_<op>` companion of a
   // `when`-gated operation (criterion.md, use site 2).  One shared schema,
   // emitted when any served op carries a `when` gate.
-  if (
-    allAggregates.some(({ agg }) => agg.operations.some((o) => o.visibility === "public" && o.when))
-  ) {
+  if (allAggregates.some(({ agg }) => agg.operations.some(isPermissionQueryOp))) {
     files.set(`${schemaDir}/can_response.ex`, renderCanResponseSchema(webModule));
   }
 

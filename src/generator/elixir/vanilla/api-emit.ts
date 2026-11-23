@@ -46,7 +46,11 @@ import {
   emitsRestCreate as sharedEmitsRestCreate,
 } from "../../../ir/util/canonical-lifecycle.js";
 import { isMergePatchUpdate, mergePatchFields } from "../../../ir/util/merge-patch.js";
-import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
+import {
+  createBodyStatements,
+  isPermissionQueryOp,
+  lifecycleGates,
+} from "../../../ir/util/op-gates.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { elixirOpAction, snake, upperFirst } from "../../../util/naming.js";
@@ -807,7 +811,7 @@ ${guardRescue(appModule, denialOverrides(ctx))}
   // `can_<op>_<agg>/1` — so the probe can never drift from the gate it probes.
   // `{ allowed }` is the shared envelope every other backend sends.
   const canActions = memberOps
-    .filter((op) => op.when)
+    .filter(isPermissionQueryOp)
     .map((op) => {
       const opSnake = snake(op.name);
       // The probe runs the operation's gate ladder without a body: the by-id

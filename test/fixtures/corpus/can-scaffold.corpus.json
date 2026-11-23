@@ -1,0 +1,5 @@
+{
+  "title": "`scaffoldHandlers` serves a permission query for every operation whose gates read no parameter",
+  "doc": "scaffold-macros",
+  "backends": "ALL"
+}

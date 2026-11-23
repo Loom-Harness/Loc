@@ -15,6 +15,7 @@ import type {
 import { emitsRestCreate } from "../../../ir/util/canonical-lifecycle.js";
 import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
+import { isPermissionQueryOp } from "../../../ir/util/op-gates.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { responseMaskPlan, responseWireFor } from "../../../ir/util/response-wire.js";
 import { lines } from "../../../util/code-builder.js";
@@ -410,10 +411,10 @@ export function renderDtoFiles(
   }
 
   // --- can response (`{ allowed }`) -------------------------------------------------
-  // The side-effect-free `can_<op>` companion of a `when`-gated operation
+  // The side-effect-free `can_<op>` permission query of an operation
   // (criterion.md, use site 2) returns this shape.  One per aggregate, emitted
-  // when the aggregate carries any served `when` gate.
-  if (agg.operations.some((op) => op.visibility === "public" && op.when)) {
+  // when the aggregate serves any permission query.
+  if (agg.operations.some(isPermissionQueryOp)) {
     out.push({
       name: "CanResponse.java",
       category: "response-dto",

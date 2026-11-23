@@ -624,6 +624,12 @@ export function respondErrorTail(
    *  the other four backends answer the concurrency 409 (M-T6.92).  Gated so a
    *  project without concurrency never references a responder it didn't emit. */
   conflict = false,
+  /** True when some `when`-gated operation is reachable from this dispatcher
+   *  (`opHasWhenGate`).  A handler that calls the operation threads its
+   *  `{:error, {:disallowed, detail}}` here; without the arm the state gate
+   *  answered the sanitized 500 where the operation's own route answers 409.
+   *  Gated so a dispatcher that cannot produce the term carries no arm. */
+  disallowed = false,
 ): string {
   const clause = (head: string, body: string): string =>
     `${indent}${head},\n${indent}  do: ${body}`;
@@ -665,6 +671,14 @@ export function respondErrorTail(
         ]
       : []),
     denialResponders(fnName, indent, overrides),
+    ...(disallowed
+      ? [
+          clause(
+            `def ${fnName}(conn, {:error, {:disallowed, detail}})`,
+            disallowedResponse("detail", overrides),
+          ),
+        ]
+      : []),
     clause(`def ${fnName}(conn, {:error, _reason})`, internalFallbackResponse()),
   ].join("\n\n");
 }

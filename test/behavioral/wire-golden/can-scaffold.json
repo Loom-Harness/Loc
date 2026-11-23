@@ -1,0 +1,249 @@
+{
+  "case": "can-scaffold",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/tickets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "closed": false,
+            "id": "<volatile:key>",
+            "owner": "ann",
+            "resolution": "",
+            "rowVersion": 1,
+            "title": "Printer"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/tickets/{id}/can_close",
+      "status": 200,
+      "body": {
+        "allowed": true
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/tickets/{id}/reassign",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/tickets/{id}/reassign",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/tickets/{id}/reassign",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "closed": false,
+        "id": "<volatile:key>",
+        "owner": "bob",
+        "resolution": "",
+        "rowVersion": 2,
+        "title": "Printer"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/tickets/{id}/can_close",
+      "status": 200,
+      "body": {
+        "allowed": false
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 409,
+      "body": {
+        "code": "problem.state-gate",
+        "detail": "operation 'close' is not allowed in the current state of Ticket.",
+        "instance": "/api/tickets/{id}/close",
+        "params": {
+          "type": "Support.Ticket"
+        },
+        "status": 409,
+        "title": "Disallowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/tickets/{id}/reassign",
+      "status": 409,
+      "body": {
+        "code": "problem.state-gate",
+        "detail": "operation 'reassign' is not allowed in the current state of Ticket.",
+        "instance": "/api/tickets/{id}/reassign",
+        "params": {
+          "type": "Support.Ticket"
+        },
+        "status": 409,
+        "title": "Disallowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/tickets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "closed": true,
+        "id": "<volatile:key>",
+        "owner": "bob",
+        "resolution": "replaced toner",
+        "rowVersion": 4,
+        "title": "Scanner"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "closed": true,
+        "id": "<volatile:key>",
+        "owner": "bob",
+        "resolution": "replaced toner",
+        "rowVersion": 4,
+        "title": "Scanner"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/tickets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "closed": true,
+            "id": "<volatile:key>",
+            "owner": "bob",
+            "resolution": "replaced toner",
+            "rowVersion": 4,
+            "title": "Scanner"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 14,
+      "method": "PATCH",
+      "path": "/api/tickets",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/tickets",
+        "instance": "/api/tickets",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/tickets",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/tickets/{id}/reassign",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "to is required",
+            "pointer": "/to"
+          }
+        ],
+        "instance": "/api/tickets/{id}/reassign",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

@@ -86,7 +86,10 @@ import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import {
   mkAssignOrCallStmt,
   mkAst,
+  mkBuilderCall,
+  mkBuilderEntry,
   mkCallArg,
+  mkCanExpr,
   mkCommandHandler,
   mkCreate,
   mkDestroy,
@@ -1174,6 +1177,40 @@ export function objectLit(fields: { name: string; value: Expression }[]): Object
     setContainer(init, lit, "fields", i);
   });
   return lit;
+}
+
+/** A record construction `Record { field: <expr>, … }` (grammar `BuilderCall`):
+ *  the scaffolded permission query answers `CanResult { allowed: … }`. */
+export function builderCall(
+  type: string,
+  fields: { name: string; value: Expression }[],
+): Expression {
+  const origin = currentOrigin();
+  const entries = fields.map((f) => {
+    const node = tag(
+      mkBuilderEntry({ $type: "BuilderEntry", name: f.name, value: f.value }),
+      origin,
+    );
+    setContainer(f.value, node, "value");
+    return node;
+  });
+  const call = tag(mkBuilderCall({ $type: "BuilderCall", type, entries }), origin);
+  entries.forEach((e, i) => {
+    setContainer(e, call, "entries", i);
+  });
+  return call as unknown as Expression;
+}
+
+/** A permission query `can <receiver>.<op>(args)` (grammar `CanExpr`). */
+export function canExpr(receiver: string, op: string, args: Expression[] = []): Expression {
+  const origin = currentOrigin();
+  const recv = nameRef(receiver);
+  const node = tag(mkCanExpr({ $type: "CanExpr", receiver: recv, op, args }), origin);
+  setContainer(recv, node, "receiver");
+  args.forEach((a, i) => {
+    setContainer(a, node, "args", i);
+  });
+  return node as unknown as Expression;
 }
 
 /** A `Context.Handler` handler reference — the target of a `route`.  The

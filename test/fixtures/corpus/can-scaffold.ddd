@@ -1,0 +1,69 @@
+// `scaffoldHandlers` serves a permission query for every public operation
+// whose gates read no parameter:
+//
+//   payload CanResult { allowed: bool }
+//   queryHandler canCloseTicket(id: Ticket id): CanResult {
+//     let o = Tickets.get(id)
+//     return CanResult { allowed: can o.close() }
+//   }
+//
+// and `scaffoldApi` routes it at `GET /tickets/{id}/can_close`, the slot the
+// derived probe would serve.  `reassign(to)` reads its parameter in a gate, so
+// it has no permission query: its submit answers 403 or 409 itself.
+system CanScaffold {
+  subdomain Desk {
+    context Support with scaffoldHandlers {
+      aggregate Ticket with crudish(updateOnly: true) {
+        title: string
+        owner: string immutable
+        closed: bool managed = false
+        resolution: string managed = ""
+        create(title: string, owner: string) {
+          title := title
+          owner := owner
+        }
+        operation close(note: string) when !closed {
+          closed := true
+          resolution := note
+        }
+        operation reassign(to: string) requires to != owner when !closed {
+          owner := to
+        }
+      }
+      repository Tickets for Ticket { }
+    }
+  }
+  api DeskApi with scaffoldApi(of: Desk)
+  storage primary { type: postgres }
+  resource supportState { for: Support, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Support]
+    dataSources: [supportState]
+    serves: DeskApi
+    port: 4000
+  }
+
+  test e2e "a scaffolded permission query answers what the operation would" against d {
+    api.tickets.create({ title: "Printer", owner: "ann" })
+    let t = api.tickets.all().items.first()
+    expect(api.support.canCloseTicket(t.id).allowed).toBe(true)
+
+    // No permission query for `reassign`: its gate reads `to`, so the submit
+    // answers for itself — 403 on the `requires`, 204 when it passes.
+    expect(api.tickets.reassign(t, { to: "ann" })).toThrow(403)
+    api.tickets.reassign(t, { to: "bob" })
+    expect(api.tickets.getById(t).owner).toBe("bob")
+
+    api.tickets.close(t, { note: "replaced toner" })
+    expect(api.support.canCloseTicket(t.id).allowed).toBe(false)
+    // Once closed, the `when` refuses both operations with 409.
+    expect(api.tickets.close(t, { note: "again" })).toThrow(409)
+    expect(api.tickets.reassign(t, { to: "cy" })).toThrow(409)
+
+    api.tickets.update(t, { title: "Scanner" })
+    expect(api.tickets.getById(t).title).toBe("Scanner")
+    expect(api.tickets.getById(t).resolution).toBe("replaced toner")
+    expect(api.tickets.all().items.length).toBe(1)
+  }
+}

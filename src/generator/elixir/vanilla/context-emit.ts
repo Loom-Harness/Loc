@@ -32,6 +32,7 @@ import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-li
 import {
   createBodyParams,
   createBodyStatements,
+  isPermissionQueryOp,
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
   type RequiresStmtIR,
@@ -953,9 +954,7 @@ ${body}
     // The predicate is the SAME `op.when` expression the guard chain renders
     // into `ensure(...)`, against the same `thisName: "record"` context — so the
     // probe and the gate it probes cannot disagree by construction.
-    const whenGatedOps = (agg.operations ?? []).filter(
-      (op) => op.visibility === "public" && op.when,
-    );
+    const whenGatedOps = (agg.operations ?? []).filter(isPermissionQueryOp);
     const canFacade =
       whenGatedOps.length > 0
         ? whenGatedOps

@@ -2,11 +2,6 @@
   "title": "`exists <Aggregate> as <row> where …` — a correlated SQL EXISTS in a row `filter` (the policy position) and in a criterion read, with the quantified aggregate's own read scope applied inside the subquery",
   "doc": "criterion",
   "backends": "ALL",
-  "apiCaller": {
-    "uncalled": {
-      "canRelabelRack": "gateProbe"
-    }
-  },
   "authzGate": {
     "create POST /api/products": "sharedPrincipalId",
     "getById GET /api/products/{id}": "sharedPrincipalId",
@@ -17,7 +12,6 @@
     "create POST /api/racks": "rowDataGate",
     "destroy DELETE /api/racks/{id}": "rowDataGate",
     "operation POST /api/racks/{id}/relabel": "rowDataGate",
-    "gateProbe GET /api/racks/{id}/can_relabel": "rowDataGate",
     "create POST /api/seals": "principalFreeGate",
     "destroy DELETE /api/seals/{id}": "principalFreeGate",
     "operation POST /api/seals/{id}/update": "principalFreeGate"
