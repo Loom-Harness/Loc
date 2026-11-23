@@ -22,6 +22,7 @@ import {
   SCHEMA_NAMES,
 } from "../../generator/_symbols/plan.js";
 import { projectionQueryParams } from "../../ir/plan/projection-params.js";
+import { resolveRoute } from "../../ir/plan/route-handler.js";
 import { commandCreateReturnsSelf } from "../../ir/plan/workflow-result.js";
 import { workflowRouteErrorStatuses } from "../../ir/plan/workflow-route-status.js";
 import {
@@ -234,13 +235,6 @@ function answerLines(
   ];
 }
 
-function findHandler(ctx: EnrichedBoundedContextIR, name: string): Handler | undefined {
-  return (
-    (ctx.commandHandlers ?? []).find((h) => h.name === name) ??
-    (ctx.queryHandlers ?? []).find((h) => h.name === name)
-  );
-}
-
 /** The field a side of an equality reads off the row, when it reads one. */
 function rowFieldOf(e: ExprIR): string | undefined {
   if (e.kind === "ref") return e.refKind === "this-prop" ? e.name : undefined;
@@ -446,8 +440,9 @@ export function buildMockExplicitRoutesFile(
 ): MockRouterFile | undefined {
   const blocks: string[] = [];
   for (const r of routes) {
-    const h = findHandler(ctx, r.target.handler);
-    if (!h) continue;
+    const resolved = resolveRoute(r, [ctx]);
+    if (!resolved) continue;
+    const h = resolved.routed.handler;
     blocks.push(
       ...(!h.extern && h.returnType && pagedReturn(h.returnType)
         ? pagedRunRoute(apiName, r, h, ctx)
