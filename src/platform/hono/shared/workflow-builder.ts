@@ -64,7 +64,7 @@ import {
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr, renderTsType } from "../../../generator/typescript/render-expr.js";
 import { renderTsStatements } from "../../../generator/typescript/render-stmt.js";
-import { T, T as TS, TT } from "../../../generator/typescript/ts-symbols.js";
+import { refsTsSymbol, T, T as TS, TT } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   tsErrorVariantExt,
@@ -749,7 +749,7 @@ export function buildWorkflowsFile(
   if (usesEvents) imports.push(`import type * as Events from "../domain/events";`);
   // An event-sourced workflow's folded state may carry a money field, whose
   // typed default (`new Decimal(0)`) and arithmetic need decimal.js.
-  if (/(?<!\.)\bDecimal\b/.test(bodyStr)) imports.push(`import Decimal from "decimal.js";`);
+  if (refsTsSymbol(bodyStr, "Decimal")) imports.push(`import Decimal from "decimal.js";`);
   if (usesDb) imports.push(`import type { NodePgDatabase } from "drizzle-orm/node-postgres";`);
   // MikroORM store branch (usingMikro): the workflow correlation store runs on
   // the EntityManager over the generated Row entities (db/entities.ts) instead
@@ -2236,7 +2236,7 @@ function emitCodecStateHelpers(
   const dbType = wfDbType(usingMikro);
   const rowType = usingMikro ? mikroWorkflowRowClass(wf) : `typeof ${table}.$inferInsert`;
   const domainType = (f: StateNumericField): string =>
-    `${f.kind === "money" ? "Decimal" : "number"}${f.nullable ? " | null" : ""}`;
+    `${f.kind === "money" ? TT.Decimal : "number"}${f.nullable ? " | null" : ""}`;
   const guard = (f: StateNumericField, v: string, conv: string): string =>
     f.nullable ? `${v} == null ? null : ${conv}` : conv;
   const toDomain = (f: StateNumericField, v: string): string =>

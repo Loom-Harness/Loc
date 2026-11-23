@@ -23,8 +23,8 @@ import {
 } from "../_expr/checked-int.js";
 import { nullishOperand } from "../_expr/coalesce.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
-import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
-import { JS_INTRINSIC_RENDERERS } from "../_expr/js-intrinsics.js";
+import { jsCollectionRenderers } from "../_expr/js-collection-ops.js";
+import { jsIntrinsicRenderers } from "../_expr/js-intrinsics.js";
 import { asRegexLiteral } from "../_expr/regex-literal.js";
 import {
   type ExprTarget,
@@ -273,7 +273,7 @@ function renderTsConvert(target: string, from: string | undefined, v: string): s
   }
   if (target === "money") {
     if (from === "money") return v;
-    return `new Decimal(${v})`;
+    return toDecimal(v);
   }
   return v; // unrecognised target — caller has bigger problems
 }
@@ -282,7 +282,7 @@ function renderLiteral(lit: LiteralKind, value: string): string {
   if (lit === "string") return JSON.stringify(value);
   if (lit === "now") return "new Date()";
   if (lit === "null") return "null";
-  if (lit === "money") return `new Decimal(${JSON.stringify(value)})`;
+  if (lit === "money") return toDecimal(JSON.stringify(value));
   // int, decimal, bool — value stored as source-compatible string
   return value;
 }
@@ -380,14 +380,15 @@ function renderMember(recv: string, e: MemberExpr): string {
   return `${recv}.${escapeTargetFieldMember("ts", e.member)}`;
 }
 
-// Scalar-intrinsic snippet table — MOVED to `../_expr/js-intrinsics.ts` and
-// re-exported here under its historical name.  The table is shared with the
-// four JS-embedding frontend walkers (React / Vue / Svelte / Angular), which
-// emit the same language this backend does; keeping one copy is what makes an
-// intrinsic mean the same thing in an aggregate `derived` and in a page body.
-// Still exported so the intrinsic completeness test can pin that every
+// The scalar-intrinsic snippet table lives in `../_expr/js-intrinsics.ts`: the
+// four JS-embedding frontend walkers (React / Vue / Svelte / Angular) emit the
+// same language this backend does, and one table is what makes an intrinsic
+// mean the same thing in an aggregate `derived` and in a page body.  This
+// backend's instance spells decimal.js's `Decimal` through its import symbol,
+// so the module finalizer imports it (and aliases it beside a model type
+// `Decimal`).  Exported so the intrinsic completeness test can pin that every
 // catalogue row has a TS arm.
-export const TS_INTRINSIC_RENDERERS = JS_INTRINSIC_RENDERERS;
+export const TS_INTRINSIC_RENDERERS = jsIntrinsicRenderers(T.Decimal);
 
 function renderMethodCall(
   recv: string,
@@ -429,7 +430,7 @@ function renderMethodCall(
     e.receiverType.name === "decimal"
   ) {
     const recvDec = decimalChainOperand(recv, e.receiver) ?? toDecimal(recv);
-    return `${recvDec}.toDecimalPlaces(${args[0] ?? "0"}, Decimal.ROUND_HALF_UP)${DECIMAL_NARROW}`;
+    return `${recvDec}.toDecimalPlaces(${args[0] ?? "0"}, ${T.Decimal}.ROUND_HALF_UP)${DECIMAL_NARROW}`;
   }
   if (e.receiverType.kind === "primitive") {
     const intrinsic = TS_INTRINSIC_RENDERERS[intrinsicKey(e.receiverType.name, e.member)];
@@ -438,13 +439,13 @@ function renderMethodCall(
   return `${recv}.${e.member}(${args.join(", ")})`;
 }
 
-// The collection-op renderer table MOVED to `../_expr/js-collection-ops.ts`
-// and is re-exported here under its historical name.  Same rationale as
-// `TS_INTRINSIC_RENDERERS` above: the four JS-embedding frontend walkers emit
-// the language this backend does, so `orders.where(λ).count` means one thing
-// in an aggregate `derived` and in a page body — including the money /
-// value-object equality special-cases the arms carry.
-export const TS_COLLECTION_RENDERERS = JS_COLLECTION_RENDERERS;
+// The collection-op renderer table lives in `../_expr/js-collection-ops.ts`.
+// Same rationale as `TS_INTRINSIC_RENDERERS` above: the four JS-embedding
+// frontend walkers emit the language this backend does, so
+// `orders.where(λ).count` means one thing in an aggregate `derived` and in a
+// page body — including the money / value-object equality special-cases the
+// arms carry.  `Decimal` is spelled through this backend's import symbol.
+export const TS_COLLECTION_RENDERERS = jsCollectionRenderers(T.Decimal);
 export { isDescendingSort } from "../_expr/js-collection-ops.js";
 
 /** True iff a `sum` reduction's numeric type is `decimal` — the λ-body type
@@ -837,7 +838,7 @@ const DECIMAL_NARROW = ".toNumber()";
  *  ExprTarget operand widening, not a read boundary: see the numeric-codec
  *  census waiver). */
 function toDecimal(v: string): string {
-  return `new Decimal(${v})`;
+  return `new ${T.Decimal}(${v})`;
 }
 
 /** decimal.js method per `decimal` arithmetic operator.  decimal.js `mod`
@@ -917,11 +918,10 @@ const TS_TYPE_TARGET: TypeTarget = {
       case "decimal":
         return "number";
       case "money":
-        // Precise decimal — mapped to `decimal.js`'s Decimal class
-        // (default-import: `import Decimal from "decimal.js"`).
-        // Backwards-incompatible with the lossy `number` mapping
-        // `decimal` keeps; users opt in per field.
-        return "Decimal";
+        // Precise decimal — decimal.js's `Decimal` class, through its import
+        // symbol (the module finalizer imports it, under an alias beside a
+        // model type `Decimal`).  `decimal` keeps the lossy `number`.
+        return TT.Decimal;
       case "string":
       case "guid":
         return "string";

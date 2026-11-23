@@ -100,3 +100,11 @@ const map = <R>(f: (s: (typeof TS_SYM)[Name]) => R): Record<Name, R> =>
 export const T: Readonly<Record<Name, string>> = map(ref);
 /** Type-position references. */
 export const TT: Readonly<Record<Name, string>> = map(refType);
+
+/** True when `text` references the symbol `name`, in a value or a type
+ *  position.  A hand-written import of a library name keys on this, never on
+ *  the spelled name, so a model type that shares the name does not mint the
+ *  library's import beside its own. */
+export function refsTsSymbol(text: string, name: Name): boolean {
+  return text.includes(T[name]) || text.includes(TT[name]);
+}

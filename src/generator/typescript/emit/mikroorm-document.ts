@@ -42,7 +42,7 @@ import {
   savedVersionOnInsert,
   savedVersionOnUpdate,
 } from "../saved-version.js";
-import { T, TT } from "../ts-symbols.js";
+import { refsTsSymbol, T, TT } from "../ts-symbols.js";
 import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
@@ -326,7 +326,7 @@ export function renderMikroDocumentRepository(
       ? `import { ${referenced.map((n) => (isValueUsed(n) ? n : `type ${n}`)).join(", ")} } from "../../domain/value-objects";`
       : `import type { ${referenced.join(", ")} } from "../../domain/value-objects";`;
   }
-  const usesDecimal = /new\s+Decimal\(/.test(bodyScan);
+  const usesDecimal = refsTsSymbol(bodyScan, "Decimal");
   const usesPrincipal = /\brequireCurrentUser\(/.test(bodyScan);
   const usesRaw = usesRawFragment(bodyScan);
 

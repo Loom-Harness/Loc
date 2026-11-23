@@ -28,6 +28,7 @@ import {
   renderJsIntrinsic,
   usesDecimalBinding,
 } from "../../../src/generator/_expr/js-intrinsics.js";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import { TS_INTRINSIC_RENDERERS } from "../../../src/generator/typescript/render-expr.js";
 import { INTRINSIC_SIGNATURES, intrinsicKey } from "../../../src/util/intrinsics.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
@@ -157,12 +158,16 @@ describe("cross-surface agreement — page body vs aggregate derived", () => {
   });
 
   it("every catalogue intrinsic the frontend renders matches the backend snippet", async () => {
-    // Structural, not per-generation: one table, so agreement is by
-    // construction — this pins that the sharing is real and not a copy.
-    expect(JS_INTRINSIC_RENDERERS).toBe(TS_INTRINSIC_RENDERERS);
+    // Structural, not per-generation: both tables come from one factory and
+    // differ only in how they spell decimal.js's `Decimal` (the node table
+    // through its import symbol), so once that is spelled they agree exactly.
+    expect(Object.keys(JS_INTRINSIC_RENDERERS)).toEqual(Object.keys(TS_INTRINSIC_RENDERERS));
     for (const sig of INTRINSIC_SIGNATURES) {
       const key = intrinsicKey(sig.receiver, sig.name);
-      expect(JS_INTRINSIC_RENDERERS[key], `no JS snippet for '${key}'`).toBeTypeOf("function");
+      const js = JS_INTRINSIC_RENDERERS[key];
+      expect(js, `no JS snippet for '${key}'`).toBeTypeOf("function");
+      const args = ['"yyyy"', '"x"'];
+      expect(spellMarkers(TS_INTRINSIC_RENDERERS[key]!("r", args)), key).toBe(js!("r", args));
     }
   });
 });

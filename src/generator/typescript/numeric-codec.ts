@@ -1,5 +1,6 @@
 import { moneyWire } from "../../ir/enrich/codec.js";
 import type { NumericTarget } from "../_numeric/target.js";
+import { T } from "./ts-symbols.js";
 
 const MONEY_WIRE_SCALE = moneyWire().scale;
 
@@ -21,11 +22,11 @@ export const TS_NUMERIC: NumericTarget = {
     // Drizzle's `numeric()` column reads back as a STRING at runtime;
     // `new Decimal(...)` consumes it without precision loss (money does NOT
     // hydrate lossy through JS `number` the way `decimal` does).
-    "repo-read": (e) => `new Decimal(${e})`,
+    "repo-read": (e) => `new ${T.Decimal}(${e})`,
     // The inbound wire boundary (`moneySchema`, emitted to every generated
     // project's `lib/schemas.ts` — `hono/shared/emit.ts`): a validated
     // decimal-formatted STRING parses the same way a stored column does.
-    "find-param": (e) => `new Decimal(${e})`,
+    "find-param": (e) => `new ${T.Decimal}(${e})`,
     // Domain value is already a `Decimal` instance — format to the FIXED
     // wire scale (RS-12): decimal.js `.toJSON()` strips trailing zeros
     // (`"12.50"` → `"12.5"`), so every dto-map / operation-scalar-return
@@ -36,7 +37,7 @@ export const TS_NUMERIC: NumericTarget = {
     // formatting to the same fixed scale the per-row `dto-map` path uses
     // (#2549: an aggregate/grouped read must not disagree with the
     // aggregate's own `toWire`).
-    "projection-read": (e) => `new Decimal(${e}).toFixed(${MONEY_WIRE_SCALE})`,
+    "projection-read": (e) => `new ${T.Decimal}(${e}).toFixed(${MONEY_WIRE_SCALE})`,
   },
   decimal: {
     // `numeric` (decimal) columns hydrate lossy through JS `number` by
