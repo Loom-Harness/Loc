@@ -1,3 +1,4 @@
+import { numericOpPlan } from "../ir/plan/numeric-op.js";
 import type { BinOp, ExprIR, InvariantIR } from "../ir/types/loom-ir.js";
 import {
   type ClassifyContext,
@@ -98,12 +99,10 @@ const DECIMAL_METHOD: Partial<Record<BinOp, string>> = {
  *  `toNumber()`, the correctly-rounded nearest double (RS-24's wire width). */
 const DECIMAL_NARROW = ".toNumber()";
 
-/** True iff a binary is `decimal` ARITHMETIC — an arithmetic operator whose
- *  result types as `decimal` (incl. the widened `int ∘ decimal` mixes and the
- *  `int / int` division the type system widens to `decimal`). */
+/** True iff a binary is `decimal` ARITHMETIC (`numericOpPlan`'s decision,
+ *  shared with the node domain renderer this mirrors). */
 function isDecimalArithmetic(e: ExprIR): boolean {
-  if (e.kind !== "binary" || DECIMAL_METHOD[e.op] === undefined) return false;
-  return e.resultType?.kind === "primitive" && e.resultType.name === "decimal";
+  return e.kind === "binary" && numericOpPlan(e).kind === "decimal-arithmetic";
 }
 
 /** True iff a `sum` fold's numeric type is `decimal` (λ-body type for

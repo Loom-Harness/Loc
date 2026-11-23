@@ -1,5 +1,7 @@
 import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
+import { negatedFamily, numericOpPlan } from "../../ir/plan/numeric-op.js";
 import { sortKeyOf } from "../../ir/plan/sort-order.js";
+import { valueObjectEqualityPlan } from "../../ir/plan/value-object-equality.js";
 import type {
   AggregateIR,
   BinOp,
@@ -43,7 +45,6 @@ import {
   type ConvertExpr,
   type ExprCtxBase,
   type ExprTarget,
-  isIntDivWidenedToDecimal,
   type MemberExpr,
   type MethodCallExpr,
   type NewExpr,
@@ -55,7 +56,7 @@ import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { exPgInstantType } from "./vanilla/codec-spelling-ex.js";
 import { appModuleOf, guardErrorModule } from "./vanilla/denial.js";
 import { skipFiltersOption } from "./vanilla/read-scope-emit.js";
-import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
+import { renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Phoenix LiveView / Elixir backend.
@@ -250,24 +251,6 @@ const DEFAULT: RenderCtx = { thisName: "record", contextModule: "MyApp" };
  *  of truth shared by every renderer site so the two stay in lockstep. */
 const isDecimalStruct = (name: string | undefined): boolean =>
   name === "money" || name === "decimal";
-
-/** `""` for a `money`/`decimal` stamp, `"?"` for its nullable form, null for
- *  anything else. */
-function decimalStructOperand(t: TypeIR | undefined): "" | "?" | null {
-  if (t?.kind === "primitive" && isDecimalStruct(t.name)) return "";
-  if (t?.kind === "optional" && t.inner.kind === "primitive" && isDecimalStruct(t.inner.name)) {
-    return "?";
-  }
-  return null;
-}
-
-/** `""` for an `int`/`long` stamp, `"?"` for its nullable form, null for
- *  anything else. */
-function integralOperand(t: TypeIR | undefined): "" | "?" | null {
-  const inner = t?.kind === "optional" ? t.inner : t;
-  if (inner?.kind !== "primitive" || (inner.name !== "int" && inner.name !== "long")) return null;
-  return t?.kind === "optional" ? "?" : "";
-}
 
 /** `a ?? b` — `case` matches ONLY `nil` (`||` would also swallow `false`), binds
  *  the left once, and evaluates the fallback only on the `nil` clause.  The
@@ -1611,64 +1594,8 @@ function renderUnary(op: "-" | "!", operand: string, e: UnaryExpr, inFilter = fa
   // which raises on a `Decimal` ("bad argument in arithmetic").  Use
   // `Decimal.negate/1` in native Elixir (op-bodies / emitted ExUnit tests);
   // inside an Ecto query filter money/decimal are data-layer-native, so plain `-`.
-  if (!inFilter && isDecimalOperand(e.operand)) return `Decimal.negate(${operand})`;
+  if (!inFilter && negatedFamily(e) !== undefined) return `Decimal.negate(${operand})`;
   return `-${operand}`;
-}
-
-/** Does this expression evaluate to a money/decimal `Decimal` struct? — used to
- *  route unary negation through `Decimal.negate/1`.  Covers the realistic
- *  operand shapes (negative literal, a typed ref/member, an arithmetic binary,
- *  a decimal cast, parens). */
-function isDecimalOperand(operand: ExprIR): boolean {
-  switch (operand.kind) {
-    case "literal":
-      return isDecimalStruct(operand.lit);
-    case "ref":
-      return operand.type?.kind === "primitive" && isDecimalStruct(operand.type.name);
-    case "member":
-      return operand.memberType.kind === "primitive" && isDecimalStruct(operand.memberType.name);
-    case "binary":
-      return (
-        (operand.resultType?.kind === "primitive" && isDecimalStruct(operand.resultType.name)) ||
-        (operand.leftType?.kind === "primitive" && isDecimalStruct(operand.leftType.name))
-      );
-    case "convert":
-      return isDecimalStruct(operand.target);
-    case "paren":
-      return isDecimalOperand(operand.inner);
-    case "unary":
-      return isDecimalOperand(operand.operand);
-    // Not PROVABLY a `%Decimal{}` from the node alone.  `false` is the
-    // conservative answer: it makes the caller render plain arithmetic rather
-    // than a `Decimal.*` call, which is what a node with no static decimal type
-    // needs.  (`method-call` is the documented example — `MethodCallExpr`
-    // carries a receiver type, not a result type.)  Named rather than left to a
-    // `default:` so a new `ExprIR` kind that DOES carry a result type is a
-    // `tsc` error here.
-    case "exists":
-    case "action-ref":
-    case "authz-filter":
-    case "call":
-    case "duration":
-    case "i18nFormat":
-    case "modelText":
-    case "id":
-    case "lambda":
-    case "list":
-    case "match":
-    case "method-call":
-    case "new":
-    case "object":
-    case "coalesce":
-    case "ternary":
-    case "this":
-      return false;
-    default: {
-      const _exhaustive: never = operand;
-      void _exhaustive;
-      return false;
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1812,43 +1739,54 @@ function renderBinary(
       return e.op === "==" ? `is_nil(${operand})` : `not is_nil(${operand})`;
     }
   }
-  // A `money?` / `decimal?` side in an in-memory comparison.  The arm below
-  // only fires on a bare `money`/`decimal` stamp, so a nullable LEFT fell to
-  // native `==` (struct equality: `10` ≠ `10.00`) / native `>` (Erlang term
-  // order over the struct maps), and a nullable RIGHT reached
-  // `Decimal.compare(x, nil)`, which raises.  Equality is nil-safe — both
-  // absent → equal, one absent → unequal, both present → `Decimal.equal?`;
-  // ordering dispatches through `Decimal.compare` and answers false when
-  // either side is absent (SQL's UNKNOWN, .NET's lifted operators).
+  // Which numeric operation this is was decided once (`numericOpPlan`); this
+  // backend only spells it.  `money` and `decimal` are both `%Decimal{}`
+  // structs in memory, so the native `+` / `*` / `>` cannot apply: arithmetic
+  // dispatches through `Decimal.add/2` / `mult/2` / `div/2` and comparisons
+  // through `Decimal.compare/2` (native `==` is struct equality — `10` ≠
+  // `10.00` — and native `>` is Erlang term order over the struct maps).  The
+  // `Decimal.*` functions coerce an integer operand on either side, so nothing
+  // is boxed.  Inside an Ecto query filter money/decimal lower to the data
+  // layer through the native operators instead, so only the in-memory path
+  // dispatches here.
   if (!inFilter) {
-    const lt = decimalStructOperand(e.leftType);
-    const rt = decimalStructOperand(e.rightType);
-    const isOrdering = e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=";
-    // A nullable INTEGRAL against a decimal struct (`qty > rate`, `qty: int?`)
-    // orders through `Decimal.compare` too — it coerces the integer — and the
-    // absent side must answer false, not Erlang term order (`nil < %Decimal{}`).
-    const li = lt ?? (rt !== null ? integralOperand(e.leftType) : null);
-    const ri = rt ?? (lt !== null ? integralOperand(e.rightType) : null);
-    if (isOrdering && li !== null && ri !== null && (li === "?" || ri === "?")) {
-      // Only the nullable side gets a `nil` clause (no statically unreachable
-      // clause for Elixir 1.18's type checker to warn about).
-      const nilClauses = [
-        ...(li === "?" ? ["{nil, _} -> false"] : []),
-        ...(ri === "?" ? ["{_, nil} -> false"] : []),
-      ];
-      return `(case {${l}, ${r}} do ${[...nilClauses, `{loom_l, loom_r} -> ${renderDecimalBinary(e.op, "loom_l", "loom_r")}`].join("; ")} end)`;
-    }
-    if (li !== null && ri !== null && (li === "?" || ri === "?")) {
-      if (e.op === "==" || e.op === "!=") {
-        // Only the nullable side gets a `nil` clause, so no clause is
-        // statically unreachable (Elixir 1.18's type checker would warn).
+    const plan = numericOpPlan(e);
+    switch (plan.kind) {
+      // An absent side: an ordering answers false and an equality is nil-safe
+      // (both absent → equal, one absent → unequal, both present →
+      // `Decimal.equal?`).  Only a nullable side gets a `nil` clause, so no
+      // clause is statically unreachable (Elixir 1.18's type checker would
+      // warn).
+      case "absent-ordering": {
         const nilClauses = [
-          ...(li === "?" && ri === "?" ? ["{nil, nil} -> true"] : []),
-          ...(li === "?" ? ["{nil, _} -> false"] : []),
-          ...(ri === "?" ? ["{_, nil} -> false"] : []),
+          ...(plan.left.optional ? ["{nil, _} -> false"] : []),
+          ...(plan.right.optional ? ["{_, nil} -> false"] : []),
+        ];
+        return `(case {${l}, ${r}} do ${[...nilClauses, `{loom_l, loom_r} -> ${renderDecimalBinary(e.op, "loom_l", "loom_r")}`].join("; ")} end)`;
+      }
+      case "absent-equality": {
+        const nilClauses = [
+          ...(plan.left.optional && plan.right.optional ? ["{nil, nil} -> true"] : []),
+          ...(plan.left.optional ? ["{nil, _} -> false"] : []),
+          ...(plan.right.optional ? ["{_, nil} -> false"] : []),
         ];
         const eq = `(case {${l}, ${r}} do ${[...nilClauses, "{loom_l, loom_r} -> Decimal.equal?(loom_l, loom_r)"].join("; ")} end)`;
         return e.op === "==" ? eq : `not ${eq}`;
+      }
+      // `int / int` widened to decimal: native `/` on integers yields a FLOAT,
+      // not the `Decimal` a decimal field maps to (Ecto `:decimal`).
+      case "decimal-arithmetic":
+        if (plan.intDivWidened) return `Decimal.div(${l}, ${r})`;
+        return renderDecimalBinary(e.op, l, r);
+      case "money":
+      case "decimal-comparison":
+        return renderDecimalBinary(e.op, l, r);
+      case "null-test":
+      case "native":
+        break;
+      default: {
+        const _exhaustive: never = plan;
+        return _exhaustive;
       }
     }
   }
@@ -1866,54 +1804,9 @@ function renderBinary(
   // no separate arm.  This is also where `<vo>.equals(other)` lands — the
   // lowerer turns it into this same `binary ==` node.  Inside an Ecto query a
   // function call is not a query expression, so the native operator stays.
-  if (
-    !inFilter &&
-    (e.op === "==" || e.op === "!=") &&
-    (isValueObjectType(e.leftType) || isValueObjectType(e.rightType))
-  ) {
+  if (!inFilter && (e.op === "==" || e.op === "!=") && valueObjectEqualityPlan(e) !== undefined) {
     const eq = renderValueObjectEquality(e.op, l, r);
     return e.op === "==" ? eq : `(${eq})`;
-  }
-  // money / decimal operands cannot use the native `+`/`*`/`>` operators in
-  // Elixir — both are `Decimal` structs.  Arithmetic dispatches through
-  // `Decimal.add/2` / `mult/2` / `div/2`; comparisons go through
-  // `Decimal.compare/2` (returns `:lt | :eq | :gt` — three tokens,
-  // not a single operator, so the result shape isn't `${l} ${op}
-  // ${r}` like the primitive path).  An integer operand on either side is
-  // accepted by the `Decimal.*` functions as-is (they coerce integers); a
-  // `decimal`/`money` literal is already wrapped in `Decimal.new(...)`, so
-  // no extra boxing is needed here.
-  // Inside an Ecto query filter money/decimal lower to the data layer via the
-  // native operators — `Decimal.compare`/`Decimal.add` are invalid there — so
-  // only the native op-body path dispatches through `Decimal.*`.
-  //
-  // The arm fires on EITHER stamped operand being a decimal struct (audit
-  // F7 / M-T6.44): the validator admits `int * money` commutatively, numeric
-  // widening admits `int + decimal` both orders, and `comparable` admits
-  // `int < decimal` — with only the left checked, all three fell to native
-  // operators on a `%Decimal{}`: arithmetic raised `ArithmeticError` at
-  // runtime, and a comparison silently used Erlang TERM ordering
-  // (number < map ⇒ always true).  `Decimal.*` coerces an integer operand on
-  // either side, so no boxing is needed; the integral-left guard on the
-  // mirror keeps string-concat `+` (and every non-numeric left) out.
-  const rightIsDecimalStruct =
-    e.rightType?.kind === "primitive" && isDecimalStruct(e.rightType.name);
-  const leftIsIntegral =
-    e.leftType?.kind === "primitive" && (e.leftType.name === "int" || e.leftType.name === "long");
-  if (
-    !inFilter &&
-    ((e.leftType?.kind === "primitive" && isDecimalStruct(e.leftType.name)) ||
-      (rightIsDecimalStruct && leftIsIntegral))
-  ) {
-    return renderDecimalBinary(e.op, l, r);
-  }
-  // Integer division widened to decimal (`int / int` → decimal): native Elixir
-  // `/` on integers yields a FLOAT, not the `Decimal` struct a decimal field
-  // maps to (Ecto `:decimal`).  `Decimal.div/2` coerces the integer operands
-  // and returns a `Decimal`.  In-memory op bodies only — inside an Ecto query
-  // the native path lowers to SQL division.
-  if (!inFilter && isIntDivWidenedToDecimal(e)) {
-    return `Decimal.div(${l}, ${r})`;
   }
   // A5 temporal — datetime ORDER comparisons dispatch through
   // `DateTime.compare/2` (mirroring the Decimal path above): native `<`/`>`

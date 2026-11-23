@@ -11,6 +11,7 @@
 // Flutter is structurally a Feliz clone (a non-JSX, function-call-tree target),
 // so the shape mirrors `FS_LEAVES` exactly; only the syntax is Dart, not F#.
 
+import { numericOpPlan } from "../../ir/plan/numeric-op.js";
 import type { SortKey } from "../../ir/plan/sort-order.js";
 import type { ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
@@ -306,24 +307,17 @@ export function dartMoneyBinary(
   right: string,
   e: Extract<ExprIR, { kind: "binary" }>,
 ): string | null {
-  const prim = (t: TypeIR | undefined): string | undefined =>
-    t?.kind === "primitive"
-      ? t.name
-      : t?.kind === "optional" && t.inner.kind === "primitive"
-        ? t.inner.name
-        : undefined;
-  if (prim(e.leftType) !== "money" && prim(e.rightType) !== "money") return null;
+  // The plan's money operation, or its absent-side ordering / equality with
+  // a money side.  A null test (`x == null`) stays a plain null check.
+  const plan = numericOpPlan(e);
+  const moneySide =
+    (plan.kind === "money" || plan.kind === "absent-ordering" || plan.kind === "absent-equality") &&
+    (plan.left.family === "money" || plan.right.family === "money");
+  if (!moneySide) return null;
   // A comparison with a `money?` side: `compare` reads an absent value as
   // zero (`null < 10` held), so the null-aware runtime answers instead —
-  // ordering against an absent side is false, equality is null-safe.  The
-  // `null` literal itself (`x == null`) stays a plain null check.
-  const isNull = (x: ExprIR | undefined) => x?.kind === "literal" && x.lit === "null";
-  if (
-    ["<", "<=", ">", ">=", "==", "!="].includes(e.op) &&
-    (e.leftType?.kind === "optional" || e.rightType?.kind === "optional") &&
-    !isNull(e.left) &&
-    !isNull(e.right)
-  ) {
+  // ordering against an absent side is false, equality is null-safe.
+  if (plan.kind === "absent-ordering" || plan.kind === "absent-equality") {
     return `LoomMoney.compareNullable(${left}, '${e.op}', ${right})`;
   }
   switch (e.op) {

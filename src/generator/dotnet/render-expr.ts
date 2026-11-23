@@ -1,3 +1,4 @@
+import { numericOpPlan } from "../../ir/plan/numeric-op.js";
 import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
@@ -18,7 +19,6 @@ import {
   type BinaryExpr,
   type CallExpr,
   type ExprTarget,
-  isIntDivWidenedToDecimal,
   type MemberExpr,
   type MethodCallExpr,
   type NewExpr,
@@ -604,7 +604,8 @@ function renderCsBinary(
   }
   // Integer division widened to decimal (`int / int` → decimal): C# `int / int`
   // truncates, so cast the numerator to `decimal` to force fractional division.
-  if (isIntDivWidenedToDecimal(e)) {
+  const plan = numericOpPlan(e);
+  if (plan.kind === "decimal-arithmetic" && plan.intDivWidened) {
     return `(decimal)(${left}) / ${right}`;
   }
   if (!efQuery && checkedBinaryKind(e) !== null) return `checked(${left} ${e.op} ${right})`;
