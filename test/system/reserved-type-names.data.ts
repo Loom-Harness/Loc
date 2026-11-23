@@ -1071,12 +1071,6 @@ export interface ProofWaiver {
 }
 
 export const PROOF_WAIVERS: Readonly<Record<string, ProofWaiver>> = {
-  "User/node/aggregate": {
-    deferred:
-      "an `aggregate User` meets the auth principal's own `User` type in `domain/repository-ports.ts` (TS2300); `aggregate User` stays legal (it is the principal-typed-as-aggregate shape), so the node emitter is fixed instead of the name refused",
-    reviewUntil: "2027-01-15",
-    blockedBy: "#6414",
-  },
   "Class/python/aggregate": {
     deferred:
       "the aggregate's module is spelled `app.domain.class`, a python keyword the module-path funnel does not escape (an escaping gap, not a name binding)",

@@ -1,0 +1,41 @@
+// An aggregate named `User` beside the auth principal, whose generated type is
+// also `User` on every backend (D-RESERVED-GENERATED-NAMES admits the name).
+// The two meet in the units that name both: the aggregate's own module (an
+// operation whose body reads `currentUser` takes the principal as a
+// parameter), its repository (`toWireMasked` takes the caller's principal for
+// the `mask unless` field), the pooled repository ports, and the audit stamp
+// helper (`stampedRole` stamps the principal's claim beside the row's own
+// `email`).  Each such unit must bind one `User` per meaning, or that
+// backend's build fails.
+system PrincipalNamedAggregate {
+  user { id: guid  role: string }
+  subdomain Accounts {
+    context Accounts {
+      stamp onCreate { stampedRole := currentUser.role + ":" + email }
+      aggregate User with crudish {
+        email: string
+        role: string immutable
+        note: string mask unless currentUser.role == "admin"
+        promotedBy: string? immutable
+        stampedRole: string managed
+        operation promote() {
+          requires currentUser.role == "admin"
+          role := "admin"
+          promotedBy := currentUser.role
+        }
+      }
+      repository Users for User { }
+    }
+  }
+  storage primary { type: postgres }
+  resource accountState { for: Accounts, kind: state, use: primary }
+  api AccountsApi from Accounts
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Accounts]
+    serves: AccountsApi
+    dataSources: [accountState]
+    port: 4000
+    auth: required
+  }
+}
