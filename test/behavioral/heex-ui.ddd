@@ -35,6 +35,12 @@
 
 system HeexUiSystem {
 
+  // A named web font: the asset pipeline bundles it, and
+  // `heex-ui-roundtrip.pw.ts` asserts the rendered page loads it.
+  theme {
+    fontFamily: "Lato, system-ui, sans-serif"
+  }
+
   // The dev-stub principal.  `heex-ui-auth.pw.ts` drives the LiveView as three
   // roles through the `x-dev-claims` header the dev-stub :browser pipeline
   // seeds the session from; with no header the page runs as the stub's built-in

@@ -139,6 +139,45 @@ test("a create form refuses typed text the rule refuses and saves an accepted on
   await expect(page.getByTestId("meters-detail-fee")).toContainText("120.5");
 });
 
+// The theme names a web font (`heex-ui.ddd`): the asset pipeline bundles its
+// Fontsource stylesheets into app.css and copies the files they name beside it.
+// A face the browser could not fetch never reaches `loaded`, so a missing copy
+// or a dropped import fails here, while the page still renders in a fallback.
+test("the theme's web font is bundled and loaded", async ({ page }) => {
+  const list = await new WidgetListPage(page).goto();
+  await list.create();
+  // `create()` returns on the click; read the control once the create form is up.
+  const control = '[data-testid="widgets-new"] input:not([type=hidden])';
+  await page.locator(control).first().waitFor();
+  const family = "Lato";
+  const got = await page.evaluate(
+    async ({ fam, sel }) => {
+      // `check` is true for a family no stylesheet declares, so the loaded faces
+      // are counted too; `load` requests the face whether or not text uses it yet.
+      await document.fonts.load(`16px "${fam}"`);
+      await document.fonts.ready;
+      const input = document.querySelector(sel);
+      return {
+        check: document.fonts.check(`16px "${fam}"`),
+        faces: [...document.fonts].filter(
+          (f) => f.family.replace(/["']/g, "") === fam && f.status === "loaded",
+        ).length,
+        control: input ? getComputedStyle(input).fontFamily : null,
+      };
+    },
+    { fam: family, sel: control },
+  );
+  expect(got.faces, `a loaded "${family}" face (fonts.check ${got.check})`).toBeGreaterThan(0);
+  expect(got.check, `fonts.check for "${family}"`).toBe(true);
+  expect(
+    (got.control ?? "")
+      .split(",")[0]
+      ?.trim()
+      .replace(/^["']|["']$/g, ""),
+    `the form control's font-family ${JSON.stringify(got.control)}`,
+  ).toBe(family);
+});
+
 // A create form opens pre-filled with the defaults the server would otherwise
 // fill (D-FORM-PREFILL): `readAt` the server's clock at mount, `readBy`
 // the session principal's role (the dev stub's built-in "admin").  Submitted

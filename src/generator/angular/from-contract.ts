@@ -74,7 +74,11 @@ import { emitPageObjectsForUi } from "../_frontend/page-objects-emit.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { angularChromeAttr, angularChromeText } from "../_frontend/shell-chrome.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
-import { prepareThemeVM } from "../_frontend/theme-preparer.js";
+import {
+  prepareThemeFonts,
+  prepareThemeVM,
+  withFontCssImports,
+} from "../_frontend/theme-preparer.js";
 import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { contractUsesMoney } from "../_frontend/usage-flags.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
@@ -230,6 +234,11 @@ export function generateAngularFromContract(
   // import from TypeScript (TS2882), so angular.json carries it instead.
   const usesCodeBlock = ui ? uiUsesCodeBlock(ui, contractUi.components) : false;
 
+  // A web font the theme names is bundled: its Fontsource package is a
+  // dependency and the global stylesheet `@import`s its stylesheets (the
+  // Angular compiler rejects a side-effect CSS import from TypeScript).
+  const themeFonts = prepareThemeFonts(host.theme, pack.manifest.name);
+
   // --- Project shell (pack-emitted) -----------------------------------
   out.set(
     "package.json",
@@ -237,6 +246,7 @@ export function generateAngularFromContract(
       packageName: projectPackageName(host.system, host.deployable),
       usesMoney,
       usesCodeBlock,
+      fontPackages: themeFonts.fontPackages,
     }),
   );
   // `baseHref` build option only when the bundle is sub-path-mounted; unset
@@ -262,7 +272,10 @@ export function generateAngularFromContract(
   out.set("tsconfig.app.json", pack.render("tsconfig-app", {}));
   out.set("src/main.ts", pack.render("main", { usesCodeBlock }));
   if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_ANGULAR_TS);
-  out.set("src/styles.css", pack.render("theme", prepareThemeVM(host.theme)));
+  out.set(
+    "src/styles.css",
+    withFontCssImports(pack.render("theme", prepareThemeVM(host.theme)), themeFonts),
+  );
   // Interactive-table sort helper (M-T1.1) — re-exposed as a component member
   // by any page rendering a sortable Table; emitted unconditionally.
   out.set("src/lib/table-sort.ts", buildTableSortHelper());
