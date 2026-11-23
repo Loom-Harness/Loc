@@ -37,6 +37,7 @@ import type {
   LayoutIR,
   MessageIR,
   PayloadIR,
+  RouteBindingIR,
   RouteIR,
   TypeIR,
   UiIR,
@@ -60,7 +61,7 @@ import { isFrontendReadableProjection, projectionReadShape } from "../util/proje
 import { requestNamesForContexts } from "../util/request-names.js";
 import { aggregateIsVersioned } from "../util/versioned-capability.js";
 import { emitsCommandRoute, workflowResultSegment } from "../util/workflow-command-route.js";
-import { drop, keep, list, type Rule, record } from "./allowlist.js";
+import { drop, keep, list, type Rule, record, union } from "./allowlist.js";
 import { componentRule, exprRule, layoutRule, messageRule, typeRule, uiRule } from "./ui-spec.js";
 
 /** Bumped on any change a consumer must react to. */
@@ -364,10 +365,12 @@ const apiRule = record<ApiIR>("ApiIR", {
     record<RouteIR>("RouteIR", {
       method: keep,
       path: keep,
-      target: record<RouteIR["target"]>("RouteTarget", { context: keep, handler: keep }),
-      // A frontend calls the handler `target` names; how the server binds the
-      // request into the record is not its concern.
-      sends: drop,
+      binding: union<RouteBindingIR>("RouteBindingIR", {
+        // How the server binds the request into the record is not a
+        // frontend's concern.
+        send: { context: keep, record: keep, binds: drop },
+        handler: { context: keep, handler: keep },
+      }),
     }),
   ),
 });

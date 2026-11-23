@@ -24,6 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { lowerFirst, snake } from "../../util/naming.js";
+import { resolveRoute } from "../plan/route-handler.js";
 import { pagedReturn } from "../stdlib/generics.js";
 import type {
   ApiIR,
@@ -104,21 +105,18 @@ export function resolveRoutedHandler(
 ): RoutedHandlerTarget | undefined {
   for (const api of apis) {
     for (const route of api.routes) {
-      const ctx = contexts.find((c) => c.name === route.target.context);
-      if (!ctx) continue;
+      const resolved = resolveRoute(route, contexts);
+      if (!resolved) continue;
+      const { context: ctx, routed } = resolved;
       if (!matchesName(ctx.name, contextSlug)) continue;
-      const cmd = (ctx.commandHandlers ?? []).find((h) => h.name === route.target.handler);
-      const qry = (ctx.queryHandlers ?? []).find((h) => h.name === route.target.handler);
-      const handler = cmd ?? qry;
-      if (!handler) continue;
-      if (!matchesName(handler.name, handlerSlug)) continue;
+      if (!matchesName(routed.handler.name, handlerSlug)) continue;
       return {
         apiName: api.name,
         route,
         context: ctx,
-        handler,
-        handlerKind: cmd ? "command" : "query",
-        bindings: bindParams(handler, route),
+        handler: routed.handler,
+        handlerKind: routed.kind,
+        bindings: bindParams(routed.handler, route),
       };
     }
   }
@@ -160,13 +158,11 @@ export function routedHandlerCallHints(
   const out: string[] = [];
   for (const api of apis) {
     for (const route of api.routes) {
-      const ctx = contexts.find((c) => c.name === route.target.context);
-      if (!ctx) continue;
-      const declared =
-        (ctx.commandHandlers ?? []).some((h) => h.name === route.target.handler) ||
-        (ctx.queryHandlers ?? []).some((h) => h.name === route.target.handler);
-      if (!declared) continue;
-      out.push(`api.${lowerFirst(ctx.name)}.${lowerFirst(route.target.handler)}`);
+      const resolved = resolveRoute(route, contexts);
+      if (!resolved) continue;
+      out.push(
+        `api.${lowerFirst(resolved.context.name)}.${lowerFirst(resolved.routed.handler.name)}`,
+      );
     }
   }
   return [...new Set(out)].sort();

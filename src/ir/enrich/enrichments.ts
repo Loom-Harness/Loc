@@ -3,6 +3,7 @@ import { defaultErrorStatus, STRUCTURAL_CONFLICT_ERRORS } from "../../util/error
 import { plural, snake } from "../../util/naming.js";
 import { isKeyLookupOp, retrievalBaseName } from "../../util/repository-contract.js";
 import { defaultInterfaceFor } from "../../util/source-types.js";
+import { routeContext } from "../plan/route-handler.js";
 import {
   forEachGenericInstance,
   genericInstanceName,
@@ -209,7 +210,7 @@ function enrichSystem(
   const explicitRouteSlotsBySubdomain = new Map<string, string[]>();
   for (const a of sys.apis) {
     for (const r of a.routes) {
-      const sub = subdomainOfContext.get(r.target.context);
+      const sub = subdomainOfContext.get(routeContext(r));
       if (sub === undefined) continue;
       const slots = explicitRouteSlotsBySubdomain.get(sub) ?? [];
       const s = explicitRouteSlot(r);

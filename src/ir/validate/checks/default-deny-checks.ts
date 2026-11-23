@@ -7,6 +7,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
+import { routeContext, routeHandler } from "../../plan/route-handler.js";
 import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
 import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
 import { deriveContextOperations, isAllFind } from "../../util/api-surface.js";
@@ -386,14 +387,12 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
   for (const sd of sys.subdomains) for (const c of sd.contexts) ctxByName.set(c.name, c);
   for (const api of sys.apis) {
     for (const route of api.routes) {
-      const c = ctxByName.get(route.target.context);
+      const c = ctxByName.get(routeContext(route));
       if (!c || !guarded.has(c.name)) continue;
-      const cmd = (c.commandHandlers ?? []).find((h) => h.name === route.target.handler);
-      const qry = cmd
-        ? undefined
-        : (c.queryHandlers ?? []).find((h) => h.name === route.target.handler);
-      const handler = cmd ?? qry;
-      if (!handler) continue;
+      const routed = routeHandler(route, c);
+      if (!routed) continue;
+      const handler = routed.handler;
+      const cmd = routed.kind === "command";
       if (isGated(handler.statements)) continue;
       const params = {
         kind: cmd ? "commandHandler" : "queryHandler",

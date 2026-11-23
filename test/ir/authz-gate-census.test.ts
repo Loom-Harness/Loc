@@ -88,6 +88,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { handlerReadAggregates } from "../../src/ir/enrich/policy-read-gates.js";
 import { contextOperations } from "../../src/ir/plan/repo-polymorphic.js";
+import { routeContext, routeHandler } from "../../src/ir/plan/route-handler.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -369,12 +370,10 @@ function surfacesOf(model: LoomModel): Surfaces {
     // is for an aggregate operation.
     for (const api of sys.apis) {
       for (const route of api.routes) {
-        const ctx = ctxByName.get(route.target.context);
+        const ctx = ctxByName.get(routeContext(route));
         if (!ctx || !served.has(ctx.name)) continue;
         const aggs = new Map(ctx.aggregates.map((a) => [a.name, a]));
-        const handler =
-          (ctx.commandHandlers ?? []).find((h) => h.name === route.target.handler) ??
-          (ctx.queryHandlers ?? []).find((h) => h.name === route.target.handler);
+        const handler = routeHandler(route, ctx)?.handler;
         if (!handler) continue; // no handler of that name
         // A routed handler is a gated surface on two counts: its own `requires`
         // statements (which, since enrichment prepends the aggregate's

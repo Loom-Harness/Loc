@@ -8,6 +8,7 @@ import {
   type ResourceCalls,
   resourceCalls,
 } from "../../../ir/plan/index.js";
+import { resolveRoute } from "../../../ir/plan/route-handler.js";
 import {
   reasonPhrase,
   wireCode,
@@ -933,12 +934,10 @@ export function buildExplicitRoutesFile(
     }
   };
   for (const r of routes) {
-    const ctx = byName.get(r.target.context);
-    if (!ctx) continue;
-    const cmd = (ctx.commandHandlers ?? []).find((hd) => hd.name === r.target.handler);
-    const qry = (ctx.queryHandlers ?? []).find((hd) => hd.name === r.target.handler);
-    const h = cmd ?? qry;
-    if (!h) continue;
+    const resolved = resolveRoute(r, byName);
+    if (!resolved) continue;
+    const ctx = resolved.context;
+    const h = resolved.routed.handler;
     collectResourceHelpers(resourceCalls(h.statements, [h.returnValue]));
     const inBody = (name: string): boolean => routedParamSource(name, r, false) === "body";
     // Seed the VO/enum wire-schema closure from every body-bound field.  A
@@ -1286,7 +1285,7 @@ function contextDispatchBlocks(
       {
         method: isQuery ? "GET" : "POST",
         path: "/",
-        target: { context: ctx.name, handler: h.name },
+        binding: { kind: "handler", context: ctx.name, handler: h.name },
       },
       h,
       ctx,

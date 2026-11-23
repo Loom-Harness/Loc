@@ -101,7 +101,6 @@ import {
   type TestBlock,
 } from "../../language/generated/ast.js";
 import { buildModelTextIndex } from "../../language/model-text.js";
-import { routeHandlerName } from "../../language/route-target.js";
 import { stdFunctions } from "../../language/stdlib.js";
 import { descriptorFor } from "../../platform/metadata.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -636,26 +635,28 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
  *  alongside `sys.members` so the `user` / `permissions` threading below
  *  applies to them identically to a nested declaration. */
 /** A `route`: the `->` form names its handler; the `send` form names the
- *  request record, and reaches the one handler taking that record as its only
- *  parameter.  Phase ⑦ checks the record against `handlersOf` and refuses a
- *  record with no handler, several, or a workflow `create` catching it, so a
- *  route that lowers with an empty handler never reaches an emitter. */
+ *  request record, whose one handler `routeHandler` (`src/ir/plan/
+ *  route-handler.ts`) answers.  Phase ⑦ refuses a sent record with no
+ *  handler, several, or a workflow `create` catching it, so no emitter meets a
+ *  route that reaches nothing. */
 function lowerRoute(r: Route): RouteIR {
   if (r.target) {
     return {
       method: r.method,
       path: r.path,
-      target: { context: r.target.context?.$refText ?? "", handler: r.target.handler },
+      binding: {
+        kind: "handler",
+        context: r.target.context?.$refText ?? "",
+        handler: r.target.handler,
+      },
     };
   }
   return {
     method: r.method,
     path: r.path,
-    target: {
+    binding: {
+      kind: "send",
       context: r.sends?.context?.$refText ?? "",
-      handler: routeHandlerName(r, r.sends?.context?.ref) ?? "",
-    },
-    sends: {
       record: r.sends?.record ?? "",
       binds: r.binds.map(
         (b): RouteBindIR =>
