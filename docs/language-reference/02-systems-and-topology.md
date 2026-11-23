@@ -610,7 +610,9 @@ body {
 ```
 ::: end
 
-The Phoenix `theme.css` carries the same ramp as CSS custom properties (`--color-brand-0 … --color-brand-9`, `--color-primary: var(--color-brand-6)`, a `--color-neutral-*` ramp). The shade ramp is *derived* from the single `primary` hex — your colour lands at shade 6 (the `primaryShade.light` index), with lighter tints above and darker shades below. Omit `theme` entirely and the pack's built-in defaults apply (indigo `#4f46e5`, `md`, Inter).
+The Phoenix `theme.css` carries the same ramp as CSS custom properties (`--color-brand-0 … --color-brand-9`, `--color-primary: var(--color-brand-6)`, a `--color-neutral-*` ramp). The shade ramp is *derived* from the single `primary` hex — your colour lands at shade 6 (the `primaryShade.light` index), with lighter tints above and darker shades below. Omit `theme` entirely and the built-in defaults apply (indigo `#4f46e5`, `md`, and the platform's own UI font: `system-ui, -apple-system, …, sans-serif`, so no web font is loaded unless the theme names one).
+
+Every design honours a token or refuses it, never drops it: a token the deployable's design does not honour is refused: `loom.theme-token-unsupported` is an error naming the deployable, the design and the tokens.  Which tokens each built-in design honours is the table in `src/util/theme-tokens.ts`, held to the generated output by a census.
 
 ## `i18n`
 

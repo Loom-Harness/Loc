@@ -51,9 +51,6 @@ system AcmeVue {
     // generator targets Mantine (today) or shadcn/ui (future).
     theme {
         primary: "#3b82f6"
-        neutral: "#64748b"
-        radius: "md"
-        fontFamily: "Inter, system-ui, sans-serif"
     }
 
     subdomain Catalog {
