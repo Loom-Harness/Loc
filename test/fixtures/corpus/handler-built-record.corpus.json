@@ -1,0 +1,5 @@
+{
+  "title": "A handler answers a `payload` or standalone `response` record it builds",
+  "doc": "payloads",
+  "backends": "ALL"
+}
