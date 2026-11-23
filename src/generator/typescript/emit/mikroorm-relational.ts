@@ -768,7 +768,7 @@ export function renderMikroRepository(
     // `MIKROORM_SUBSET` was really describing when it refused the shape.
     const usesUser = findUsesCurrentUser(f);
     const baseParams = f.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
-    const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
+    const params = (usesUser ? [...baseParams, `currentUser: ${TT.User}`] : baseParams).join(", ");
     // The aggregate's scope applies by itself (schema filters); this read's
     // `ignoring` clause switches off the named ones.
     const ignoring = mikroFilterOption(agg, pool, {
@@ -799,7 +799,7 @@ export function renderMikroRepository(
     if (paged) {
       const pagedParams = [
         ...baseParams,
-        ...(usesUser ? ["currentUser: User"] : []),
+        ...(usesUser ? [`currentUser: ${TT.User}`] : []),
         "page: number",
         "pageSize: number",
         "sort: string",

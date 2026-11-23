@@ -18,6 +18,7 @@
 import type { BinOp, ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
 import { RETURN_TO_PARAM } from "../../util/return-to.js";
 import { groupedOperand, groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
+import { gateReadsSystemPrincipal } from "../_frontend/gate-expr.js";
 import { FS_LEAVES } from "./fs-expr.js";
 
 /** The system's `user { }` claim shape, as the session decodes it. */
@@ -137,6 +138,7 @@ export function renderFelizGate(e: ExprIR, userVar: string): string {
     case "literal":
       return renderGateLiteral(e.lit, e.value);
     case "member":
+      if (gateReadsSystemPrincipal(e)) return renderGateLiteral("bool", "false");
       // Claim access — `currentUser.role` → `currentUser.Role` (pascal-cased
       // record field).  Chained access (`currentUser.org.tier`) pascals each hop.
       return `${renderFelizGate(e.receiver, userVar)}.${upperFirst(e.member)}`;

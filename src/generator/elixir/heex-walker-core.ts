@@ -70,6 +70,7 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/target.js";
+import { gateReadsSystemPrincipal } from "../_frontend/gate-expr.js";
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
@@ -1040,6 +1041,10 @@ function renderMemberValue(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkC
       return `Enum.count(${renderExpr(expr.receiver, ctx)})`;
     }
   }
+  // `currentUser.isSystem` on a page or in an action gate is `false`
+  // (`gateReadsSystemPrincipal`): a browser user is never the system
+  // principal, and the session user map carries no `:is_system` key to read.
+  if (gateReadsSystemPrincipal(expr)) return "false";
   if (expr.receiver.kind === "ref" && expr.receiver.refKind === "current-user") {
     const cu = ctx.position === "template" ? "@current_user" : "socket.assigns.current_user";
     return `${cu}.${snake(expr.member)}`;
