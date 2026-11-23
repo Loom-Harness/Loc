@@ -6,7 +6,7 @@
 // nothing: write it immediately before the call it enables.
 // ---------------------------------------------------------------------------
 
-import { csNsRef, csRef, csUsing } from "../_imports/dotnet.js";
+import { csNameRef, csNsRef, csProjectRef, csRef, csUsing } from "../_imports/dotnet.js";
 
 export const CS = {
   Regex: csRef("System.Text.RegularExpressions", "Regex"),
@@ -28,6 +28,40 @@ export const CS = {
   EfCore: csNsRef("Microsoft.EntityFrameworkCore"),
   NpgsqlDataSource: csRef("Npgsql", "NpgsqlDataSource"),
   NpgsqlCommand: csRef("Npgsql", "NpgsqlCommand"),
+} as const;
+
+/** The types every generated project declares for itself that a domain type
+ *  may be named like, each with its namespace below the root namespace.  The
+ *  units outside that namespace name them through {@link CS_NAME};
+ *  `ProblemDetailsError` is named only inside its own. */
+export const CS_PROJECT_TYPE_HOME = {
+  AggregateNotFoundException: "Domain.Common",
+  DisallowedException: "Domain.Common",
+  DomainException: "Domain.Common",
+  ForbiddenException: "Domain.Common",
+  RequestContext: "Domain.Common",
+  WireFormatException: "Domain.Common",
+  HttpMetrics: "Observability",
+  ProblemDetailsError: "Api",
+} as const;
+
+const project = <N extends keyof typeof CS_PROJECT_TYPE_HOME>(name: N): string =>
+  csProjectRef(CS_PROJECT_TYPE_HOME[name], name);
+
+/** Types the emitters spell by simple name in units whose `using`s they write
+ *  by hand — BCL types and the types the project generates for itself.  Each
+ *  is spelled bare, or `global::`-qualified where a domain type of the
+ *  project takes the name (`_imports/dotnet.ts`); none derives a `using`. */
+export const CS_NAME = {
+  DateTime: csNameRef("System", "DateTime"),
+  Array: csNameRef("System", "Array"),
+  AggregateNotFoundException: project("AggregateNotFoundException"),
+  DisallowedException: project("DisallowedException"),
+  DomainException: project("DomainException"),
+  ForbiddenException: project("ForbiddenException"),
+  RequestContext: project("RequestContext"),
+  WireFormatException: project("WireFormatException"),
+  HttpMetrics: project("HttpMetrics"),
 } as const;
 
 /** BCL namespaces whose `using` is derived from a `ref` in the text rather

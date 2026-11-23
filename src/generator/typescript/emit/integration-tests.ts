@@ -341,7 +341,7 @@ export function renderContextIntegrationTest(
     rejection: bodyStr.includes("expectDomainRejection("),
     gate: bodyStr.includes("requireGate("),
   };
-  if (uses.rejection || uses.gate) lines.push(...domainRejectionPrelude("../domain/errors", uses));
+  if (uses.rejection || uses.gate) lines.push(...domainRejectionPrelude(uses));
   if (bodyStr.includes(TEST_PRINCIPAL_CALL)) {
     // The principal a currentUser-reading operation takes: the one the test
     // has bound in the ambient frame.

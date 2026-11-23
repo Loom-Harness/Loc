@@ -30,6 +30,10 @@ import { corpusSourceFor, generateCorpusCase } from "../../fixtures/corpus/harne
 import { CORPUS } from "../../fixtures/corpus/manifest.js";
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../..");
+/** A read of the ambient carrier's expected version in emitter source — the
+ *  carrier spelled bare or through its name reference (`CS_NAME`). */
+const AMBIENT_EXPECTED_VERSION =
+  /(?:RequestContext|\$\{CS_NAME\.RequestContext\})\.Current\??\.ExpectedVersion/;
 
 /** Every .NET source file that emits a write path or the save it calls. */
 const WRITE_PATH_EMITTERS = [
@@ -60,7 +64,7 @@ describe("dotnet checksVersion census — source", () => {
   it.each(WRITE_PATH_EMITTERS)("%s never reads the request's If-Match ambiently", (rel) => {
     // The ambient carrier is request-wide: a save that read it would check
     // every row a workflow saves against one header (#4324).
-    expect(read(rel)).not.toMatch(/RequestContext\.Current\??\.ExpectedVersion/);
+    expect(read(rel)).not.toMatch(AMBIENT_EXPECTED_VERSION);
   });
 
   it("names the ambient expected version at exactly one site", () => {
@@ -69,11 +73,7 @@ describe("dotnet checksVersion census — source", () => {
       for (const e of fs.readdirSync(path.join(REPO, dir), { withFileTypes: true })) {
         const rel = `${dir}/${e.name}`;
         if (e.isDirectory()) walk(rel);
-        else if (
-          /\.ts$/.test(e.name) &&
-          /RequestContext\.Current\??\.ExpectedVersion/.test(read(rel))
-        )
-          hits.push(rel);
+        else if (/\.ts$/.test(e.name) && AMBIENT_EXPECTED_VERSION.test(read(rel))) hits.push(rel);
       }
     };
     walk("src/generator/dotnet");

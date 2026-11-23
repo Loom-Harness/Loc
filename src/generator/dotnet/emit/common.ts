@@ -13,6 +13,7 @@ import {
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { csMoneyGrammar } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { csFindAbsentException, csNotFoundException, csSentence } from "../wire-policy-cs.js";
 
 export function renderCommon(
@@ -340,7 +341,7 @@ public sealed class DomainEventDeferral : IDisposable
 {
     private static readonly AsyncLocal<DomainEventDeferral?> _current = new();
     private readonly DomainEventDeferral? _previous;
-${keep ? `    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event, RequestContext? Frame)> _buffered = new();` : `    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event)> _buffered = new();`}
+${keep ? `    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event, ${CS_NAME.RequestContext}? Frame)> _buffered = new();` : `    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event)> _buffered = new();`}
     private bool _closed;
 
     private DomainEventDeferral()
@@ -363,7 +364,7 @@ ${
         // its stream tenant's event-origin frame, which is closed again by the
         // time the scope flushes — the outbox capture, the CloudEvents envelope
         // and a fold read the event's tenant from the frame the dispatch runs in.
-        scope._buffered.Add((dispatcher, ev, RequestContext.Current));`
+        scope._buffered.Add((dispatcher, ev, ${CS_NAME.RequestContext}.Current));`
     : `        scope._buffered.Add((dispatcher, ev));`
 }
         return Task.CompletedTask;
@@ -379,7 +380,7 @@ ${
   keep
     ? `        foreach (var (dispatcher, ev, frame) in pending)
         {
-            using var __frame = frame is null || ReferenceEquals(frame, RequestContext.Current) ? null : RequestContext.Enter(frame);
+            using var __frame = frame is null || ReferenceEquals(frame, ${CS_NAME.RequestContext}.Current) ? null : ${CS_NAME.RequestContext}.Enter(frame);
             await dispatcher.DispatchAsync(ev, cancellationToken);
         }`
     : `        foreach (var (dispatcher, ev) in pending) await dispatcher.DispatchAsync(ev, cancellationToken);`
@@ -426,8 +427,8 @@ ${fileRef}/// <summary>
 /// </summary>
 public readonly record struct FilterBypass(bool All, IReadOnlyList<string> Capabilities)
 {
-    public static readonly FilterBypass None = new(false, Array.Empty<string>());
-    public static FilterBypass BypassAll() => new(true, Array.Empty<string>());
+    public static readonly FilterBypass None = new(false, ${CS_NAME.Array}.Empty<string>());
+    public static FilterBypass BypassAll() => new(true, ${CS_NAME.Array}.Empty<string>());
     public static FilterBypass Bypass(params string[] capabilities) => new(false, capabilities);
 }
 
