@@ -143,6 +143,11 @@ export const RESERVED_TYPE_NAMES: readonly ReservedTypeName[] = [
       blockedBy: "#6467",
     },
   },
+  {
+    name: "Dispatch",
+    category: "generated",
+    bindings: [n("elixir", "the generated context dispatch module <App>.<Context>.Dispatch")],
+  },
   eventsRuntime(
     "DomainEvent",
     ["node", "python", "java"],

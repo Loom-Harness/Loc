@@ -41,7 +41,7 @@ escaped, and shipped models that used a refused name were rewritten.
     `NoopDomainEventDispatcher`, `PostCommitDispatcher` on python); the .NET `Id` member and `Create`
     factory a type of that name cannot hold, and `WaitForDatabaseAsync`, a
     top-level function of `Program.cs` every unit sees; the Elixir modules
-    `ProblemDetails` and `FileRef`.
+    `ProblemDetails`, `<Context>.Dispatch` and `FileRef`.
   - **import-style** — a name an emitter still spells bare where it could
     alias it: only `Decimal` on node, which the shared expression and numeric
     helpers write for `decimal.js`. Such an entry is parked work: it carries a

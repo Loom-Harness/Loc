@@ -102,7 +102,7 @@ The table of refused names, each with its category, the targets and what binds i
   - the domain module files an aggregate of the name would overwrite: `Errors`, `Events`, `Ids` (node and python), `Paging`, `RepositoryPorts`, `ValueObjects` (python);
   - the runtime the generated events module declares beside every event: `DomainEvent` (node, python and Java), `DomainEventDispatcher` (node and python), `NoopDomainEventDispatcher`, `PostCommitDispatcher` (python);
   - on .NET, the `Id` member of every aggregate and the `Create` factory, which a type of that name cannot hold, and `WaitForDatabaseAsync`, a top-level function of `Program.cs` every unit sees;
-  - on Elixir, the generated modules `ProblemDetails` and the OpenAPI schema `FileRef`.
+  - on Elixir, the generated modules `ProblemDetails` and `<Context>.Dispatch` (the context's dispatch module, which an aggregate of that name would overwrite), and the OpenAPI schema `FileRef`.
 - **import-style** — a name an emitter still spells bare where it could alias it: `Decimal` on node, which the shared expression and numeric helpers write for `decimal.js`. It is parked work with an expiry date, not a standing rule.
 
 Apart from `DomainEvent`, the type every event implements in the generated events package, the Java backend binds no name a domain type cannot take: its units import every type by its single name, and where a type of the model's shares a simple name with a platform type (`Page`, `Column`, `Instant`, `String`), the unit spells the platform type fully qualified. `aggregate User` and `aggregate Create` read alike but are not alike: `User` is legal (an aggregate may be the auth principal), and `Create` is refused for good.

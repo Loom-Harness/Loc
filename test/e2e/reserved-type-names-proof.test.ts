@@ -118,9 +118,12 @@ export function proofModel(target: string, variant: Variant, names: readonly str
       decls.push(`      repository ${n}Repo for ${n} { }`);
     }
   }
+  // Elixir's checks run at generation, where a clash is a clobbered output
+  // path; scaffolded handlers make the context emit its dispatch module too.
+  const handlers = target === "elixir" ? " with scaffoldHandlers" : "";
   return `system Proof {
   subdomain S {
-    context C {
+    context C${handlers} {
 ${decls.join("\n")}
     }
   }
