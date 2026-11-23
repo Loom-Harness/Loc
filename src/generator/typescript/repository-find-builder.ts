@@ -457,7 +457,7 @@ export function findQueryMethod(
   // thread the user from `c.get("currentUser")` into the call.
   const usesUser = findUsesCurrentUser(find);
   const baseParams = find.params.map((p) => `${N.binding(p.name)}: ${tsTypeForReturn(p.type)}`);
-  const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
+  const params = (usesUser ? [...baseParams, `currentUser: ${TT.User}`] : baseParams).join(", ");
   // An `ignoring <Cap>` / `ignoring *` on this find drops the named
   // capability filters from its `where` conjunction (other finds keep them).
   const readPred = readFilterPred(agg, ctx, filterPred, find);
@@ -482,7 +482,9 @@ export function findQueryMethod(
       "sort: string",
       "dir: string",
     ];
-    const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(", ");
+    const pagedAll = (usesUser ? [...pagedParams, `currentUser: ${TT.User}`] : pagedParams).join(
+      ", ",
+    );
     const ret = `{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }`;
     // Server-side sort (M-T2.6): a whitelist maps each accepted `sort` key to
     // its root-table column; an unknown key falls back to `id` (the stable

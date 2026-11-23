@@ -106,7 +106,7 @@ export function renderMikroDocumentRepository(
     // `MIKROORM_SUBSET` was really describing when it refused the shape.
     const usesUser = findUsesCurrentUser(f);
     const baseParams = f.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
-    const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
+    const params = (usesUser ? [...baseParams, `currentUser: ${TT.User}`] : baseParams).join(", ");
     const pred = findPredicate(agg, f, ctx);
     const isArray = f.returnType.kind === "array";
     const isOptional = f.returnType.kind === "optional";
@@ -148,7 +148,9 @@ export function renderMikroDocumentRepository(
     // single-get method (F2-CB-C1).
     if (pagedReturn(f.returnType)) {
       const pagedParams = [...baseParams, ...PAGED_TAIL_PARAMS];
-      const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(", ");
+      const pagedAll = (usesUser ? [...pagedParams, `currentUser: ${TT.User}`] : pagedParams).join(
+        ", ",
+      );
       const L = inMemoryPagedLocals(f.params);
       return lines(
         `  async ${f.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,

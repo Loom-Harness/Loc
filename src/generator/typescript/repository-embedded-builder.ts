@@ -358,7 +358,7 @@ export function buildEmbeddedRepositoryFile(
     drizzleImportLine(renderedBody),
     `import * as schema from "../schema";`,
     scopeImportLine(agg, bodyScan),
-    repoUsesUser && `import type { User } from "../../auth/user-types";`,
+    repoUsesUser && tsImportSlot("~/auth/user-types"),
     `import { ${domainImports} } from "../../domain/${N.stem(agg.name)}";`,
     voOrEnumImportLine,
     `import * as Ids from "../../domain/ids";`,
@@ -387,7 +387,7 @@ function embeddedFindMethod(
   const tableName = N.stem(plural(agg.name));
   const usesUser = findUsesCurrentUser(find);
   const baseParams = find.params.map((p) => `${N.binding(p.name)}: ${tsFindParamType(p.type)}`);
-  const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
+  const params = (usesUser ? [...baseParams, `currentUser: ${TT.User}`] : baseParams).join(", ");
   // An `ignoring <Cap>` / `ignoring *` on THIS find drops the named capability
   // conjuncts from its `where` (other finds keep them).  The repo-wide
   // `filterPred` cannot see the bypass, so handing it straight to
@@ -418,7 +418,9 @@ function embeddedFindMethod(
   // for it (F2-CB-C1).
   if (pagedReturn(find.returnType)) {
     const pagedParams = [...baseParams, ...PAGED_TAIL_PARAMS];
-    const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(", ");
+    const pagedAll = (usesUser ? [...pagedParams, `currentUser: ${TT.User}`] : pagedParams).join(
+      ", ",
+    );
     const sortCols = drizzleClientSortColumns(
       tableName,
       sortableFields(agg),

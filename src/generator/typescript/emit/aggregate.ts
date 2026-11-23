@@ -225,7 +225,7 @@ export function renderAggregate(
       }),
       hasProv ? 'import { type ProvLineage } from "./provenance";' : null,
       hasDomainTrace ? 'import { requestLog } from "../obs/als";' : null,
-      usesUser ? 'import type { User } from "../auth/user-types";' : null,
+      usesUser ? tsImportSlot("~/auth/user-types") : null,
       "",
       rawBody,
     ) + "\n\n"
@@ -628,7 +628,7 @@ function renderEntity(
     const baseParams = op.params
       .map((p) => `${DOMAIN_NAMES.ts.binding(p.name)}: ${renderTsType(p.type)}`)
       .join(", ");
-    const userParam = usesUser ? "currentUser: User" : "";
+    const userParam = usesUser ? `currentUser: ${TT.User}` : "";
     const params = [baseParams, userParam].filter(Boolean).join(", ");
     if (op.extern) {
       // Extern operation (case-1 domain logic): the route/workflow calls

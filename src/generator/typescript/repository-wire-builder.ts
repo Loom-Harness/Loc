@@ -26,6 +26,7 @@ import { tsInstantWire } from "./codec-spelling.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { tsProvSibling } from "./prov-names.js";
 import { renderTsExpr } from "./render-expr.js";
+import { TT } from "./ts-symbols.js";
 
 const N = DOMAIN_NAMES.ts;
 
@@ -61,7 +62,7 @@ export function aggHasFieldMask(agg: AggregateIR): boolean {
 export function toWireMaskedMethod(agg: AggregateIR, payloads: readonly PayloadIR[]): string {
   const plan = responseMaskPlan(payloads, agg, agg.parts);
   const body: string[] = [
-    `  toWireMasked(root: ${agg.name}, currentUser: User | null): unknown {`,
+    `  toWireMasked(root: ${agg.name}, currentUser: ${TT.User} | null): unknown {`,
     `    const wire = this.toWire(root) as Record<string, unknown>;`,
   ];
   if (plan) body.push(...redactWire(plan, "wire", "    ", { n: 0 }));

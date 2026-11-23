@@ -6,6 +6,7 @@
 // the fail-closed `toWireMasked` + a nullable response field.
 
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../src/generator/_imports/symbol.js";
 import {
   aggHasFieldMask,
   maskedWireFields,
@@ -69,7 +70,8 @@ describe("mask unless — node wire serializer", () => {
 
   it("emits a fail-closed toWireMasked that redacts the field unless the predicate holds", async () => {
     const agg = await maskedAgg();
-    const method = toWireMaskedMethod(agg, payloads);
+    // The principal type is an import symbol; spell it as the finalizer would.
+    const method = spellMarkers(toWireMaskedMethod(agg, payloads));
     expect(method).toContain("toWireMasked(root: P, currentUser: User | null)");
     // fail-closed: null caller OR failed predicate → redact to null.
     expect(method).toContain("currentUser !== null");

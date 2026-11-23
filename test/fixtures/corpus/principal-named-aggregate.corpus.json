@@ -1,0 +1,25 @@
+{
+  "//": "Gate for D-RESERVED-GENERATED-NAMES (docs/decisions).",
+  "title": "an aggregate named `User` beside the auth principal's generated `User` type — the node compile-level near miss, in the aggregate's module, its repository, the pooled repository ports and the audit stamp helper",
+  "doc": "language",
+  "backends": [
+    "node"
+  ],
+  "note": "The near miss `aggregate User` meets the principal in four node units that name both: the aggregate's module (an operation body reading `currentUser` takes the principal as a parameter), its repository (`toWireMasked` takes the caller's principal for the `mask unless` field), the pooled `domain/repository-ports.ts`, and `db/audit-stamp.ts` (a principal stamp that also reads the row). Node is the declared cell because the mechanism under test is its TypeScript import finalizer, which aliases the principal's symbol in a module that also binds the model type; the generated unit fails `tsc` with TS2300 when it does not, so the node compile leg is the oracle. Sibling of `java-shadowed-type-names`, the same shape for the Java project-reference rule.",
+  "apiCaller": {
+    "e2eLess": "The defect class is a COMPILE failure (two bindings of one simple name in a generated unit), so the node compile leg is its oracle; a domain type's NAME is not observable on the wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT."
+  },
+  "behaviouralAbsent": "the defect IS the compile tier — an aggregate named like the generated principal type makes every unit that names both fail to build, so the compile leg reads the thing under test directly.  A type name never reaches the wire (the wire carries field names and the `type` tag of a union), and the mask, the `requires` gate and the principal stamp each already carry a behavioural fixture (`field-mask`, `auth-simple`, `stamps-principal`).  BY DESIGN: like `admitted-type-names` and `java-shadowed-type-names`, it is not a tier gap",
+  "typing": {
+    "nobody-knows": {
+      "n": 2,
+      "why": "the context `stamp onCreate` value reads the stamped row's `email`: the pass does not give a context stamp body the host aggregate's scope, lowering does",
+      "issue": "#6609"
+    },
+    "unknown{unresolved-name}": {
+      "n": 2,
+      "why": "the context `stamp onCreate` value reads the stamped row's `email`: the pass does not give a context stamp body the host aggregate's scope, lowering does",
+      "issue": "#6609"
+    }
+  }
+}

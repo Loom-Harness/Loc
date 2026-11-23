@@ -52,9 +52,10 @@ escaped, and shipped models that used a refused name were rewritten.
 - Each entry breaks the build of every target it lists when the refusal is
   ignored, and builds on every target it does not list, in all four shapes the
   proof declares (value object, aggregate, emitted event, enum).
-- `aggregate User` stays legal (owner ruling 413): the node clash with the
-  auth principal's `User` type is a node emitter defect, waived in the proof
-  with an expiry, not a reserved name. `Create` stays refused (the generated
+- `aggregate User` stays legal (owner ruling 413), not a reserved name: node
+  spells the auth principal's `User` type through its import symbol, so a
+  unit that also binds the aggregate imports the principal under an alias
+  (`_User`) and the aggregate keeps its name. `Create` stays refused (the generated
   factory), and the Dapper row mapper leans on that.
 - The built-in type names (`File`, `AuditEntry`, `Money`, `bytes`,
   `ParseError`, `EventMeta`) are not in this table (owner ruling 435): the
