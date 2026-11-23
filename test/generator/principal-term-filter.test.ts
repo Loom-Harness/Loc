@@ -131,7 +131,7 @@ describe("capability filter principal terms render on every backend", () => {
   it("elixir: an Elixir-decided pinned boolean, false without an actor", async () => {
     const files = await generateSystemFiles(source("elixir"));
     const repo = [...files].find(([p]) => p.endsWith("t/ticket_repository.ex"))?.[1] ?? "";
-    // The filter lives on Ticket's schema, as the unskippable `:loom_filter`
+    // The filter lives on Ticket's schema, as the unskippable `:scope_filter`
     // clause `Repo.prepare_query/3` applies with the read's principal — so the
     // list and the by-id read both start from `base_query/0` and hand it the actor.
     expect(repo).toContain("query = Api.T.Ticket.base_query()");

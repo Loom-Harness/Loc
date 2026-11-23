@@ -79,7 +79,7 @@ describe.each([
       const submit = live.slice(live.indexOf('def handle_event("submit_complete"'));
       expect(submit).toContain("case App.Projects.complete_task(socket.assigns.data, params) do");
       expect(submit).toContain(
-        '{:error, reason} ->\n        {:noreply, put_flash(socket, :error, "Complete failed:',
+        "{:error, _reason} ->\n        {:noreply, assign(socket, :complete_form_error,",
       );
       // The CRUD update can flip `done` too, so its success re-probes the gate.
       const update = live.slice(live.indexOf('def handle_event("submit_update"'));
@@ -132,10 +132,10 @@ describe.each([
       const list = file(await files(), "/live/task_list_live.ex");
       expect(list).toContain("|> assign(:project_labels, %{})");
       expect(list).toContain(
-        "|> assign(:project_labels, App.Projects.project_labels(Enum.map(__loom_label_rows(socket.assigns[:items]), & &1.project)))",
+        "|> assign(:project_labels, App.Projects.project_labels(Enum.map(__label_rows(socket.assigns[:items]), & &1.project)))",
       );
-      // handle_params + loom-sort + loom-page each re-load once.
-      expect(list.match(/socket = __loom_ref_labels\(socket\)/g)).toHaveLength(3);
+      // handle_params + __sort + __page each re-load once.
+      expect(list.match(/socket = __ref_labels\(socket\)/g)).toHaveLength(3);
       const render = list.slice(list.indexOf("def render(assigns)"));
       expect(render).not.toContain("project_labels(");
     });
@@ -155,7 +155,7 @@ describe.each([
       expect(list).toContain(
         '<.link navigate={~p"/projects/#{o.project}"}><%= o.project %></.link>',
       );
-      expect(list).not.toContain("__loom_ref_labels");
+      expect(list).not.toContain("__ref_labels");
       expect(file(fs, "/lib/app/projects.ex")).not.toContain("project_label");
       expect(file(fs, "/live/task_new_live.ex")).toContain("fn r -> {to_string(r.id), r.id} end");
     });

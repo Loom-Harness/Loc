@@ -11,6 +11,13 @@ import { OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
+import {
+  RETURN_ORIGINS_ENV,
+  RETURN_TO_COOKIE,
+  RETURN_TO_PARAM,
+  RETURN_TO_PATH_PATTERN,
+  RETURN_TO_URL_PATTERN,
+} from "../../../util/return-to.js";
 import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   SECURE_TRANSPORT_ENV,
@@ -72,18 +79,27 @@ function renderDevStubFiles(
   // value.  FQNs avoid import churn.  A list claim is element-checked, so a
   // mixed array falls back rather than putting a non-text node in a
   // `List<String>`.
-  const stubClaimKinds = new Map(
-    devClaimFields(fields).map(({ field, kind }) => [field.name, kind]),
-  );
+  const carried = devClaimFields(fields);
+  const stubClaimKinds = new Map(carried.map(({ field, kind }) => [field.name, kind]));
+  const optionalClaims = new Set(carried.filter((c) => c.optional).map((c) => c.field.name));
   const stubStringFields = fields.filter((f) => stubClaimKinds.has(f.name));
+  // A JSON null is the claim ABSENT (src/util/dev-claims.ts): an optional
+  // claim becomes null, a required one leaves the header describing no
+  // principal (→ 401 below, as OIDC answers a token that lacks it).
+  const isNull = (name: string): string =>
+    `claims.has("${name}") && claims.get("${name}").isNull()`;
+  const requiredNullChecks = stubStringFields
+    .filter((f) => !optionalClaims.has(f.name))
+    .map((f) => `            if (${isNull(f.name)}) return null;`);
   const overrideArgs = fields
     .map((f) => {
       const kind = stubClaimKinds.get(f.name);
+      const nullArm = optionalClaims.has(f.name) ? `${isNull(f.name)} ? null : ` : "";
       if (kind === "string") {
-        return `claims.has("${f.name}") && claims.get("${f.name}").isString() ? claims.get("${f.name}").asString() : ${stubValue(f.type)}`;
+        return `${nullArm}claims.has("${f.name}") && claims.get("${f.name}").isString() ? claims.get("${f.name}").asString() : ${stubValue(f.type)}`;
       }
       if (kind === "stringList") {
-        return `devClaimStringList(claims, "${f.name}", ${stubValue(f.type)})`;
+        return `${nullArm}devClaimStringList(claims, "${f.name}", ${stubValue(f.type)})`;
       }
       return stubValue(f.type);
     })
@@ -154,6 +170,7 @@ function renderDevStubFiles(
             `        String injected = request.getHeader("${DEV_CLAIMS_HEADER}");`,
             `        if (injected != null && !injected.isEmpty()) {`,
             `            tools.jackson.databind.JsonNode claims = decodeDevClaims(injected);`,
+            ...requiredNullChecks,
             `            return new User(${overrideArgs});`,
             `        }`,
             `        return new User(${stubArgs});`,
@@ -1339,10 +1356,32 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `        System.getenv("OIDC_POST_LOGIN_REDIRECT"), "/");`,
     `    private static final ObjectMapper MAPPER = JsonMapper.builder().build();`,
     ``,
+    `    // Where a sign-in returns to: a same-origin path, or an absolute URL whose`,
+    `    // origin is exactly one of ${RETURN_ORIGINS_ENV} (src/util/return-to.ts).`,
+    `    // Checked when /login stores it and again when /callback reads it back.`,
+    `    private static final java.util.regex.Pattern RETURN_TO_PATH =`,
+    `        java.util.regex.Pattern.compile(${JSON.stringify(RETURN_TO_PATH_PATTERN)});`,
+    `    private static final java.util.regex.Pattern RETURN_TO_URL =`,
+    `        java.util.regex.Pattern.compile(${JSON.stringify(RETURN_TO_URL_PATTERN)});`,
+    `    private static final java.util.Set<String> RETURN_ORIGINS = java.util.Arrays.stream(`,
+    `            orDefault(System.getenv(${JSON.stringify(RETURN_ORIGINS_ENV)}), "").split(","))`,
+    `        .map(String::trim)`,
+    `        .filter(o -> !o.isEmpty())`,
+    `        .collect(java.util.stream.Collectors.toSet());`,
+    ``,
+    `    private static boolean returnable(String value) {`,
+    `        if (value == null) return false;`,
+    `        if (RETURN_TO_PATH.matcher(value).matches()) return true;`,
+    `        java.util.regex.Matcher m = RETURN_TO_URL.matcher(value);`,
+    `        return m.matches() && RETURN_ORIGINS.contains(m.group(1));`,
+    `    }`,
+    ``,
     `    /** Start the authorization-code flow: redirect to the IdP's authorize`,
     `     *  endpoint with a CSRF state cookie. */`,
     `    @GetMapping("${AUTH_BASE_PATH}/login")`,
-    `    public ResponseEntity<Void> login(HttpServletResponse response) throws Exception {`,
+    `    public ResponseEntity<Void> login(`,
+    `            @RequestParam(value = ${JSON.stringify(RETURN_TO_PARAM)}, required = false) String returnTo,`,
+    `            HttpServletResponse response) throws Exception {`,
     `        JsonNode config = discovery();`,
     `        String authorize = config.get("authorization_endpoint").asString();`,
     `        String state = UUID.randomUUID().toString().replace("-", "");`,
@@ -1355,6 +1394,9 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `            MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII)));`,
     `        response.addCookie(stateCookie("oidc_state", state));`,
     `        response.addCookie(stateCookie("oidc_verifier", verifier));`,
+    `        response.addCookie(returnable(returnTo)`,
+    `            ? stateCookie(${JSON.stringify(RETURN_TO_COOKIE)}, returnTo)`,
+    `            : expiredCookie(${JSON.stringify(RETURN_TO_COOKIE)}));`,
     `        String url = authorize + (authorize.contains("?") ? "&" : "?")`,
     `            + "response_type=code"`,
     `            + "&client_id=" + enc(CLIENT_ID)`,
@@ -1373,6 +1415,7 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `            @RequestParam(required = false) String state,`,
     `            @CookieValue(value = "oidc_state", required = false) String expected,`,
     `            @CookieValue(value = "oidc_verifier", required = false) String verifier,`,
+    `            @CookieValue(value = ${JSON.stringify(RETURN_TO_COOKIE)}, required = false) String returnTo,`,
     `            HttpServletResponse response) {`,
     `        if (code == null || state == null || !state.equals(expected) || verifier == null) {`,
     `            return ResponseEntity.status(400).body(Map.of("error", "invalid_state"));`,
@@ -1393,7 +1436,9 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `            storeTokens(response, tokens);`,
     `            response.addCookie(expiredCookie("oidc_state"));`,
     `            response.addCookie(expiredCookie("oidc_verifier"));`,
-    `            return ResponseEntity.status(302).location(URI.create(POST_LOGIN)).build();`,
+    `            response.addCookie(expiredCookie(${JSON.stringify(RETURN_TO_COOKIE)}));`,
+    `            return ResponseEntity.status(302)`,
+    `                .location(URI.create(returnable(returnTo) ? returnTo : POST_LOGIN)).build();`,
     `        } catch (Exception e) {`,
     `            return ResponseEntity.status(401).body(Map.of("error", "token_exchange_failed"));`,
     `        }`,

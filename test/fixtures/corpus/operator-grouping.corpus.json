@@ -1,0 +1,12 @@
+{
+  "title": "Operator grouping without a `paren` node — a compound own-state write whose right side is itself an operator, and a comparison nested in a comparison",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "the witness for one grouping decision in the shared expression dispatcher.  The renderers kept grouping only through author-written `paren` nodes, so an operator node a lowering pass built regrouped silently: the workflow own-state `attempts -= 3 - 1` computed `attempts - 3 - 1` on all five backends (10 became 6), and Python's comparison chaining read `a < b == c` as `a < b and b == c`.  Each row is a value the regrouped form gets wrong, so the fixture goes red with the dispatcher's grouping reverted (all five on the workflow rows) or the Python policy removed (python on the derived rows)",
+  "apiCaller": {
+    "unattributed": [
+      "api.tally.instance (no such aggregate)",
+      "api.tally.run (no such aggregate)"
+    ]
+  }
+}

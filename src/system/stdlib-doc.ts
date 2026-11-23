@@ -39,6 +39,7 @@ const RECEIVER_ORDER: ReadonlyArray<{ receiver: IntrinsicReceiver; heading: stri
   { receiver: "money", heading: "money" },
   { receiver: "date", heading: "date" },
   { receiver: "datetime", heading: "datetime" },
+  { receiver: "duration", heading: "duration" },
 ];
 
 /** One-line human blurb per prelude module (keyed by the STD_SOURCES key). */
@@ -49,7 +50,7 @@ const PRELUDE_BLURBS: Readonly<Record<string, string>> = {
 };
 
 function intrinsicTable(receiver: IntrinsicReceiver): string {
-  const rows = INTRINSIC_SIGNATURES.filter((s) => s.receiver === receiver);
+  const rows = INTRINSIC_SIGNATURES.filter((s) => s.receiver === receiver && !s.internal);
   if (rows.length === 0) return "";
   const lines = [
     `#### \`${receiver}\``,

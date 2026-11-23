@@ -1,7 +1,7 @@
 // The Vue app's form runtime localizes by catalog code (#4473): a server field
 // error and a refusal render through `t(code, english, params)`, and a client
 // zod issue is localized when the form's `errors` are READ (render time), by
-// the code its Loom check carries (`params.loomCode`) or the field reason its
+// the code its Loom check carries (`params.code`) or the field reason its
 // zod code names.  The emitted `src/lib/form.ts` is RUN here with `vue`,
 // `vee-validate` and `../i18n` stubbed, so the assertions are on what the user
 // sees, not on source text.
@@ -84,14 +84,14 @@ describe("Vue — the form runtime localizes by catalog code", () => {
 
     const fieldForm = useLoomForm(schemaWith([]), {});
     await fieldForm.handleSubmit(async () => {
-      throw { body: FIELD_PROBLEM };
+      throw { status: 422, body: FIELD_PROBLEM };
     })();
     expect(fieldForm.errors.qty).toBe("Quantité -1 refusée");
     expect(fieldForm.errors.sku).toBe(FR["field.rule"]);
 
     const globalForm = useLoomForm(schemaWith([]), {});
     await globalForm.handleSubmit(async () => {
-      throw { body: GLOBAL_PROBLEM };
+      throw { status: 404, body: GLOBAL_PROBLEM };
     })();
     expect(globalForm.errors.__global).toBe(FR["problem.not-found"]);
   });
@@ -109,7 +109,7 @@ describe("Vue — the form runtime localizes by catalog code", () => {
           path: ["qty"],
           message: "Qty positive",
           code: "custom",
-          params: { loomCode: "Sales.Order.rule.qtyPositive" },
+          params: { code: "Sales.Order.rule.qtyPositive" },
         },
         {
           path: ["sku"],
@@ -140,7 +140,7 @@ describe("Vue — the form runtime localizes by catalog code", () => {
     });
     const form = useLoomForm(schemaWith([]), {});
     await form.handleSubmit(async () => {
-      throw { body: GLOBAL_PROBLEM };
+      throw { status: 404, body: GLOBAL_PROBLEM };
     })();
     expect(form.errors.__global).toBe("Order 7 not found");
   });

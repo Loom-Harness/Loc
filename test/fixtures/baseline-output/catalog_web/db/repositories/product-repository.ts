@@ -2,7 +2,7 @@
 import type { ProductRepositoryPort } from "../../domain/repository-ports";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
 import * as schema from "../schema";
 import { Product } from "../../domain/product";
 import { Money } from "../../domain/value-objects";
@@ -10,6 +10,7 @@ import * as Ids from "../../domain/ids";
 import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";
 import type { DomainEventDispatcher } from "../../domain/events";
 import { requestLog } from "../../obs/als";
+import type { SQL } from "drizzle-orm";
 
 type Db = NodePgDatabase<typeof schema>;
 
@@ -83,7 +84,7 @@ export class ProductRepository implements ProductRepositoryPort {
 
   async all(page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Product[]; page: number; pageSize: number; total: number; totalPages: number }> {
     const offset = (page - 1) * pageSize;
-    const sortColumns: Record<string, AnyPgColumn> = { "id": schema.products.id, "sku": schema.products.sku };
+    const sortColumns: Record<string, AnyPgColumn | SQL> = { "id": schema.products.id, "sku": sql`${schema.products.sku} collate "C"` };
     const sortColumn = Object.hasOwn(sortColumns, sort) ? sortColumns[sort]! : schema.products.id;
     const orderBy = dir === "desc" ? desc(sortColumn) : asc(sortColumn);
     const countRows = await this.db.select({ value: count() }).from(schema.products);

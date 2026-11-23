@@ -16,7 +16,7 @@ import {
   upperFirst,
 } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import { typeReachesMoney } from "../../_frontend/api-module.js";
+import { typeParsesFormText } from "../../_frontend/api-module.js";
 import { arrayInputRendererFor } from "../../_frontend/form-array-input.js";
 import {
   formSeedTs,
@@ -28,6 +28,7 @@ import {
 import { optionalGroupRendererFor } from "../../_frontend/form-optional-group.js";
 import { rowBinderFor } from "../../_frontend/form-row-binding.js";
 import { operationFormSpec } from "../../_frontend/form-spec.js";
+import { FORM_ERROR_TESTID_SUFFIX } from "../../_frontend/submit-failure.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
 import { FIELD_ERROR_TEXT, prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
@@ -96,7 +97,7 @@ function formStateTypeFor(
   fields: readonly { type: TypeIR }[],
   home: WalkerHome,
 ): string | undefined {
-  return fields.some((f) => typeReachesMoney(f.type, home)) ? `${action}FormState` : undefined;
+  return fields.some((f) => typeParsesFormText(f.type, home)) ? `${action}FormState` : undefined;
 }
 
 export function emitCreateForm(
@@ -282,6 +283,15 @@ export function emitWorkflowForm(
  *  idempotent when a Modal registers it too. */
 function registerOperationFormChrome(ctx: WalkContext): void {
   addImportsForPrimitive(ctx, "primitive-modal");
+  registerFormFailure(ctx);
+}
+
+/** The React forms render a failed submit's one form-level message through
+ *  `FormFailure` (`src/lib/form-failure.tsx`), which every pack's form markup
+ *  places; the import rides with the form, not with a pack template, so a form
+ *  with its own `onSubmit:` imports it too. */
+function registerFormFailure(ctx: WalkContext): void {
+  if (ctx.target.framework === "react") addImport(ctx, "../lib/form-failure", "FormFailure");
 }
 
 /** The op dialog's dismiss-button label (markup text) and close-icon name
@@ -405,7 +415,9 @@ function emitFormOfOperationByName(
   ctx.collectedTestids.add(testidNamespace);
   ctx.collectedTestids.add(`${testidNamespace}-form`);
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
-  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, home);
+  // The request schema carries every param, a masked merge-patch key the form
+  // leaves out included, so its money fields decide the generics.
+  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, op.params, home);
   if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
   const gate = opGateFor(ctx, agg, op);
   if (gate) addImport(ctx, `../api/${lowerFirst(agg.name)}`, gate.hook);
@@ -650,6 +662,7 @@ function renderFormOfPrimitive(
   if (onSubmitJs === null) {
     addImportsForPrimitive(ctx, "form-default-onsubmit");
   }
+  registerFormFailure(ctx);
   const submitBody =
     onSubmitJs !== null
       ? onSubmitJs
@@ -662,6 +675,7 @@ function renderFormOfPrimitive(
     fieldHtmls,
     submitBody,
     submitTestid: `${testidNamespace}-submit`,
+    errorTestid: `${testidNamespace}${FORM_ERROR_TESTID_SUFFIX}`,
     submitPendingExpr: cfg.submitPendingExpr,
     submitLabel: cfg.submitLabel,
     testidAttr: testidAttr(call, ctx),
@@ -982,7 +996,9 @@ function emitFormOfOperation(
   ctx.collectedTestids.add(testidNamespace);
   ctx.collectedTestids.add(`${testidNamespace}-form`);
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
-  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, home);
+  // The request schema carries every param, a masked merge-patch key the form
+  // leaves out included, so its money fields decide the generics.
+  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, op.params, home);
   if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
   const gate = opGateFor(ctx, agg, op);
   if (gate) addImport(ctx, `../api/${lowerFirst(agg.name)}`, gate.hook);
@@ -1072,6 +1088,7 @@ function defaultUsesThis(e: ExprIR | undefined): boolean {
     case "new":
     case "object":
     case "ref":
+    case "coalesce":
     case "ternary":
       return false;
     default: {

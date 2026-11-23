@@ -13,7 +13,6 @@ import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { apiReadMemberType } from "../_frontend/optional-member.js";
-import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
@@ -34,7 +33,7 @@ import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
-import { emitExpr, type WalkContext, walk } from "../_walker/walker-core.js";
+import { emitExpr, provenanceLineageRead, type WalkContext, walk } from "../_walker/walker-core.js";
 import type { WalkerHome } from "../_walker/walker-model.js";
 import { opActionGate } from "./auth-gate.js";
 import { FELIZ_GRID_ROW_VAR, renderFelizDataGridChild } from "./data-grid-child.js";
@@ -228,7 +227,8 @@ function fieldTestid(base: string, fld: FelizFormField): string {
  *  forms — the markup is identical, only the field set differs).  The widget is
  *  derived from the field's `inputKind`:
 
- *   - `number` — `prop.type'.number` + string `onChange` (form state is string).
+ *   - `number` — a text input with the decimal keyboard + string `onChange`
+ *     (form state is string; `FormText` parses it).
  *   - `checkbox` — `prop.type'.checkbox` + `prop.isChecked (… = "true")`; the
  *     bool `onChange` sets the string `"true"`/`"false"` (encoder reads that).
  *   - `select` — `Html.select` of `Html.option`s over the enum's values; an
@@ -359,7 +359,9 @@ function renderFormInputBody(
   }
   const typeProp =
     fld.inputKind === "number"
-      ? "prop.type'.number; "
+      ? // A number cell is text the form text rule parses (`FormText`): a
+        // `type=number` input would hand `abc` over as blank.
+        'prop.type\'.text; prop.custom ("inputMode", "decimal"); '
       : fld.inputKind === "date"
         ? "prop.type'.date; "
         : "";
@@ -391,7 +393,7 @@ function withServerErrors(
   if (!hasRecord) {
     return {
       inputs,
-      formError: [`(View.serverFormError ${errs} [] "${base}-server-error")`],
+      formError: [`(View.serverFormError ${errs} [] "${base}-error")`],
     };
   }
   return {
@@ -400,7 +402,7 @@ function withServerErrors(
       return `${inputs[i]}; (View.serverError ${errs} "${key}" "${base}-server-error-${key.replaceAll(".", "-")}")`;
     }),
     formError: [
-      `(View.serverFormError ${errs} [ ${fields.map((f) => `"${formFieldServerKey(f)}"`).join("; ")} ] "${base}-server-error")`,
+      `(View.serverFormError ${errs} [ ${fields.map((f) => `"${formFieldServerKey(f)}"`).join("; ")} ] "${base}-error")`,
     ],
   };
 }
@@ -454,7 +456,9 @@ function renderRowInput(fld: FelizRowField, testId: string, text?: FelizInputTex
   }
   const typeProp =
     fld.inputKind === "number"
-      ? "prop.type'.number; "
+      ? // A number cell is text the form text rule parses (`FormText`): a
+        // `type=number` input would hand `abc` over as blank.
+        'prop.type\'.text; prop.custom ("inputMode", "decimal"); '
       : fld.inputKind === "date"
         ? "prop.type'.date; "
         : "";
@@ -778,7 +782,7 @@ export const felizTarget: WalkerTarget = {
         "ProvenanceInfo: missing record or field",
       );
     }
-    const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
+    const lineage = provenanceLineageRead(ofArg, String(fieldArg.value), ctx);
     const ruleLabel = localizedPageChromeValue(ctx, "provenanceRule");
     const valueLabel = localizedPageChromeValue(ctx, "provenanceValue");
     const rule = `Html.div [ prop.children [ Html.dt [ prop.text ${ruleLabel} ]; Html.dd [ Html.code [ prop.text __p.snapshotId ] ] ] ]`;
@@ -1361,6 +1365,16 @@ export const felizTarget: WalkerTarget = {
    *  falls through `undefined` and is emitted unchanged.  F-022. */
   escapeIdent: (name: string) => (isFsKeyword(name) ? fsIdent(name) : undefined),
 
+  // An absent record field is an F# `option`: map (or bind, when the member is
+  // itself an option) through it.
+  renderOptionalHop: ({ receiver, member, memberOptional }) =>
+    `(${receiver} |> Option.${memberOptional ? "bind" : "map"} (fun __o -> __o.${fsIdent(member)}))`,
+
+  renderOptionalBoolTest: (value) => ({
+    absent: `(${value}).IsNone`,
+    isTrue: `(${value} = Some true)`,
+  }),
+
   renderMemberRead: ({ receiver, member, receiverType, receiverExpr, ctx }) => {
     // An OPTIONAL value-object receiver (`vehicle: Vehicle?` is an F# `option`)
     // has no fields: read through the option and fall back to the field type's
@@ -1586,6 +1600,7 @@ export const felizTarget: WalkerTarget = {
   exprBinary: (left, right, op) => FS_LEAVES.binary(left, right, op as never),
   exprUnary: (op, operand) => FS_LEAVES.unary(op as "-" | "!", operand),
   exprTernary: (cond, then, otherwise) => FS_LEAVES.ternary(cond, then, otherwise),
+  exprCoalesce: (left, fallback) => FS_LEAVES.coalesce(left, fallback),
   exprConvert: (value, target, from) => FS_LEAVES.convert(value, target as never, from as never),
   exprList: (elements) => FS_LEAVES.list(elements),
   exprObject: (fields) => FS_LEAVES.object([...fields]),

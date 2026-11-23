@@ -11,8 +11,10 @@ import {
   type AngularIdTargetSpec,
   addNg,
   formButton,
+  formFailureMarkup,
   partitionAngularFields,
 } from "./form-fields.js";
+import { nullableTextFieldsOf } from "./form-prefill.js";
 import { angularRuleCodes, applyAngularValidators, asInvariant } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 // ---------------------------------------------------------------------------
@@ -52,6 +54,8 @@ export interface AngularCreateFormSpec {
    *  `onFileUpload` method once per component. */
   hasFile: boolean;
   hasList: boolean;
+  /** Top-level optional text-like fields whose cleared input submits `null`. */
+  nullable?: string[];
 }
 
 /** Resolve the `CreateForm(of: <Agg>)` aggregate ref. */
@@ -157,13 +161,20 @@ export function renderAngularCreateForm(
     hasFile: parts.hasFileField,
     hasList: parts.hasListField,
   };
+  // A cleared optional text input submits `null`, never `""` (P-UI-6).
+  const nullable = nullableTextFieldsOf(fields, ctx.model.formSpecEnv(bc));
+  if (nullable.length > 0) spec.nullable = nullable;
   angularSink(ctx).forms.push(spec);
 
   return [
     `<form [formGroup]="${formVar}" (ngSubmit)="${submitMethod}()" data-testid="${ns}">`,
-    ...[...fieldMarkup, ...parts.groupMarkup, ...parts.arrayMarkup, submit].map(
-      (m) => `${inner}${m}`,
-    ),
+    ...[
+      ...fieldMarkup,
+      ...parts.groupMarkup,
+      ...parts.arrayMarkup,
+      formFailureMarkup(formVar, ns),
+      submit,
+    ].map((m) => `${inner}${m}`),
     `${close}</form>`,
   ].join("\n");
 }

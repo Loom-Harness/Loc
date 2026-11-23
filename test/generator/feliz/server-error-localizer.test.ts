@@ -46,8 +46,10 @@ describe("Feliz — server errors and client rules localize by catalog code", ()
     expect(app).toContain(
       'Params = (get.Optional.Field "params" paramsDecoder |> Option.defaultValue [])',
     );
-    // A refusal with no errors[]: the problem's own code over its English.
-    expect(app).toContain('Option.defaultValue "problem.internal"');
+    // A refusal with no errors[]: the problem's own code over its English, the
+    // code of its status when the body names none.
+    expect(app).toContain("Option.defaultValue (statusCode status)");
+    expect(app).toContain('| _ -> "problem.internal"');
     expect(app).toContain(
       "type ServerErrors = { Fields: Map<string, ServerIssue>; Form: ServerIssue option }",
     );
@@ -70,9 +72,9 @@ describe("Feliz — server errors and client rules localize by catalog code", ()
     expect(app).toContain(
       "prop.text (if List.isEmpty ps then I18n.t code e else I18n.tf code e ps)",
     );
-    // An unparseable number → field.type-mismatch, a named rule → its
-    // identity key.
-    expect(app).toContain('Some ("field.type-mismatch", "Must be a whole number", [])');
+    // An unparseable number → the form text rule's refusal (its code and
+    // English live in `module FormText`), a named rule → its identity key.
+    expect(app).toContain('Some ("field.type-mismatch", "Invalid value", [])');
     expect(app).toMatch(
       /Some \("Sales\.Order\.rule\.qtyPositive", "Must be greater than 0", \[\]\)|Some \("Sales\.Order\.rule\.qtyPositive", "Must be at least 1", \[\]\)/,
     );

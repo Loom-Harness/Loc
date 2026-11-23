@@ -1,3 +1,10 @@
+import {
+  type NumericOperand,
+  type NumericOpPlan,
+  negatedFamily,
+  numericOpPlan,
+} from "../../ir/plan/numeric-op.js";
+import { valueObjectEqualityPlan } from "../../ir/plan/value-object-equality.js";
 import { genericShape } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
@@ -132,7 +139,7 @@ const TS_TARGET: ExprTarget<TsRenderContext> = {
     // TS2322 and a silently-wrong value.  Use `.neg()` (audit finding A11).
     // Loom `decimal` is a plain JS `number` on this backend, so it keeps the
     // native operator.
-    op === "-" && unaryOperandIsMoney(e)
+    negatedFamily(e) === "money"
       ? `${operand}.neg()`
       : tsCheckedInt(`${op}${operand}`, checkedUnaryKind(e)),
   binary: renderBinary,
@@ -454,14 +461,6 @@ function sumBodyIsDecimal(e: Extract<ExprIR, { kind: "method-call" }>): boolean 
   return bodyT?.kind === "primitive" && bodyT.name === "decimal";
 }
 
-/** True iff a unary `-`'s operand types as `money` — a decimal.js `Decimal`,
- *  which has no native negation operator (`.neg()` instead). */
-function unaryOperandIsMoney(e: Extract<ExprIR, { kind: "unary" }>): boolean {
-  const t = bodyTypeOf(e.operand);
-  const unwrapped = t?.kind === "optional" ? t.inner : t;
-  return unwrapped?.kind === "primitive" && unwrapped.name === "money";
-}
-
 function renderCollectionOp(
   recv: string,
   name: string,
@@ -591,49 +590,44 @@ function renderNew(
 }
 
 function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "binary" }>): string {
-  // `decimal` ARITHMETIC is EXACT (D-DECIMAL-EXACT-MOMENT, RS-37).  A Loom
-  // `decimal` is a plain JS `number` on this backend, and native `+`/`*`/`/`
-  // compute in binary floating point — `0.1 + 0.2` answered
-  // `0.30000000000000004` here (and was persisted) while .NET/Java/Elixir
-  // answered `0.3`.  Lift the operation into decimal.js and narrow back to a
-  // `number` ONCE, at the root of the arithmetic chain: a nested decimal
-  // operand hands over its `Decimal` un-narrowed (`decimalChainOperand`), so
-  // `c * c * c` is one exact product, not two re-rounded doubles.  The wire
-  // and storage representation stay a `number` (RS-24) — only the computation
-  // moves.
-  if (isDecimalArithmetic(e)) {
-    const recv = decimalChainOperand(left, e.left) ?? toDecimal(left);
-    const arg = decimalChainOperand(right, e.right) ?? right;
-    return `${recv}.${DECIMAL_METHOD[e.op]}(${arg})${DECIMAL_NARROW}`;
-  }
-  // A `money?` operand (or the `null` literal) in a comparison: null-safe
-  // before the `Decimal` method dispatch below, which would render
-  // `x.eq(null)` — a decimal.js throw — or fall a nullable left to reference
-  // `===` / native `>` on a Decimal.
-  const moneyCmp = renderNullableMoneyComparison(left, right, e);
-  if (moneyCmp !== null) return moneyCmp;
-  // Money operands carry through as decimal.js `Decimal` instances —
-  // their JS operators don't do precise math, so dispatch through the
-  // class's method API.  Other primitives use native operators.  A decimal
-  // chain on the other side hands over its un-narrowed `Decimal`.
-  if (e.leftType?.kind === "primitive" && e.leftType.name === "money") {
-    return renderMoneyBinary(e.op, left, decimalChainOperand(right, e.right) ?? right);
-  }
-  // MIRROR arm: the typing pass's `arithmetic` admits `money × scalar`
-  // COMMUTATIVELY, so money can arrive on the RIGHT with an integral/decimal
-  // left (`qty * price`).  Only `money` maps to a `Decimal` here (plain
-  // `decimal` is a native number), so without this arm the expression fell to
-  // native `*` on a Decimal instance — TS2363, an uncompilable project.  Wrap
-  // the numeric left so the method receiver is a Decimal; the explicit
-  // numeric-left guard keeps string-concat `+` shapes out (same posture as
-  // Java's mirror arm, fleet-bug-hunt A4).
-  if (
-    e.rightType?.kind === "primitive" &&
-    e.rightType.name === "money" &&
-    e.leftType?.kind === "primitive" &&
-    (e.leftType.name === "int" || e.leftType.name === "long" || e.leftType.name === "decimal")
-  ) {
-    return renderMoneyBinary(e.op, decimalChainOperand(left, e.left) ?? toDecimal(left), right);
+  // Which numeric operation this is was decided once (`numericOpPlan`); this
+  // backend only spells it.  `money` is a decimal.js `Decimal` here and
+  // `decimal` a plain JS `number`.
+  const plan = numericOpPlan(e);
+  switch (plan.kind) {
+    case "null-test":
+    case "native":
+    case "decimal-comparison":
+      break;
+    // `decimal` ARITHMETIC is EXACT (D-DECIMAL-EXACT-MOMENT, RS-37): lifted into
+    // decimal.js and narrowed back to a `number` ONCE, at the root of the
+    // chain.  A nested decimal operand hands over its `Decimal` un-narrowed
+    // (`decimalChainOperand`), so `c * c * c` is one exact product, not two
+    // re-rounded doubles.  The wire and storage representation stay a
+    // `number` (RS-24) — only the computation moves.
+    case "decimal-arithmetic": {
+      const recv = decimalChainOperand(left, e.left) ?? toDecimal(left);
+      const arg = decimalChainOperand(right, e.right) ?? right;
+      return `${recv}.${DECIMAL_METHOD[e.op]}(${arg})${DECIMAL_NARROW}`;
+    }
+    case "absent-ordering":
+    case "absent-equality": {
+      const absent = renderAbsentComparison(left, right, e, plan);
+      if (absent !== null) return absent;
+      break;
+    }
+    // A present money operand dispatches through the `Decimal` method API (its
+    // JS operators do not do precise math).  The scalar side `money × scalar`
+    // admits on either side is lifted into a `Decimal` when it is the
+    // receiver; a decimal chain hands over its un-narrowed `Decimal`.
+    case "money":
+      return plan.lift === "left"
+        ? renderMoneyBinary(e.op, decimalChainOperand(left, e.left) ?? toDecimal(left), right)
+        : renderMoneyBinary(e.op, left, decimalChainOperand(right, e.right) ?? right);
+    default: {
+      const _exhaustive: never = plan;
+      return _exhaustive;
+    }
   }
   // A5 temporal: datetime ± duration / datetime − datetime / duration +
   // datetime.  duration ± duration and duration * int stay native number
@@ -650,17 +644,21 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     const temporalEq = renderTemporalEquality(left, right, e);
     if (temporalEq !== null) return temporalEq;
   }
-  // VALUE equality on value objects.  A VO is a class instance here, so `===`
-  // compares REFERENCES — `berth == Berth { … }` was always false, while every
-  // other backend compares by value (python dataclass `==`, java
-  // `Objects.equals`, .NET record `==`, elixir `Loom.ValueObject.equal?/2`).  Route it through
-  // the field-wise `equals` every VO class emits (emit/value-objects.ts).  This
-  // is also where `<vo>.equals(other)` lands: the lowerer turns it into this
-  // same `binary ==` node.  A nullable operand keeps the native comparison
-  // (`equals` takes a non-null VO; the null test is what `===` answers).
-  if ((e.op === "==" || e.op === "!=") && isValueObjectEquality(e)) {
-    const recv = /^[\w$.]+$/.test(left) ? left : `(${left})`;
-    const eq = `${recv}.equals(${right})`;
+  // VALUE equality on value objects (ruling 457), the plan's decision.  A VO
+  // is a class instance here, so `===` compares REFERENCES; the field-wise
+  // `equals` every VO class emits (emit/value-objects.ts) compares by value.
+  // This is also where `<vo>.equals(other)` lands: the lowerer turns it into
+  // this same `binary ==` node.  `equals` takes a present VO, so an absent
+  // side is guarded first — both absent are equal, one absent is not — with
+  // each operand evaluated once.
+  const vo = valueObjectEqualityPlan(e);
+  if (vo) {
+    if (!vo.leftOptional && !vo.rightOptional) {
+      const recv = /^[\w$.]+$/.test(left) ? left : `(${left})`;
+      const eq = `${recv}.equals(${right})`;
+      return e.op === "==" ? eq : `!${eq}`;
+    }
+    const eq = `((__l, __r) => __l === null || __r === null ? __l === __r : __l.equals(__r))(${left}, ${right})`;
     return e.op === "==" ? eq : `!${eq}`;
   }
   // Equality comparisons in TS: prefer === / !==
@@ -677,7 +675,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
 function tsCheckedInt(expr: string, kind: IntegralKind | null): string {
   if (kind === null) return expr;
   const { min, max } = NODE_INT_RANGE[kind];
-  return `((__v: number): number => { if (__v < ${min} || __v > ${max}) throw DomainError.arithmeticOverflow(); return __v; })(${expr})`;
+  return `((__v: number): number => { if (__v < ${min} || __v > ${max}) throw ${T.DomainError}.arithmeticOverflow(); return __v; })(${expr})`;
 }
 
 /** `datetime ==/!= datetime` by instant (B-13), or null to fall through.
@@ -698,73 +696,57 @@ function renderTemporalEquality(
   return `(${left})${lt}.getTime() ${opPrint} (${right})${rt}.getTime()`;
 }
 
-/** A money comparison with a nullable side, or null to fall through to the
- *  `Decimal` method dispatch (both sides a plain `money`).
- *  - `x == null` / `x != null` (either side the `null` literal) is a plain null
- *    check, never `x.eq(null)` — decimal.js throws on a null argument.
- *  - `==` / `!=` with a `money?` side compares canonical text: decimal.js
- *    keeps no trailing zeros, so equal values print equal (`10.00` → `"10"`).
- *    Both absent → equal, one absent → unequal, both present → same value —
- *    the datetime arm's (B-13) null semantics.
- *  - `<` / `<=` / `>` / `>=` with a `money?` side dispatches through the
- *    Decimal method (native `>` on a Decimal compares `valueOf()` STRINGS —
- *    `"10" > "9"` is false) and answers false when either side is absent. */
-function renderNullableMoneyComparison(
+/** A comparison where a side may be absent and a side is money or decimal
+ *  (`numericOpPlan`'s `absent-ordering` / `absent-equality`), or null to fall
+ *  through to the native operator.
+ *  - an ordering answers false when either side is absent.  With a money side
+ *    it dispatches through the `Decimal` method on the money operand (native
+ *    `>` on a Decimal compares `valueOf()` STRINGS — `"10" > "9"` is false): an
+ *    absent receiver short-circuits `?.` to `?? false`, an absent argument
+ *    becomes `NaN`, which decimal.js orders against nothing.  Without a money
+ *    side every operand is a JS `number`, and native `<` coerces `null` to `0`
+ *    (`null >= 0` holds), so the absent side becomes `NaN` too.
+ *  - `==` / `!=` between two money operands compares canonical text: decimal.js
+ *    keeps no trailing zeros, so equal values print equal (`10.00` → `"10"`);
+ *    both absent → equal, one absent → unequal.  A JS `number` already
+ *    compares that way natively. */
+function renderAbsentComparison(
   left: string,
   right: string,
   e: Extract<ExprIR, { kind: "binary" }>,
+  plan: Extract<NumericOpPlan, { kind: "absent-ordering" | "absent-equality" }>,
 ): string | null {
-  const lt = moneyOperand(e.leftType);
-  const rt = moneyOperand(e.rightType);
-  if (e.op === "==" || e.op === "!=") {
-    const opPrint = e.op === "==" ? "===" : "!==";
-    if (isNullLiteral(e.left) || isNullLiteral(e.right)) {
-      return lt === null && rt === null ? null : `${left} ${opPrint} ${right}`;
+  const opt = (o: NumericOperand): "" | "?" => (o.optional ? "?" : "");
+  const lm = plan.left.family === "money";
+  const rm = plan.right.family === "money";
+  if (plan.kind === "absent-equality") {
+    if (lm && rm) {
+      const opPrint = e.op === "==" ? "===" : "!==";
+      return `(${left})${opt(plan.left)}.toString() ${opPrint} (${right})${opt(plan.right)}.toString()`;
     }
-    if (lt === null || rt === null || (lt === "" && rt === "")) return null;
-    return `(${left})${lt}.toString() ${opPrint} (${right})${rt}.toString()`;
+    return lm && !plan.left.optional ? renderMoneyBinary(e.op, left, right) : null;
   }
-  const method = RELATIONAL_MONEY_METHOD[e.op];
-  if (method === undefined) return null;
-  if (lt === null || rt === null || (lt === "" && rt === "")) {
-    return renderNullableDecimalOrdering(left, right, e);
+  const absentNaN = (text: string, o: NumericOperand) => (o.optional ? `(${text}) ?? NaN` : text);
+  if (lm || rm) {
+    // The money operand is the receiver; an ordering read from the other side
+    // flips (`a < b` is `b > a`).
+    const [recv, recvOp, arg, argOp, op] = lm
+      ? [left, plan.left, right, plan.right, e.op]
+      : [right, plan.right, left, plan.left, FLIPPED_ORDERING[e.op]!];
+    const method = RELATIONAL_MONEY_METHOD[op]!;
+    const a = absentNaN(arg, argOp);
+    return recvOp.optional ? `((${recv})?.${method}(${a}) ?? false)` : `${recv}.${method}(${a})`;
   }
-  // An ordering against an ABSENT side answers false (SQL's UNKNOWN, .NET's
-  // lifted operators): an absent receiver short-circuits `?.` to `?? false`,
-  // an absent argument becomes `NaN`, which decimal.js orders against nothing
-  // (`cmp` → NaN, so `gt`/`gte`/`lt`/`lte` are all false).  One evaluation of
-  // each operand.
-  const arg = rt === "?" ? `(${right}) ?? NaN` : right;
-  return lt === "?" ? `((${left})?.${method}(${arg}) ?? false)` : `${left}.${method}(${arg})`;
+  const side = (text: string, o: NumericOperand) => (o.optional ? `((${text}) ?? NaN)` : text);
+  return `${side(left, plan.left)} ${e.op} ${side(right, plan.right)}`;
 }
 
-/** An ordering over a nullable `decimal` (a JS `number` on this backend) or a
- *  nullable integral against a `decimal`: an absent side answers false, like
- *  the money arm above.  Native `<` coerces `null` to `0` (`null >= 0` holds,
- *  `null > -1` holds), so the absent side becomes `NaN`, which orders against
- *  nothing.  Null for every other pair. */
-function renderNullableDecimalOrdering(
-  left: string,
-  right: string,
-  e: Extract<ExprIR, { kind: "binary" }>,
-): string | null {
-  const numeric = (t: TypeIR | undefined): "" | "?" | null => {
-    const inner = t?.kind === "optional" ? t.inner : t;
-    if (inner?.kind !== "primitive") return null;
-    if (inner.name !== "decimal" && inner.name !== "int" && inner.name !== "long") return null;
-    return t?.kind === "optional" ? "?" : "";
-  };
-  const isDecimal = (t: TypeIR | undefined): boolean => {
-    const inner = t?.kind === "optional" ? t.inner : t;
-    return inner?.kind === "primitive" && inner.name === "decimal";
-  };
-  const lt = numeric(e.leftType);
-  const rt = numeric(e.rightType);
-  if (lt === null || rt === null || (lt === "" && rt === "")) return null;
-  if (!isDecimal(e.leftType) && !isDecimal(e.rightType)) return null;
-  const side = (text: string, t: "" | "?") => (t === "?" ? `((${text}) ?? NaN)` : text);
-  return `${side(left, lt)} ${e.op} ${side(right, rt)}`;
-}
+const FLIPPED_ORDERING: Record<string, BinOp | undefined> = {
+  "<": ">",
+  "<=": ">=",
+  ">": "<",
+  ">=": "<=",
+};
 
 const RELATIONAL_MONEY_METHOD: Record<string, string | undefined> = {
   "<": "lt",
@@ -772,14 +754,6 @@ const RELATIONAL_MONEY_METHOD: Record<string, string | undefined> = {
   ">": "gt",
   ">=": "gte",
 };
-
-/** `""` for a `money`, `"?"` for a `money?`, null for anything else. */
-function moneyOperand(t: TypeIR | undefined): "" | "?" | null {
-  if (t?.kind === "primitive" && t.name === "money") return "";
-  if (t?.kind === "optional" && t.inner.kind === "primitive" && t.inner.name === "money")
-    return "?";
-  return null;
-}
 
 /** `""` for a `datetime`, `"?"` (optional chaining) for a `datetime?`, null
  *  for anything else. */
@@ -792,15 +766,6 @@ function temporalOperand(t: TypeIR | undefined): "" | "?" | null {
 
 function isNullLiteral(e: ExprIR): boolean {
   return e.kind === "literal" && e.lit === "null";
-}
-
-/** True iff a `==` / `!=` compares two NON-null value objects — the left
- *  operand typed as a (non-optional) value object, the right neither an
- *  optional nor the `null` literal. */
-function isValueObjectEquality(e: Extract<ExprIR, { kind: "binary" }>): boolean {
-  if (e.leftType?.kind !== "valueobject") return false;
-  if (e.rightType?.kind === "optional") return false;
-  return !(e.right.kind === "literal" && e.right.lit === "null");
 }
 
 /** The datetime-involving `+`/`-` arms (A5 temporal), or null to fall
@@ -861,8 +826,7 @@ const DECIMAL_METHOD: Partial<Record<BinOp, string>> = {
  *  mixes, and the `int / int` division the type system widens to `decimal`.
  *  Rendered exactly through decimal.js (D-DECIMAL-EXACT-MOMENT, RS-37). */
 export function isDecimalArithmetic(e: ExprIR): boolean {
-  if (e.kind !== "binary" || DECIMAL_METHOD[e.op] === undefined) return false;
-  return e.resultType?.kind === "primitive" && e.resultType.name === "decimal";
+  return e.kind === "binary" && numericOpPlan(e).kind === "decimal-arithmetic";
 }
 
 /** A `decimal` arithmetic operand's UN-NARROWED `Decimal` text, or null when

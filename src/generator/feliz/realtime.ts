@@ -26,6 +26,7 @@
 import type { ExprIR, UiIR, UiNotificationIR } from "../../ir/types/loom-ir.js";
 import type { RealtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { lines } from "../../util/code-builder.js";
+import { groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
 import { toastMemberPath } from "../_frontend/realtime.js";
 import { fsString } from "./fs-expr.js";
 import { type FelizRead, felizAllRead, refetchMsgCase } from "./wire.js";
@@ -215,6 +216,7 @@ function exprReadsBinding(e: ExprIR, bind: string): boolean {
     case "method-call":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":
@@ -261,6 +263,7 @@ function felizNeedsToastField(ui: UiIR): boolean {
       case "new":
       case "object":
       case "ref":
+      case "coalesce":
       case "ternary":
       case "this":
       case "unary":
@@ -309,8 +312,14 @@ function renderFsToastMessage(e: ExprIR, bind: string): string {
     }
     case "paren":
       return `(${renderFsToastMessage(e.inner, bind)})`;
-    case "binary":
-      return `${renderFsToastMessage(e.left, bind)} ${e.op} ${renderFsToastMessage(e.right, bind)}`;
+    case "binary": {
+      const [l, r] = groupedOperands(
+        e,
+        (x) => renderFsToastMessage(x, bind),
+        NESTED_COMPARISONS_GROUPED,
+      );
+      return `${l} ${e.op} ${r}`;
+    }
     default:
       throw new Error(`Feliz realtime: unsupported expression kind '${e.kind}' in toast message.`);
   }

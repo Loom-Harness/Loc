@@ -3,6 +3,7 @@
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { isBuiltinParseDecl, PARSE_RESERVED_NAMES } from "../../util/parse-methods.js";
 import { isInferredContainment } from "../containment.js";
 import type {
   Aggregate,
@@ -297,6 +298,14 @@ function idTargetKindLabel(target: AstNode): string {
 
 export function checkContext(ctx: BoundedContext, accept: ValidationAcceptor): void {
   for (const member of ctx.members) {
+    const name = (member as { name?: unknown }).name;
+    if (typeof name === "string" && PARSE_RESERVED_NAMES.has(name) && !isBuiltinParseDecl(member)) {
+      accept("error", diagMessage("loom.intrinsic-parse#reserved-name", { name }), {
+        node: member,
+        property: "name",
+        code: "loom.intrinsic-parse",
+      });
+    }
     if (isAggregate(member)) checkAggregate(member, accept);
     else if (isValueObject(member)) checkValueObject(member, accept);
     else if (isWorkflow(member)) checkWorkflow(member, accept);

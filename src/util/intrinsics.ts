@@ -15,6 +15,7 @@
 // a row here fails CI until every target is filled.  See
 // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md.
 
+import { PARSE_METHODS } from "./parse-methods.js";
 /** Scalar receiver types an intrinsic can be declared on. */
 export type IntrinsicReceiver =
   | "string"
@@ -23,7 +24,8 @@ export type IntrinsicReceiver =
   | "decimal"
   | "money"
   | "date"
-  | "datetime";
+  | "datetime"
+  | "duration";
 
 /** Parameter type of an intrinsic — primitive names only (no lambdas here;
  *  lambda-taking ops stay in `collection-ops.ts`). A trailing `?` marks the
@@ -71,6 +73,9 @@ export interface IntrinsicSignature {
   /** Free-form display signature for completion-item details
    *  (e.g. `"(): string"`).  Not parsed; purely informational. */
   signature: string;
+  /** Reachable only from the built-in parse service (`parse-methods.ts`):
+   *  left out of completion and the stdlib docs, refused in authored code. */
+  internal?: true;
 }
 
 // Cross-backend semantics contract (each op behaves the same from `.ddd`
@@ -87,11 +92,13 @@ export interface IntrinsicSignature {
 //     `.length` (RS-31), so an astral character is one position wide on every
 //     backend (`src/generator/_expr/code-point.ts`).  Non-negative arguments
 //     expected.
-//   - `startsWith` / `endsWith` / `contains` — ordinal (culture-free)
-//     comparison.  A string-receiver `contains` is an intrinsic, NOT the
+//   - `startsWith` / `endsWith` / `contains` — ordinal (culture-free),
+//     CASE-SENSITIVE comparison (a case-insensitive search is written
+//     explicitly: `this.name.toLower().contains(q.toLower())`, and `toLower` is
+//     queryable).  A string-receiver `contains` is an intrinsic, NOT the
 //     collection op — lowering keys the `isCollectionOp` flag off the
 //     receiver type, so the two never collide.
-//     `startsWith` is the one of the three that is also QUERYABLE — the
+//     `startsWith` and `contains` are QUERYABLE.  `startsWith` is the
 //     prefix-match filter operator of
 //     `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md` decision 2
 //     (nothing else in the language expresses a prefix match).  Every
@@ -101,9 +108,13 @@ export interface IntrinsicSignature {
 //     escape-character discipline to guarantee that.  Postgres `strpos(col,
 //     '')` is 1 and every host language's `startsWith("")` is true, so the
 //     empty prefix agrees in memory and in SQL; a NULL column matches
-//     nothing on either side.  `endsWith`/`contains` stay non-queryable —
-//     neither is anchored, so neither can ride a prefix index, and no
-//     shipped feature needs them in a `where`.
+//     nothing on either side.  `contains` is the unanchored twin, `strpos(col,
+//     arg) > 0`: the same literal-value discipline, and `strpos(col, '')` is 1
+//     so the empty needle matches every non-NULL row in memory and in SQL.
+//     It scans (no btree index serves it); the column still draws the
+//     ordinary `loom.index-suggestion` hint, and whether to scan is the
+//     author's call.  `endsWith` stays non-queryable — no shipped feature
+//     needs it in a `where`.
 //   - `replace(find, repl)` — replaces ALL occurrences; `find` is a literal
 //     string, never a pattern (use `matches` for regex).
 //   - `split(sep)` — literal separator; keeps empty segments (including a
@@ -188,7 +199,7 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     name: "contains",
     params: ["string"],
     returns: "bool",
-    queryable: false,
+    queryable: true,
     signature: "(s: string): bool",
   },
   {
@@ -207,6 +218,31 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     queryable: false,
     signature: "(sep: string): string[]",
   },
+  // Pads to `n` CODE POINTS (the unit of `.length`) with `fill` repeated and
+  // cut to fit; never truncates a longer receiver; an empty `fill` pads nothing.
+  ...(["padStart", "padEnd"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "string",
+      name,
+      params: ["int", "string"],
+      returns: "string",
+      queryable: false,
+      signature: "(n: int, fill: string): string",
+    }),
+  ),
+  // The host conversions the built-in `TextParser` service ends each parse
+  // with, once its own checks have accepted the text (`parse-methods.ts`).
+  ...PARSE_METHODS.map(
+    (m): IntrinsicSignature => ({
+      receiver: "string",
+      name: m.unchecked,
+      params: [],
+      returns: m.type,
+      queryable: false,
+      signature: `(): ${m.type}`,
+      internal: true,
+    }),
+  ),
   // ---- numerics (A3 math batch) -------------------------------------------
   // abs / min / max on all four numeric receivers; round / floor / ceil only
   // where they change anything (decimal, money) — on int/long they would be
@@ -303,6 +339,21 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     queryable: false,
     signature: "(other: date): int",
   },
+  // ---- date / datetime formatting -------------------------------------------
+  // `pattern` is a string LITERAL in the fixed, locale-independent subset of
+  // `src/util/format-pattern.ts` (yyyy MM dd HH mm ss, quoted literal text),
+  // checked at compile time; a `datetime` prints in UTC.  Domain-expression
+  // only: no SQL arm.
+  ...(["date", "datetime"] as const).map(
+    (receiver): IntrinsicSignature => ({
+      receiver,
+      name: "format",
+      params: ["string"],
+      returns: "string",
+      queryable: false,
+      signature: "(pattern: string): string",
+    }),
+  ),
   // ---- date calendar arithmetic ---------------------------------------------
   // One end-of-month rule on every target: a month or year step CLAMPS the day
   // to the last day of the target month (Jan 31 + 1 month = Feb 28, or Feb 29
@@ -339,6 +390,22 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     queryable: false,
     signature: "(other: date): int",
   },
+  // ---- duration ------------------------------------------------------------
+  // A duration as a whole number of days / hours / minutes, cut TOWARD ZERO on
+  // every backend (`hours(-90).toDays()` is -3, `minutes(-90).toHours()` is
+  // -1, not -2).  `long`, because a duration's span is a 64-bit count on every
+  // host.  A duration is an expression-only value (never a column), so these
+  // are domain-expression only: no SQL arm.
+  ...(["toDays", "toHours", "toMinutes"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "duration",
+      name,
+      params: [],
+      returns: "long",
+      queryable: false,
+      signature: "(): long",
+    }),
+  ),
   ...(["decimal", "money"] as const).flatMap((receiver): IntrinsicSignature[] => [
     {
       receiver,
@@ -363,6 +430,18 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
       returns: "receiver",
       queryable: true,
       signature: `(): ${receiver}`,
+    },
+    // Invariant text with exactly `places` decimals: `.` separator, no
+    // grouping, no exponent, rounded HALF-EVEN (unlike `round`), and never a
+    // negative zero (`(-0.001).format(2)` is "0.00").  A negative `places`
+    // counts as 0.  Domain-expression only: no SQL arm.
+    {
+      receiver,
+      name: "format",
+      params: ["int"],
+      returns: "string",
+      queryable: false,
+      signature: "(places: int): string",
     },
   ]),
 ];
@@ -414,7 +493,7 @@ export function intrinsicReturnType(sig: IntrinsicSignature, receiver: string): 
 
 /** Every intrinsic declared on the given receiver type (completion items). */
 export function intrinsicsForReceiver(receiver: string): ReadonlyArray<IntrinsicSignature> {
-  return INTRINSIC_SIGNATURES.filter((s) => s.receiver === receiver);
+  return INTRINSIC_SIGNATURES.filter((s) => s.receiver === receiver && !s.internal);
 }
 
 const ALL_INTRINSIC_NAMES: ReadonlySet<string> = new Set(INTRINSIC_SIGNATURES.map((s) => s.name));

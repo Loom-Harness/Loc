@@ -36,7 +36,7 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { HOOK_CONTRACT_NOTE } from "../../_hatch-note.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
-import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
@@ -71,9 +71,9 @@ import {
   jpaSingleContainmentParentAnnotations,
 } from "./jpa-annotations.js";
 
-/** A `jakarta.persistence` type, spelled simple-named; the unit gains
- *  `import jakarta.persistence.*;` iff one of these survives into its text. */
-const JPA = (name: string): string => javaOnDemandRef("jakarta.persistence", name);
+/** A `jakarta.persistence` type, spelled simple-named with its single-type
+ *  import. */
+const JPA = (name: string): string => javaRef("jakarta.persistence", name);
 const ARRAY_LIST = javaRef("java.util", "ArrayList");
 const JDBC_TYPE_CODE = javaRef("org.hibernate.annotations", "JdbcTypeCode");
 const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");
@@ -286,7 +286,9 @@ export function renderJavaEntity(
   const isAgg = (e: typeof entity): e is EnrichedAggregateIR => "operations" in e;
   const emitTrace = !!options.emitTrace;
   const superType = options.superType;
-  const idClass = superType?.sharesIdentity ? `${superType.name}Id` : `${entity.name}Id`;
+  const idClass = javaProjectRef(
+    superType?.sharesIdentity ? `${superType.name}Id` : `${entity.name}Id`,
+  );
   const operations = isAgg(entity) ? entity.operations : [];
   const createInputFieldList = isAgg(entity) ? createInputFields(entity) : [];
   // The declared value an omittable create input takes when the caller passes
@@ -420,7 +422,7 @@ export function renderJavaEntity(
   if (!isRoot) {
     if (persistence?.oneToOneParentOf && persistence.parentFkColumn) {
       fieldLines.push(...jpaSingleContainmentParentAnnotations(persistence.parentFkColumn));
-      fieldLines.push(`    ${persistence.oneToOneParentOf} _parent;`);
+      fieldLines.push(`    ${javaProjectRef(persistence.oneToOneParentOf)} _parent;`);
     }
     if (persistence?.parentFkColumn) {
       fieldLines.push(...jpaParentIdAnnotations(persistence.parentFkColumn));
@@ -487,8 +489,8 @@ export function renderJavaEntity(
       );
       fieldLines.push(
         c.collection
-          ? `    List<${c.partName}> ${DOMAIN_NAMES.java.binding(c.name)} = new ${ARRAY_LIST}<>();`
-          : `    ${c.partName} ${DOMAIN_NAMES.java.binding(c.name)};`,
+          ? `    List<${javaProjectRef(c.partName)}> ${DOMAIN_NAMES.java.binding(c.name)} = new ${ARRAY_LIST}<>();`
+          : `    ${javaProjectRef(c.partName)} ${DOMAIN_NAMES.java.binding(c.name)};`,
       );
       continue;
     }
@@ -499,14 +501,14 @@ export function renderJavaEntity(
         );
       }
       fieldLines.push(
-        `    List<${c.partName}> ${DOMAIN_NAMES.java.binding(c.name)} = new ${ARRAY_LIST}<>();`,
+        `    List<${javaProjectRef(c.partName)}> ${DOMAIN_NAMES.java.binding(c.name)} = new ${ARRAY_LIST}<>();`,
       );
     } else {
       // Inverse side of the part's hidden owning `_parent` @OneToOne — emitted
       // for the declaring entity whether it's the root or a sibling part (a
       // nested part's owning side FKs to this entity's table via `directParentOf`).
       if (persistence) fieldLines.push(...jpaSingleContainmentAnnotations());
-      fieldLines.push(`    ${c.partName} ${DOMAIN_NAMES.java.binding(c.name)};`);
+      fieldLines.push(`    ${javaProjectRef(c.partName)} ${DOMAIN_NAMES.java.binding(c.name)};`);
     }
   }
   // Provenance runtime (provenance.md): each `provenanced` ROOT field carries a
@@ -546,7 +548,8 @@ export function renderJavaEntity(
     accessorLines.push("");
   };
   if (!superType?.sharesIdentity) accessor(idClass, "id");
-  if (!isRoot) accessor(`${persistence?.parentEntityName ?? rootName}Id`, "parentId");
+  if (!isRoot)
+    accessor(javaProjectRef(`${persistence?.parentEntityName ?? rootName}Id`), "parentId");
   for (const f of entity.fields) {
     if (superType?.fieldNames.has(f.name)) continue;
     if (isRefCollectionType(f.type)) {
@@ -562,12 +565,12 @@ export function renderJavaEntity(
   for (const c of entity.contains) {
     if (c.collection) {
       accessor(
-        `List<${c.partName}>`,
+        `List<${javaProjectRef(c.partName)}>`,
         DOMAIN_NAMES.java.binding(c.name),
         `List.copyOf(${DOMAIN_NAMES.java.binding(c.name)})`,
       );
     } else {
-      accessor(c.partName, DOMAIN_NAMES.java.binding(c.name));
+      accessor(javaProjectRef(c.partName), DOMAIN_NAMES.java.binding(c.name));
     }
   }
   // Co-located provenance lineage accessor (current value's lineage; null
@@ -878,9 +881,9 @@ export function renderJavaEntity(
     applierLines.push(`    }`);
     applierLines.push("");
     applierLines.push(
-      `    public static ${entity.name} _fromEvents(${idClass} id, List<DomainEvent> events) {`,
+      `    public static ${javaProjectRef(entity.name)} _fromEvents(${idClass} id, List<DomainEvent> events) {`,
     );
-    applierLines.push(`        var e = new ${entity.name}();`);
+    applierLines.push(`        var e = new ${javaProjectRef(entity.name)}();`);
     applierLines.push(`        e.id = id;`);
     applierLines.push(`        for (var ev : events) e._apply(ev);`);
     // A stream is gap-free from 1, so the folded count IS its head version.
@@ -899,10 +902,10 @@ export function renderJavaEntity(
   const esCreateFactoryLines: string[] =
     isRoot && eventSourced && esCreate
       ? [
-          `    public static ${entity.name} create(${esCreate.params
+          `    public static ${javaProjectRef(entity.name)} create(${esCreate.params
             .map((p) => `${renderJavaType(p.type)} ${DOMAIN_NAMES.java.binding(p.name)}`)
             .join(", ")}) {`,
-          `        var ${esLocal} = new ${entity.name}();`,
+          `        var ${esLocal} = new ${javaProjectRef(entity.name)}();`,
           `        ${esLocal}.id = ${idClass}.newId();`,
           `        ${esLocal}._init(${esCreate.params.map((p) => DOMAIN_NAMES.java.binding(p.name)).join(", ")});`,
           `        return ${esLocal};`,
@@ -984,13 +987,13 @@ export function renderJavaEntity(
           // not the service, then materializes the declared default: a default
           // is a construction rule, and keeping it here means one site per
           // backend owns it instead of the wire layer restating it.
-          `    public static ${entity.name} create(${createInputFieldList
+          `    public static ${javaProjectRef(entity.name)} create(${createInputFieldList
             .map(
               (f) =>
                 `${renderJavaType(javaFactoryDefault(f) === undefined ? f.type : { kind: "optional", inner: f.type })} ${DOMAIN_NAMES.java.binding(f.name)}`,
             )
             .join(", ")}) {`,
-          `        var ${pubLocal} = new ${entity.name}();`,
+          `        var ${pubLocal} = new ${javaProjectRef(entity.name)}();`,
           `        ${pubLocal}.id = ${idClass}.newId();`,
           ...createInputFieldList.map((f) => {
             const dflt = javaFactoryDefault(f);
@@ -1105,8 +1108,8 @@ export function renderJavaEntity(
   // byte-identical.
   const partContainParams = entity.contains.map((c) =>
     c.collection
-      ? `List<${c.partName}> ${DOMAIN_NAMES.java.binding(c.name)}`
-      : `${c.partName} ${DOMAIN_NAMES.java.binding(c.name)}`,
+      ? `List<${javaProjectRef(c.partName)}> ${DOMAIN_NAMES.java.binding(c.name)}`
+      : `${javaProjectRef(c.partName)} ${DOMAIN_NAMES.java.binding(c.name)}`,
   );
   const partContainPopulate = entity.contains.map((c) =>
     c.collection
@@ -1115,7 +1118,7 @@ export function renderJavaEntity(
   );
   const partFactoryLines: string[] = !isRoot
     ? [
-        `    public static ${entity.name} _create(${[
+        `    public static ${javaProjectRef(entity.name)} _create(${[
           oneToOneParent
             ? `${oneToOneParent} parent`
             : `${persistence?.parentEntityName ?? rootName}Id parentId`,
@@ -1124,7 +1127,7 @@ export function renderJavaEntity(
           ),
           ...partContainParams,
         ].join(", ")}) {`,
-        `        var p = new ${entity.name}();`,
+        `        var p = new ${javaProjectRef(entity.name)}();`,
         `        p.id = ${entity.name}Id.newId();`,
         ...(oneToOneParent
           ? [`        p._parent = parent;`, `        p.parentId = parent.id();`]
@@ -1293,7 +1296,7 @@ export function renderJavaEntity(
  *  loads filtered — without it a primary-key load returns the hidden row. */
 function renderRestrictionAnnotations(host: RestrictionHost, entity: string): string[] {
   const paramDef = (prm: FilterParam): string =>
-    `@${PARAM_DEF}(name = ${JSON.stringify(prm.name)}, type = ${prm.javaType}.class, resolver = ${entity}.${resolverClassName(prm)}.class)`;
+    `@${PARAM_DEF}(name = ${JSON.stringify(prm.name)}, type = ${prm.javaType}.class, resolver = ${javaProjectRef(entity)}.${resolverClassName(prm)}.class)`;
   return [
     ...(host.sqlRestriction.length > 0
       ? [`@${SQL_RESTRICTION}(${JSON.stringify(host.sqlRestriction.join(" and "))})`]

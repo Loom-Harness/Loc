@@ -72,6 +72,7 @@ import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { isIntrinsicMatcher, isThrowKind } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor } from "../../util/intrinsics.js";
 import { modelTextEntry } from "../../util/model-text-key.js";
+import { PARSE_SERVICE, parseMethod } from "../../util/parse-methods.js";
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ANCESTORS,
@@ -439,31 +440,22 @@ export function passTargetSteps(lv: AstNode): TypeIR[] {
 }
 
 /**
- * Desugar a nullish-coalescing chain (`a ?? b ?? c`) into the existing
- * `ternary` IR — the whole reason `??` needs NO backend or frontend work:
+ * Lower a nullish-coalescing chain (`a ?? b ?? c`) to `coalesce` nodes,
+ * RIGHT-associative like every other language's `??`, so the fold runs from
+ * the tail inwards:
  *
- *     a ?? b        →  a == null ? b : a
- *     a ?? b ?? c   →  a == null ? (b == null ? c : b) : a
+ *     a ?? b ?? c   →  coalesce(a, coalesce(b, c))
  *
- * RIGHT-associative, like every other language's `??`, so the fold runs from
- * the tail inwards.  The `cond` is a real `binary "=="` against the `null`
- * literal, which every backend's `ExprTarget` already renders with its own
- * null spelling (`=== null` / `is null` / `is_nil` / `== nil` / `== null`),
- * and each frontend renders it in a page body the same way.
- *
- * The `cond.left` and the `otherwise` branch are the SAME node: that identity
- * is the coalesce marker (`coalesceParts`, src/generator/_expr/coalesce.ts).
- * Every backend renders the marked shape through `ExprTarget.coalesce`, which
- * evaluates the left once and the fallback only when the left is null — the
- * `cond` is never rendered for it.  Frontends that render the ternary
- * directly (a page body) see the plain `a == null ? b : a` shape.
+ * A real node, not a ternary with a shared operand: every renderer and every
+ * IR rewrite (`mapExprChildren`) carries it as one, so the left operand is
+ * evaluated once and the fallback only when it is absent on every target.
  */
 function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
   const operands = [chain.head, ...chain.rest];
   // A bare numeric literal fallback takes the numeric type of the operand it
-  // stands in for (`decimal? ?? 0` is a decimal `0`): both ternary branches must
-  // share one type on the nominally-typed backends (`cond ? 0 : upper` does not
-  // compile when `upper` is a `BigDecimal`).
+  // stands in for (`decimal? ?? 0` is a decimal `0`): both operands must share
+  // one type on the nominally-typed backends (`upper ?? 0` does not compile
+  // when `upper` is a `BigDecimal`).
   const lowerFallback = (i: number): ExprIR => {
     const lowered = lowerExpr(operands[i]!, env);
     const prev = passType(operands[i - 1]!, env);
@@ -475,25 +467,7 @@ function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
   let acc = lowerFallback(operands.length - 1);
   for (let i = operands.length - 2; i >= 0; i--) {
     const left = i === 0 ? lowerExpr(operands[i]!, env) : lowerFallback(i);
-    const leftType = passType(operands[i]!, env);
-    acc = {
-      kind: "ternary",
-      cond: {
-        kind: "binary",
-        op: "==",
-        left,
-        right: lit("null", "null"),
-        leftType,
-        // The null literal's own inferred type — `passType` types a bare
-        // `null` as `string` (see its `isNullLit` arm), and an `x == null`
-        // written by hand lowers with exactly this pair.
-        rightType: { kind: "primitive", name: "string" },
-        resultType: { kind: "primitive", name: "bool" },
-      },
-      // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then` across the IR
-      then: acc,
-      otherwise: left,
-    };
+    acc = { kind: "coalesce", left, fallback: acc, leftType: passType(operands[i]!, env) };
   }
   return acc;
 }
@@ -931,6 +905,29 @@ function applySuffixToRecv(
         if (declared) callIR.resultType = declared;
         return { recv: callIR, recvType: declared ?? { kind: "primitive", name: "string" } };
       }
+    }
+    // `s.toInt()` — a parse method on a string is a call into the context's
+    // built-in parse service (`parse-methods.ts`), the text as its argument,
+    // so every backend renders the service's checks, not a host parser.
+    const parse =
+      recvType.kind === "primitive" && recvType.name === "string"
+        ? parseMethod(ms.member)
+        : undefined;
+    const parseSvc = parse ? findDomainServiceByName(env, PARSE_SERVICE) : undefined;
+    const parseOp = parseSvc?.operations.find((o) => o.name === ms.member);
+    if (parseOp?.returnType) {
+      const resultType = lowerType(parseOp.returnType, env);
+      return {
+        recv: {
+          kind: "call",
+          callKind: "domain-service",
+          name: ms.member,
+          args: [recv],
+          serviceRef: { service: PARSE_SERVICE, op: ms.member },
+          resultType,
+        },
+        recvType: resultType,
+      };
     }
     // `<resource>.<verb>(args)` — a verb call on an ambient resource
     // handle lowers to a `resource-op` call.  The verb's

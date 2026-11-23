@@ -15,6 +15,7 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { eventLogRunMethods } from "../in-memory-run.js";
 import { synthProjectionFinds } from "../projection-finds.js";
@@ -111,7 +112,7 @@ export function renderMikroEventSourcedRepository(
           `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
           "    const all = await this._loadAll();",
           `    const ${L.matched} = ${pred ? `all.filter(${pred})` : "all"};`,
-          ...inMemoryPagedTailLines(agg, L, find.name),
+          ...inMemoryPagedTailLines(agg, L, find),
           "  }",
         );
       }
@@ -139,10 +140,10 @@ export function renderMikroEventSourcedRepository(
     // Explicit field declarations + constructor assignments, not
     // parameter properties — see emit/value-objects.ts's renderValueObject.
     "  private readonly em: EntityManager;",
-    "  private readonly events: DomainEventDispatcher;",
+    `  private readonly events: ${TT.DomainEventDispatcher};`,
     "  constructor(",
     "    em: EntityManager,",
-    "    events: DomainEventDispatcher,",
+    `    events: ${TT.DomainEventDispatcher},`,
     "  ) {",
     "    this.em = em;",
     "    this.events = events;",
@@ -210,7 +211,7 @@ export function renderMikroEventSourcedRepository(
       : ["        await em.flush();"]),
     "      } catch (err) {",
     '        if (err && typeof err === "object" && ((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505") {',
-    `          throw new ConcurrencyError("${agg.name}", streamId);`,
+    `          throw new ${T.ConcurrencyError}("${agg.name}", streamId);`,
     "        }",
     "        throw err;",
     "      }",
@@ -311,7 +312,7 @@ export function renderMikroEventSourcedRepository(
       voImportLine,
       `import * as Ids from "../../domain/ids";`,
       `import type * as Events from "../../domain/events";`,
-      `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`,
+      tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),
       `import type { DomainEventDispatcher } from "../../domain/events";`,
       repoUsesUser && `import type { User } from "../../auth/user-types";`,
       `import { requestLog } from "../../obs/als";`,

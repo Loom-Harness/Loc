@@ -1,3 +1,5 @@
+import { numericOpPlan } from "../../ir/plan/numeric-op.js";
+import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { existsReadsIn } from "../../ir/util/in-app-exists.js";
@@ -6,6 +8,7 @@ import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
+import { formatTokens, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
@@ -16,7 +19,6 @@ import {
   type BinaryExpr,
   type CallExpr,
   type ExprTarget,
-  isIntDivWidenedToDecimal,
   type MemberExpr,
   type MethodCallExpr,
   type NewExpr,
@@ -33,7 +35,7 @@ import {
   csProjectType,
   csSystemRoot,
 } from "./bcl-collision.js";
-import { CS } from "./cs-symbols.js";
+import { CS, CS_NAME } from "./cs-symbols.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
 import { csFindMethodName } from "./find-method-name.js";
@@ -171,7 +173,7 @@ export interface CsRenderContext {
  *  single principal source (the `currentUser`-is-an-ambient-operand reframe of
  *  `reified-criteria.md`). Pass it as `currentUserExpr` when rendering a
  *  predicate that has no in-scope `currentUser` local. */
-export const AMBIENT_CURRENT_USER = "RequestContext.Current!.CurrentUser!";
+export const AMBIENT_CURRENT_USER = `${CS_NAME.RequestContext}.Current!.CurrentUser!`;
 
 const DEFAULT: CsRenderContext = { thisName: "this" };
 
@@ -247,6 +249,7 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
     case "object":
     case "paren":
     case "ref":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":
@@ -601,7 +604,8 @@ function renderCsBinary(
   }
   // Integer division widened to decimal (`int / int` → decimal): C# `int / int`
   // truncates, so cast the numerator to `decimal` to force fractional division.
-  if (isIntDivWidenedToDecimal(e)) {
+  const plan = numericOpPlan(e);
+  if (plan.kind === "decimal-arithmetic" && plan.intDivWidened) {
     return `(decimal)(${left}) / ${right}`;
   }
   if (!efQuery && checkedBinaryKind(e) !== null) return `checked(${left} ${e.op} ${right})`;
@@ -1035,6 +1039,14 @@ export function csSingleCharLiteral(rendered: string): string | null {
 // catalogue row, keyed `<receiver>.<name>`.  Exported so the intrinsic
 // completeness test can pin that every catalogue row has a C# arm.
 export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
+  "string.uncheckedInt": (recv) =>
+    `int.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "string.uncheckedLong": (recv) =>
+    `long.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "string.uncheckedDecimal": (recv) =>
+    `decimal.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "string.uncheckedDate": (recv) =>
+    `global::System.DateOnly.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
   "string.trim": (recv) => `${recv}.Trim()`,
   // Invariant forms — the catalogue contract is culture-free case mapping,
   // and the culture-sensitive ToUpper()/ToLower() trip CA1304/CA1311 under
@@ -1158,6 +1170,20 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
     const c = `System.Math.Min(${a}.Day, System.DateTime.DaysInMonth(${b}.Year, ${b}.Month))`;
     return `(${m} - (${m} > 0 && ${c} > ${b}.Day ? 1 : 0) + (${m} < 0 && ${c} < ${b}.Day ? 1 : 0))`;
   },
+  // ---- duration — a `TimeSpan`; integer division of its ticks truncates
+  // toward zero (the catalogue contract), with no floating-point step.
+  "duration.toDays": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerDay)`,
+  "duration.toHours": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerHour)`,
+  "duration.toMinutes": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerMinute)`,
+  // ---- formatting — invariant text (the catalogue contract).
+  "string.padStart": (recv, args) => `(${csPadFill(recv, args[0]!, args[1]!)} + (${recv}))`,
+  "string.padEnd": (recv, args) => `((${recv}) + ${csPadFill(recv, args[0]!, args[1]!)})`,
+  "date.format": (recv, args) =>
+    `(${recv}).ToString(${csDatePattern(args[0]!)}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "datetime.format": (recv, args) =>
+    `(${recv}).ToString(${csDatePattern(args[0]!)}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "decimal.format": (recv, args) => csFixed(recv, args[0]!),
+  "money.format": (recv, args) => csFixed(recv, args[0]!),
 };
 
 // EF-query-position overrides (sparse).  EF Core translates ONLY the
@@ -1184,6 +1210,10 @@ export const CS_INTRINSIC_QUERY_RENDERERS: Record<string, CsIntrinsicRenderer> =
   // in-memory `IsSatisfiedBy`, so THAT face does run the culture-default
   // spelling.  Splitting the two faces is its own change.)
   "string.startsWith": (recv, args) => `${recv}.StartsWith(${args[0]})`,
+  // Npgsql translates the single-argument `Contains` to `strpos(col, arg) > 0`
+  // (ordinal, case-sensitive) — the `StringComparison` overload of the
+  // in-memory arm is not translatable.
+  "string.contains": (recv, args) => `${recv}.Contains(${args[0]})`,
   // The MidpointRounding overloads of ${q("Math")}.Round are NOT translatable — only
   // the bare ${q("Math")}.Round(x) / ${q("Math")}.Round(x, n) forms lower to SQL round()
   // (verified against EF Core 10.0.9 + Npgsql 10.0.2 via ToQueryString).
@@ -1313,10 +1343,20 @@ export const CS_COLLECTION_RENDERERS: Record<
     return `${recv}.Select(__e => (${nullable})__e).FirstOrDefault()`;
   },
   map: (recv, args) => `${recv}.Select(${args[0]}).ToList()`,
-  sortBy: (recv, args, e) =>
-    e && isDescendingSort(e)
-      ? `${recv}.OrderByDescending(${args[0]}).ToList()`
-      : `${recv}.OrderBy(${args[0]}).ToList()`,
+  // The one sort order (`src/ir/plan/sort-order.ts`): LINQ's OrderBy is stable
+  // and OrderByDescending keeps ties in order; text compares by code point
+  // (UTF-8 byte order is code-point order — the culture-aware default and
+  // UTF-16 ordinal both differ), an enum by its member name, and an absent key
+  // sorts last ascending (the same comparer under OrderByDescending puts it
+  // first).
+  sortBy: (recv, args, e) => {
+    const by = e && isDescendingSort(e) ? "OrderByDescending" : "OrderBy";
+    const keyType = e ? collectionOpKeyType(e) : undefined;
+    const cmp = csSortComparer(keyType);
+    return cmp
+      ? `${recv}.${by}(${args[0]}, ${cmp}).ToList()`
+      : `${recv}.${by}(${args[0]}).ToList()`;
+  },
   distinct: (recv) => `${recv}.Distinct().ToList()`,
   take: (recv, args) => `${recv}.Take(${args[0]}).ToList()`,
   skip: (recv, args) => `${recv}.Skip(${args[0]}).ToList()`,
@@ -1575,7 +1615,7 @@ const CS_TYPE_TARGET: TypeTarget = {
       case "bool":
         return "bool";
       case "datetime":
-        return "DateTime";
+        return CS_NAME.DateTime;
       case "date":
         return "DateOnly";
       case "guid":
@@ -1651,4 +1691,61 @@ export function csNewIdValue(
   scope?: CsMemberScope,
 ): string {
   return `${csBcl("Guid", scope)}.CreateVersion7()`;
+}
+
+/** The fill a pad needs: `fill` repeated and cut to the missing number of
+ *  code points (runes), none when the receiver is already long enough. */
+function csPadFill(s: string, n: string, fill: string): string {
+  const k = `global::System.Math.Max(0, (${n}) - ${csCodePointLength(`(${s})`)})`;
+  return `string.Concat(global::System.Linq.Enumerable.Take(global::System.Linq.Enumerable.Select(string.Concat(global::System.Linq.Enumerable.Repeat(${fill}, ${k})).EnumerateRunes(), r => r.ToString()), ${k}))`;
+}
+
+/** A Loom pattern as a .NET custom format string: .NET's custom date format
+ *  reads Loom's field tokens with the same meaning, so each is kept as written,
+ *  and every literal run is quoted (`'` itself escaped) so no
+ *  culture-sensitive separator (`/`, `:`) is read as one. */
+function csDatePattern(pattern: string): string {
+  const net = formatTokens(patternFromRenderedLiteral(pattern))
+    .map((t) =>
+      t.kind === "field"
+        ? t.run
+        : t.text
+            .split("'")
+            .map((run) => (run ? `'${run}'` : ""))
+            .join("\\\\'"),
+    )
+    .join("");
+  return `"${net}"`;
+}
+
+/** Fixed-point text: half-even, invariant, no negative zero. */
+function csFixed(x: string, places: string): string {
+  const p = `global::System.Math.Max(0, ${places})`;
+  const r = `global::System.Math.Round(${x}, ${p}, global::System.MidpointRounding.ToEven)`;
+  return `(${r} == 0m ? 0m : ${r}).ToString("F" + ${p}, global::System.Globalization.CultureInfo.InvariantCulture)`;
+}
+
+/** The type a collection op's lambda projects (its key). */
+function collectionOpKeyType(e: Extract<ExprIR, { kind: "method-call" }>): TypeIR | undefined {
+  const lam = e.args[0];
+  return lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
+}
+
+/** A `Comparer<K>` for the one sort order, or undefined when the default
+ *  comparer already is it (a required number, money or instant). */
+export function csSortComparer(keyType: TypeIR | undefined): string | undefined {
+  if (!keyType) return undefined;
+  const key = sortKeyOf(keyType);
+  const k = renderCsType(keyType);
+  const present =
+    key.cls === "text"
+      ? "global::System.Text.Encoding.UTF8.GetBytes(a).AsSpan().SequenceCompareTo(global::System.Text.Encoding.UTF8.GetBytes(b))"
+      : key.cls === "enum"
+        ? "string.CompareOrdinal(a.ToString(), b.ToString())"
+        : undefined;
+  if (!present && !key.optional) return undefined;
+  const value =
+    present ?? `global::System.Collections.Generic.Comparer<${k}>.Default.Compare(a, b)`;
+  const body = key.optional ? `a is null ? (b is null ? 0 : 1) : b is null ? -1 : ${value}` : value;
+  return `global::System.Collections.Generic.Comparer<${k}>.Create((a, b) => ${body})`;
 }

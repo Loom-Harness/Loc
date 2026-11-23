@@ -20,8 +20,9 @@ describe("Flutter — server errors and client rules localize by catalog code", 
     // Per-entry code + params.
     expect(dart).toContain("final code = entry['code'];");
     expect(dart).toContain("ServerIssue.paramsOf(entry['params'])");
-    // A refusal with no errors[]: the problem's own code, `problem.internal` by default.
-    expect(dart).toContain("code is String ? code : 'problem.internal'");
+    // A refusal with no errors[]: the problem's own code, else the code of its status.
+    expect(dart).toContain("code is String ? code : _statusCode(status)");
+    expect(dart).toContain("default:\n        return 'problem.internal';");
   });
 
   it("renders them through t by code when the form builds", async () => {
@@ -39,7 +40,8 @@ describe("Flutter — server errors and client rules localize by catalog code", 
     // A blank required text or number is a value the form submits: no
     // validator returns `Required` for it.
     expect(dart).not.toContain("return t('field.missing', 'Required');");
-    expect(dart).toContain("return t('field.type-mismatch', 'Enter a number');");
+    // A number's refusal is the form text rule's, localized by its code.
+    expect(dart).toContain("if (r != null) { return t(r.code, r.message, r.params); }");
     expect(dart).toMatch(/return t\('Sales\.Order\.rule\.qtyPositive', '[^']*'\);/);
     expect(dart).toMatch(/return t\('Sales\.Order\.rule\.skuShape', '[^']*'\);/);
   });

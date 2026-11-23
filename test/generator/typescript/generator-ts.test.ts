@@ -1603,20 +1603,20 @@ describe("typescript generator", () => {
   // -------------------------------------------------------------------
   describe("invariants on the wire (Hono Zod refines)", () => {
     it("absorbs single-field invariants on a value-object schema into idiomatic native chains", async () => {
-      const files = await generateBackendFromFile("examples/sales.ddd", "node");
+      const files = await generateBackendFromFile("test/fixtures/unnamed-rules/sales.ddd", "node");
       // sales.ddd Money: `invariant amount >= 0` + `invariant currency.length == 3`.
       const orderRoutes = files.get("http/order.routes.ts")!;
       // Strict `z.number()`, not `z.coerce.number()`: a JSON body carries a
       // real number, and coercing accepted `false`/`"12"` for a field the spec
       // declares `{"type":"number"}` (schemathesis F7).
       expect(orderRoutes).toMatch(
-        /amount: z\.number\(\)\.refine\(\(v: any\) => v >= 0, \{ message: "Amount must be at least 0", params: \{ loomCode: "field\.min", loomValues: \{"min":0\} \} \}\)\.openapi\(\{ minimum: 0 \}\)/,
+        /amount: z\.number\(\)\.refine\(\(v: any\) => v >= 0, \{ message: "Amount must be at least 0", params: \{ code: "field\.min", values: \{"min":0\} \} \}\)\.openapi\(\{ minimum: 0 \}\)/,
       );
       // A LENGTH bound is a CODE-POINT predicate, not zod's code-unit
       // `.length(3)` — and the routes re-attach the `minLength`/`maxLength`
       // the OpenAPI schema published all along (RS-31).
       expect(orderRoutes).toMatch(
-        /currency: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length === 3, \{ message: "Currency must be exactly 3 characters", params: \{ loomCode: "field\.length", loomValues: \{"length":3\} \} \}\)\.openapi\(\{ minLength: 3, maxLength: 3 \}\)/,
+        /currency: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length === 3, \{ message: "Currency must be exactly 3 characters", params: \{ code: "field\.length", values: \{"length":3\} \} \}\)\.openapi\(\{ minLength: 3, maxLength: 3 \}\)/,
       );
       // No leftover OBJECT-level `.refine(` for the single-field shapes.
       const moneyBlock = orderRoutes.match(
@@ -1626,7 +1626,7 @@ describe("typescript generator", () => {
     });
 
     it("absorbs single-field op-precondition into idiomatic chain on <Op>Request", async () => {
-      const files = await generateBackendFromFile("examples/sales.ddd", "node");
+      const files = await generateBackendFromFile("test/fixtures/unnamed-rules/sales.ddd", "node");
       // sales.ddd Order.addLine: `precondition qty > 0` (with int qty).
       const orderRoutes = files.get("http/order.routes.ts")!;
       // `qty > 0` → recognised as min(1) on the int field.
@@ -1635,23 +1635,23 @@ describe("typescript generator", () => {
         // declared bound: `qty > 0` is tighter than the int4 FLOOR, so only the
         // floor is dropped; the int4 ceiling stays (a one-sided bound must not
         // lose the other side, F11).
-        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.max\(2147483647, "Integer out of range"\)\.openapi\(\{ format: "int32" \}\)\.refine\(\(v: any\) => v >= 1, \{ message: "Qty must be at least 1", params: \{ loomCode: "field\.min", loomValues: \{"min":1\} \} \}\)\.openapi\(\{ minimum: 1 \}\)/,
+        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.max\(2147483647, "Integer out of range"\)\.openapi\(\{ format: "int32" \}\)\.refine\(\(v: any\) => v >= 1, \{ message: "Qty must be at least 1", params: \{ code: "field\.min", values: \{"min":1\} \} \}\)\.openapi\(\{ minimum: 1 \}\)/,
       );
     });
 
     it("mirrors create wire constraints onto the crudish Update<Agg>Request (SYS-1)", async () => {
-      const files = await generateBackendFromFile("examples/sales.ddd", "node");
+      const files = await generateBackendFromFile("test/fixtures/unnamed-rules/sales.ddd", "node");
       // M-T6.8/SYS-1: sales.ddd Customer `invariant email.length > 0` now
       // constrains the UPDATE request DTO too (not just create), so an invalid
       // update is rejected at the wire boundary (422) instead of the domain floor.
       const customerRoutes = files.get("http/customer.routes.ts")!;
       expect(customerRoutes).toMatch(
-        /UpdateCustomerRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length >= 1, \{ message: "Email must be at least 1 character", params: \{ loomCode: "field\.min-length", loomValues: \{"min":1\} \} \}\)/,
+        /UpdateCustomerRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length >= 1, \{ message: "Email must be at least 1 character", params: \{ code: "field\.min-length", values: \{"min":1\} \} \}\)/,
       );
     });
 
     it("excludes invariants referencing aggregate state from Create<Agg>Request", async () => {
-      const files = await generateBackendFromFile("examples/sales.ddd", "node");
+      const files = await generateBackendFromFile("test/fixtures/unnamed-rules/sales.ddd", "node");
       const orderRoutes = files.get("http/order.routes.ts")!;
       // sales.ddd Order has `invariant lines.count > 0 when status == Confirmed`.
       // `lines` is a containment, not in the create-request body — the
@@ -1668,7 +1668,7 @@ describe("typescript generator", () => {
     });
 
     it("excludes preconditions referencing helper-fns / aggregate state from <Op>Request", async () => {
-      const files = await generateBackendFromFile("examples/sales.ddd", "node");
+      const files = await generateBackendFromFile("test/fixtures/unnamed-rules/sales.ddd", "node");
       const orderRoutes = files.get("http/order.routes.ts")!;
       // Order.addLine has `precondition isMutable()` — references
       // `this.status` via a helper-fn.  Must NOT appear as a refine
@@ -1702,7 +1702,7 @@ describe("typescript generator", () => {
       const files = await generateBackendFromSource(src, "node");
       const routes = files.get("http/user.routes.ts")!;
       expect(routes).toMatch(
-        /CreateUserRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(v: any\) => \/\^\[\^@\]\+@\.\+\$\/\.test\(v\), \{ message: "Email is not in the expected format", params: \{ loomCode: "field\.pattern" \} \}\)\.openapi\(\{ pattern: \/\^\[\^@\]\+@\.\+\$\/\.source \}\)/,
+        /CreateUserRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(v: any\) => \/\^\[\^@\]\+@\.\+\$\/\.test\(v\), \{ message: "Email is not in the expected format", params: \{ code: "field\.pattern" \} \}\)\.openapi\(\{ pattern: \/\^\[\^@\]\+@\.\+\$\/\.source \}\)/,
       );
     });
 
@@ -1740,7 +1740,7 @@ describe("typescript generator", () => {
       const routes = files.get("http/reservation.routes.ts")!;
       // `fromTime < toTime` is cross-field — falls through to .refine.
       expect(routes).toMatch(
-        /CreateReservationRequest = z\.object\(\{[\s\S]*?\}\)\.openapi\("CreateReservationRequest"\)\.refine\(\(data: any\) => data\.fromTime < data\.toTime, \{ path: \["fromTime"\], message: "Business rule violated", params: \{ loomCode: "problem\.domain-floor" \} \}\)/,
+        /CreateReservationRequest = z\.object\(\{[\s\S]*?\}\)\.openapi\("CreateReservationRequest"\)\.refine\(\(data: any\) => data\.fromTime < data\.toTime, \{ path: \["fromTime"\], message: "Business rule violated", params: \{ code: "problem\.domain-floor" \} \}\)/,
       );
     });
   });

@@ -228,7 +228,7 @@ describe("java generator — paged reads", () => {
       "var result = jpa.findAllPaged(PageRequest.of(page - 1, pageSize, __sort));",
     );
     expect(impl).toContain(
-      'Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, __sortField).and(Sort.by(Sort.Order.asc("id")));',
+      'Sort __sort = (java.util.Set.of("code", "status").contains(__sortField) ? org.springframework.data.jpa.domain.JpaSort.unsafe("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, "collate(" + __sortField + " as ucs_basic)") : Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, __sortField)).and(Sort.by(Sort.Order.asc("id")));',
     );
     expect(impl).toContain(
       "return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());",

@@ -89,6 +89,17 @@ export interface UnsupportedEntry {
 }
 
 export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
+  {
+    code: "loom.theme-token-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/theme-token-checks.ts#validateThemeTokens",
+    what:
+      "A `theme {}` token the deployable's design does not honour (`src/util/theme-tokens.ts`): " +
+      "the semantic colours on most packs, every token on shadcnVue, Feliz and Flutter.  A pack " +
+      "that wires the token drops it from the refusal.",
+    mission: "#6548",
+    verified: false,
+  },
   // -------------------------------------------------------------------------
   // gap — real parity TODOs.  This is the sprint backlog.  Drains to zero.
   // -------------------------------------------------------------------------
@@ -104,6 +115,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "computes no value to bind.  A bound aggregate op call is rendered",
     mission: "#5933",
     verified: false,
+  },
+  {
+    code: "loom.paged-list-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/projection-backend-checks.ts#validatePagedQueryHandlerShape",
+    what:
+      "`let r = Repo.all()  return r` in a paged queryHandler over an aggregate whose list read " +
+      "is not paged in SQL (event-log, document, embedded, an inheritance member, an abstract " +
+      "base): the handler pages through the derived list read, which Elixir does not page for " +
+      "those shapes.  Lifting it completes ruling 299",
+    mission: "#6349",
   },
   {
     code: "loom.projection-read-unsupported",
@@ -124,7 +146,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       'a `send` route\'s binding block (`{ payload: raw body, signature: header "…" }`): it ' +
       "parses and validates, but the raw body needs the `bytes` type and each backend's " +
       "raw-body plumbing, so a route that uses it is refused",
-    mission: "#6346",
+    mission: "#6367",
   },
   {
     code: "loom.route-send-workflow-unsupported",

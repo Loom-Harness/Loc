@@ -136,7 +136,7 @@ function consumedEntries(log: string): { type: string; key: string }[] {
 }
 
 /** Count catalog events in a .NET backend log: lines carrying the quoted
- *  event name.  The generated LoomJsonFormatter writes the shared envelope, so
+ *  event name.  The generated JsonLineFormatter writes the shared envelope, so
  *  the event name appears once per entry, as the top-level `"event"` value. */
 const countEvents = (log: string, event: string): number =>
   log.split("\n").filter((l) => l.includes(`"${event}"`)).length;

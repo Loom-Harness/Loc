@@ -1,5 +1,6 @@
 import { lines } from "../../../util/code-builder.js";
 import { javaLogEvent, javaLogEventLevel, javaLogEventName } from "../../_obs/render-java.js";
+import { JAVA_RUNTIME } from "../../_symbols/plan.js";
 
 // ---------------------------------------------------------------------------
 // Observability catalog — JSON event lines on stdout, the cross-backend
@@ -8,7 +9,7 @@ import { javaLogEvent, javaLogEventLevel, javaLogEventName } from "../../_obs/re
 //   server_starting → server_listening → request_start {method,path} →
 //   request_end {status, durationMs} → server_shutdown → server_drained
 //
-// Events are logged through SLF4J on a dedicated `loomCatalog` logger;
+// Events are logged through SLF4J on a dedicated catalog logger (JAVA_RUNTIME.catalogLogger);
 // `config/logback.xml` (renderLogbackConfig) serialises them to the flat JSON
 // envelope via logstash-logback-encoder — so JSON writing, string escaping,
 // and MDC enrichment are the logging stack's job, not a hand-rolled writer.
@@ -32,7 +33,7 @@ export function renderCatalogLogger(basePkg: string): string {
     ` *  line joins to the audit / provenance rows of the same request frame`,
     ` *  (omitted on boot-time lines, where no frame is active).`,
     ` *`,
-    ` *  Events log through SLF4J on the \`loomCatalog\` logger; \`logback.xml\` wires`,
+    ` *  Events log through SLF4J on the \`${JAVA_RUNTIME.catalogLogger}\` logger; \`logback.xml\` wires`,
     ` *  logstash-logback-encoder to render the JSON — the encoder maps the`,
     ` *  timestamp to \`ts\`, the whitelisted MDC keys to the carrier ids`,
     ` *  (\`correlation_id\` renamed to \`request_id\`), and the SLF4J key/value pairs`,
@@ -44,7 +45,7 @@ export function renderCatalogLogger(basePkg: string): string {
     ` *  emitted \`level\` value and for threshold comparison) — matching the`,
     ` *  Hono \`level: process.env.LOG_LEVEL ?? "info"\` channel. */`,
     `public final class CatalogLog {`,
-    `    private static final Logger LOG = LoggerFactory.getLogger("loomCatalog");`,
+    `    private static final Logger LOG = LoggerFactory.getLogger("${JAVA_RUNTIME.catalogLogger}");`,
     ``,
     `    private CatalogLog() {`,
     `    }`,
@@ -84,7 +85,7 @@ export function renderCatalogLogger(basePkg: string): string {
     `    }`,
     ``,
     `    /** Map the folded catalog level onto the SLF4J level the event logs at.`,
-    `     *  The \`loomCatalog\` logger stays open (TRACE) in logback so filtering`,
+    `     *  The \`${JAVA_RUNTIME.catalogLogger}\` logger stays open (TRACE) in logback so filtering`,
     `     *  happens once, here, against \`LOG_LEVEL\` — not a second time downstream. */`,
     `    private static LoggingEventBuilder builderFor(String lvl) {`,
     `        return switch (lvl) {`,
@@ -154,7 +155,7 @@ export function renderLogbackConfig(): string {
     `    <!-- Catalog events are gated in CatalogLog by LOG_LEVEL; keep the logger`,
     `         open (TRACE) so logback doesn't filter a second time.`,
     `         additivity=false keeps the JSON lines off the CONSOLE appender. -->`,
-    `    <logger name="loomCatalog" level="TRACE" additivity="false">`,
+    `    <logger name="${JAVA_RUNTIME.catalogLogger}" level="TRACE" additivity="false">`,
     `        <appender-ref ref="CATALOG"/>`,
     `    </logger>`,
     ``,

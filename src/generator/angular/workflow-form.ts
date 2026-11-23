@@ -11,8 +11,10 @@ import {
   type AngularIdTargetSpec,
   addNg,
   formButton,
+  formFailureMarkup,
   partitionAngularFields,
 } from "./form-fields.js";
+import { nullableTextFieldsOf } from "./form-prefill.js";
 import { angularSink } from "./walker/sink.js";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +51,8 @@ export interface AngularWorkflowFormSpec {
    *  `onFileUpload` method once per component. */
   hasFile?: boolean;
   hasList?: boolean;
+  /** Top-level optional text-like fields whose cleared input submits `null`. */
+  nullable?: string[];
   /** The route segment of the record a successful run created, when the
    *  start route answers its id (`workflowResultSegment`). */
   resultSegment?: string;
@@ -148,15 +152,22 @@ export function renderAngularWorkflowForm(
     hasFile: parts.hasFileField,
     hasList: parts.hasListField,
   };
+  // A cleared optional text input submits `null`, never `""` (P-UI-6).
+  const nullable = nullableTextFieldsOf(workflow.params, ctx.model.formSpecEnv(bc));
+  if (nullable.length > 0) spec.nullable = nullable;
   const resultSegment = workflow.resultSegment;
   if (resultSegment) spec.resultSegment = resultSegment;
   angularSink(ctx).workflowForms.push(spec);
 
   return [
     `<form [formGroup]="${formVar}" (ngSubmit)="${submitMethod}()" data-testid="${ns}">`,
-    ...[...fieldMarkup, ...parts.groupMarkup, ...parts.arrayMarkup, submit].map(
-      (m) => `${inner}${m}`,
-    ),
+    ...[
+      ...fieldMarkup,
+      ...parts.groupMarkup,
+      ...parts.arrayMarkup,
+      formFailureMarkup(formVar, ns),
+      submit,
+    ].map((m) => `${inner}${m}`),
     `${close}</form>`,
   ].join("\n");
 }

@@ -17,7 +17,10 @@ import {
 } from "../_frontend/error-codes-fixture.js";
 
 class ApiError extends Error {
-  constructor(public body: unknown) {
+  constructor(
+    public body: unknown,
+    public status = 422,
+  ) {
     super("api");
   }
 }
@@ -30,8 +33,9 @@ type Issue = {
 };
 type Form = {
   errors: Record<string, string>;
+  failure: string | null;
   submit: (ok: (v: unknown) => void) => Promise<void>;
-  applyServerErrors: (e: unknown) => { kind: string; title?: string };
+  applyServerErrors: (e: unknown) => { kind: string };
 };
 
 const load = (source: string, t: (k: string, d: string, v?: Record<string, unknown>) => string) =>
@@ -60,10 +64,10 @@ describe("Svelte — the form runtime localizes by catalog code", () => {
     expect(form.errors.sku).toBe(FR["field.rule"]);
 
     const refusal = createForm(schemaWith([]), {});
-    expect(refusal.applyServerErrors(new ApiError(GLOBAL_PROBLEM))).toEqual({
-      kind: "global",
-      title: FR["problem.not-found"],
+    expect(refusal.applyServerErrors(new ApiError(GLOBAL_PROBLEM, 404))).toEqual({
+      kind: "form",
     });
+    expect(refusal.failure).toBe(FR["problem.not-found"]);
   });
 
   it("localizes a client zod issue when errors is READ, so a locale switch re-renders", async () => {
@@ -79,7 +83,7 @@ describe("Svelte — the form runtime localizes by catalog code", () => {
           path: ["qty"],
           message: "Qty positive",
           code: "custom",
-          params: { loomCode: "Sales.Order.rule.qtyPositive" },
+          params: { code: "Sales.Order.rule.qtyPositive" },
         },
         {
           path: ["sku"],
@@ -91,7 +95,7 @@ describe("Svelte — the form runtime localizes by catalog code", () => {
           path: ["note"],
           message: "Note must be at most 5 characters",
           code: "custom",
-          params: { loomCode: "field.max-length", loomValues: { max: 5 } },
+          params: { code: "field.max-length", values: { max: 5 } },
         },
       ]),
       {},
@@ -114,10 +118,8 @@ describe("Svelte — the form runtime localizes by catalog code", () => {
       throw new Error("no catalog to read");
     });
     const form = createForm(schemaWith([]), {});
-    expect(form.applyServerErrors(new ApiError(GLOBAL_PROBLEM))).toEqual({
-      kind: "global",
-      title: "Order 7 not found",
-    });
+    expect(form.applyServerErrors(new ApiError(GLOBAL_PROBLEM, 404))).toEqual({ kind: "form" });
+    expect(form.failure).toBe("Order 7 not found");
   });
 
   it("the app catalog carries every problem.* / field.* code", async () => {

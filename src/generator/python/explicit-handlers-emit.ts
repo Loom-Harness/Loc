@@ -56,7 +56,6 @@ import type {
   QueryHandlerIR,
   RouteIR,
   SystemIR,
-  WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { entryResult } from "../../ir/util/entry-result.js";
@@ -66,6 +65,8 @@ import {
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
+  type PagedRunStmt,
+  pagedRunArgs,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
@@ -82,7 +83,7 @@ import { plural, pythonWireIdent, pythonWireNeedsAlias, snake } from "../../util
 import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { hasMarkers } from "../_imports/symbol.js";
-import { DOMAIN_NAMES, pythonModuleFnName } from "../_symbols/plan.js";
+import { camelId, DOMAIN_NAMES, opHandler, pythonModuleFnName } from "../_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { paramPyType, requestPyType } from "./emit/http-models.js";
 import { withFieldConstraint } from "./emit/wire-constraints.js";
@@ -319,10 +320,7 @@ function handlerUsesUser(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
  *  statement (carrying the repo/aggregate + paged find method name
  *  `retrievalName` = `findAllBy<Criterion>` + the criterion args), or throws if
  *  the handler doesn't match the supported shape. */
-function pagedRunStmt(
-  h: Handler,
-  ctx: EnrichedBoundedContextIR,
-): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
+function pagedRunStmt(h: Handler, ctx: EnrichedBoundedContextIR): PagedRunStmt {
   const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
@@ -344,7 +342,7 @@ function renderPagedRunHandlerModule(
   const repoVar = DOMAIN_NAMES.python.binding(run.repoName);
   const dispatcherExpr = dispatcherFor(hasDispatch);
   const rctx: PyRenderContext = { thisName: "self", recordParamNames: new Set() };
-  const critArgs = run.retrievalArgs.map((a) => renderPyExpr(a, rctx));
+  const critArgs = pagedRunArgs(run).map((a) => renderPyExpr(a, rctx));
   const callArgs = [...critArgs, "page", "page_size", "sort", "dir"].join(", ");
   // A masked aggregate redacts its response fields fail-closed (authorization.md
   // §5) — the paged run's items are a RESPONSE boundary, so route through
@@ -744,8 +742,6 @@ function snakePath(path: string): string {
   return path.replace(/\{([^}]+)\}/g, (_m, name: string) => `{${snake(name)}}`);
 }
 
-const camelName = (name: string): string => name.charAt(0).toLowerCase() + name.slice(1);
-
 /** The `{token}` names in a route path — the params bound from the URL rather
  *  than the request body (mirrors the .NET `pathParamNames`). */
 function pathParamNames(path: string): Set<string> {
@@ -765,7 +761,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   const queryParams = h.params.filter((p) => !pathNames.has(p.name));
   const method = r.method.toLowerCase();
   const path = snakePath(r.path);
-  const opId = camelName(h.name);
+  const opId = camelId(opHandler(h.name));
   const routeName = `${DOMAIN_NAMES.python.stem(h.name)}_route`;
   const usesUser = pagedRunGatesUseCurrentUser(h);
   // Non-default params first (Python signature order): path + criterion query
@@ -941,7 +937,7 @@ export function emitPyExplicitRouteRouter(
       : callArgs;
     const method = r.method.toLowerCase();
     const path = snakePath(r.path);
-    const opId = camelName(h.name);
+    const opId = camelId(opHandler(h.name));
     // A query always returns; a command returns iff its body yields a value
     // (`returnValue`) OR — for an extern command — it declares a returnType.
     const hasReturn = !!qry || !!cmd?.returnValue || !!(cmd?.extern && cmd.returnType);

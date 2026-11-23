@@ -431,6 +431,8 @@ function docExprUnsupported(
       return bad(e.inner);
     case "ternary":
       return bad(e.cond) || bad(e.then) || bad(e.otherwise);
+    case "coalesce":
+      return bad(e.left) || bad(e.fallback);
     case "convert":
       return bad(e.value);
     case "literal":

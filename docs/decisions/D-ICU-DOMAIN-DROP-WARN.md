@@ -1,33 +1,27 @@
-# D-ICU-DOMAIN-DROP-WARN — an ICU branch hole in backend domain code is a warning now; rendering the branches is a mission
+# D-ICU-DOMAIN-DROP-WARN — a format code on a template hole in backend domain code is refused; domain code formats with plain methods
 
-**Status:** applied (owner ruling D8, eval-closure review 2026-09-28, item 38; wave C, implementer C7).
+**Status:** applied (owner ruling 178 on #5438, which replaces ruling D8's warning).
 
-**Question.** A template hole carrying `, plural` / `, select` / `, selectordinal`
-is admitted anywhere a template is. Every backend leaf table renders the
-`i18nFormat` wrapper as its bare operand (`i18nFormat: (inner) => inner` in the
-node, .NET, Java, Python and Elixir `render-expr.ts`), so in a `derived`,
-`function` or `operation` body the BRANCH TEXT vanishes:
-`` derived p: string = `{qty, plural, one {# item} other {# items}}` `` yields
-`"3"`, with zero diagnostics on `parse` and `generate`.
+**Question.** A template hole may carry a format code (`, number`, `, date`,
+`, plural`, `, select`, `, selectordinal`, …). A ui page renders it through the
+translation layer. In backend domain code every backend renders the hole as its
+bare value: `` `INV-{seq, number, ::integer-width/000000}` `` yields `INV-123`,
+and a `plural` hole loses its branch text (`"3"`, not `"3 items"`).
 
-**Options.** (a) render the branches on all five backends as a match/if chain over
-the branch keys (English CLDR `one`/`other` plus `=N` exact matches); (b) warn
-where the drop happens and document it; (c) refuse it as an error.
+**Decision.** Format codes stay for pages. In domain code — a `derived`,
+`function`, `operation` (aggregate or domain-service), `commandHandler` /
+`queryHandler`, `workflow` or listener (`on`) body — a hole with a format code
+is the error `loom.interp-format-in-domain`, whose message names the plain
+methods that say the same thing on every backend: `padStart(n, fill)` /
+`padEnd(n, fill)` on text, `.format("yyyyMMdd")` on a `date` / `datetime` (the
+fixed pattern subset of `src/util/format-pattern.ts`, checked at compile time by
+`loom.intrinsic-format-pattern`), and `.format(places)` on a `decimal` / `money`
+(half-even, `.` separator, no grouping). Branch text is written with `match` or
+a ternary. Nothing is dropped silently.
 
-**Decision.** (b): the warning `loom.interp-format-dropped-in-domain` on every
-`plural`/`select`/`selectordinal` hole whose template sits in a `derived`,
-`function` (incl. top-level) or `operation` (aggregate or domain-service) body,
-and never inside a `ui`. (a) becomes a mission; (c) would refuse models that
-generate and run today.
+**Affects.** `src/language/validators/template.ts`;
+`src/language/validators/types.ts`; `src/util/intrinsics.ts`;
+`src/util/format-pattern.ts`; `src/diagnostics/messages/types.ts`;
+`docs/language.md`; `docs/language-reference/05-expressions.md`.
 
-**Scope kept deliberately narrow.** `number`/`date`/`time` formats are dropped in
-domain code too, but they lose only formatting, not text, so they stay silent
-(the docs say so). Templates in other backend bodies (workflows, handlers) are
-not covered by the ruling and stay silent until the rendering mission decides
-them.
-
-**Affects.** `src/language/validators/template.ts`; `src/diagnostics/messages.ts`;
-`src/diagnostics/code-docs.ts`; `docs/language.md`;
-`docs/language-reference/05-expressions.md`.
-
-**Enforced by:** `test/language/validation/interpolation.test.ts`
+**Enforced by:** `test/language/validation/interpolation.test.ts`, `test/language/validation/format-pattern.test.ts`

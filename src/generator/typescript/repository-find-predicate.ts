@@ -50,6 +50,7 @@ import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { TS_INTRINSIC_RENDERERS } from "./render-expr.js";
 import { associationsOf } from "./repository-associations-builder.js";
+import { TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 const N = DOMAIN_NAMES.ts;
@@ -72,6 +73,7 @@ export const DRIZZLE_INTRINSIC_SQL: Record<string, (recv: string, args: string[]
   // no ESCAPE discipline to guarantee that.  `strpos(col, '')` is 1 on
   // Postgres, matching every host language's `startsWith("")`.
   "string.startsWith": (recv, args) => `sql\`strpos(\${${recv}}, \${${args[0]}}) = 1\``,
+  "string.contains": (recv, args) => `sql\`strpos(\${${recv}}, \${${args[0]}}) > 0\``,
   // Numerics (A3) — int/long map to integer/bigint columns, decimal/money
   // both to `numeric`, so the same Postgres function applies per op.
   // `round(numeric, n)` is half-away-from-zero on Postgres, matching the
@@ -971,8 +973,12 @@ export function readScopeUsesPrincipal(agg: EnrichedAggregateIR, ctx: BoundedCon
 /** The ORDER BY arguments a drizzle read takes (`asc(schema.t.id)`), from the
  *  read-scope order: the declared terms with an `id` tie-break, or `id` alone
  *  when the read declares none. */
-export function drizzleOrderBy(tableName: string, declared?: readonly SortTermIR[]): string {
-  return drizzleOrderTerms(tableName, readOrderFor(declared));
+export function drizzleOrderBy(
+  tableName: string,
+  declared?: readonly SortTermIR[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
+  return drizzleOrderTerms(tableName, readOrderFor(declared), codePoint);
 }
 
 /** The ORDER BY arguments a page sorted by the caller's `?sort=` key takes
@@ -981,8 +987,41 @@ export function drizzleClientSortTieBreak(tableName: string): string {
   return drizzleOrderTerms(tableName, clientSortTieBreak());
 }
 
-function drizzleOrderTerms(tableName: string, terms: readonly ReadOrderTerm[]): string {
-  return terms.map((t) => `${t.direction}(schema.${tableName}.${t.field})`).join(", ");
+/** The `?sort=` whitelist of a paged read — each accepted key to its ORDER BY
+ *  operand, a text or enum column (`codePoint`) collated by code point like
+ *  every other sort (`src/ir/plan/sort-order.ts`) — and the record type that
+ *  holds it. */
+export function drizzleClientSortColumns(
+  tableName: string,
+  fields: readonly string[],
+  codePoint: ReadonlySet<string>,
+): { entries: string; type: string } {
+  const collated = fields.filter((f) => codePoint.has(f));
+  const entries = fields
+    .map((f) => {
+      const col = `schema.${tableName}.${f}`;
+      return `${JSON.stringify(f)}: ${codePoint.has(f) ? `sql\`\${${col}} collate "C"\`` : col}`;
+    })
+    .join(", ");
+  // drizzle's `SQL` by name, not `ReturnType<typeof sql>`: the TS global
+  // `ReturnType` is shadowed by a domain type of that name, an import is not.
+  const type = `Record<string, ${collated.length > 0 ? `${TT.AnyPgColumn} | ${TT.SQL}` : TT.AnyPgColumn}>`;
+  return { entries, type };
+}
+
+/** ORDER BY arguments; a text or enum column (`codePoint`) sorts by code point
+ *  (`COLLATE "C"`, the one sort order — `src/ir/plan/sort-order.ts`). */
+export function drizzleOrderTerms(
+  tableName: string,
+  terms: readonly ReadOrderTerm[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
+  return terms
+    .map((t) => {
+      const col = `schema.${tableName}.${t.field}`;
+      return `${t.direction}(${codePoint.has(t.field) ? `sql\`\${${col}} collate "C"\`` : col})`;
+    })
+    .join(", ");
 }
 
 // ---------------------------------------------------------------------------

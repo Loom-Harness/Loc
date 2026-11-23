@@ -43,7 +43,7 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { requestComponentNamerFor } from "../../_openapi/request-component-names.js";
 import { opUnionResponses } from "../../_payload/union-wire.js";
@@ -52,6 +52,7 @@ import {
   PG_RESTRICT_VIOLATION,
   PG_UNIQUE_VIOLATION,
 } from "../../_persistence/pg-sqlstate.js";
+import { SCHEMA_NAMES } from "../../_symbols/plan.js";
 import { jid } from "../java-ident.js";
 import { renderJavaExpr } from "../render-expr.js";
 import { javaRequestComponentOwners } from "../request-component-owners.js";
@@ -155,7 +156,7 @@ export function renderJavaController(
   ctx: ControllerCtx,
 ): string {
   const route = routeSegmentFor(agg.name);
-  const idClass = ctx.idClass ?? `${agg.name}Id`;
+  const idClass = ctx.idClass ?? javaProjectRef(`${agg.name}Id`);
   // THE UNIFICATION SEAM (api-surface.ts): which routes exist and at which
   // path, and which statuses each route publishes, comes from the shared
   // derivation (`doc` below annotates each mapping from its entry).  This file keeps what is
@@ -536,10 +537,10 @@ export function renderJavaController(
         ? [
             `    @GetMapping`,
             ...allDoc,
-            `    public ${agg.name}Paged all${agg.name}(${JAVA_PAGED_QUERY_PARAMS.join(", ")}) {`,
+            `    public ${SCHEMA_NAMES.paged(agg.name)} all${agg.name}(${JAVA_PAGED_QUERY_PARAMS.join(", ")}) {`,
             ...(listReadGated ? findGateLines(listReadGated) : []),
             `        var result = service.all${agg.name}(page, pageSize, sort, dir);`,
-            `        return new ${agg.name}Paged(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
+            `        return new ${SCHEMA_NAMES.paged(agg.name)}(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
             `    }`,
             ``,
           ]

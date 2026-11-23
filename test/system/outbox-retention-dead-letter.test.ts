@@ -93,9 +93,9 @@ interface RelayShape {
 
 const SHAPES: Record<string, RelayShape> = {
   node: {
-    poll: "and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt))",
-    stalePoll: "lt(schema.loomOutbox.attempts",
-    purge: "db.delete(schema.loomOutbox).where(lt(schema.loomOutbox.dispatchedAt, cutoff))",
+    poll: "and(isNull(schema.outbox.dispatchedAt), isNull(schema.outbox.deadAt))",
+    stalePoll: "lt(schema.outbox.attempts",
+    purge: "db.delete(schema.outbox).where(lt(schema.outbox.dispatchedAt, cutoff))",
     dead: "deadAt: dead ? new Date() : null",
     deadLog: 'event: "event_dead_lettered", id: row.id',
   },

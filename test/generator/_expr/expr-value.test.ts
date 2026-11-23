@@ -153,7 +153,10 @@ function runNode(rows: readonly ValueRow[], Decimal: unknown): Map<string, Raw> 
     const names = Object.keys(row.params);
     // The RS-48 range guard is a typed arrow; drop its annotations so the
     // expression runs as plain JS, and bind the `DomainError` it throws.
-    const code = renderTsExpr(row.expr).replace(/\(__v: number\): number =>/g, "(__v) =>");
+    const code = spellMarkers(renderTsExpr(row.expr)).replace(
+      /\(__v: number\): number =>/g,
+      "(__v) =>",
+    );
     try {
       const fn = new Function("Decimal", "DomainError", ...names, `return (${code});`);
       const args = names.map((k) => {
@@ -294,9 +297,18 @@ function javaProgram(rows: readonly ValueRow[]): string {
     [
       JAVA_IMPORTS,
       "import java.math.BigDecimal;",
-      "import java.util.*;",
+      "import java.util.ArrayList;",
+      "import java.util.Arrays;",
+      "import java.util.HashMap;",
+      "import java.util.HashSet;",
+      "import java.util.List;",
+      "import java.util.Map;",
+      "import java.util.Objects;",
+      "import java.util.Optional;",
+      "import java.util.Set;",
       "import java.util.function.Supplier;",
-      "import java.util.stream.*;",
+      "import java.util.stream.Collectors;",
+      "import java.util.stream.Stream;",
       "",
       "public class Main {",
       ...fns,

@@ -63,10 +63,12 @@ import {
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { componentKeyPrefix, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { opUsesCurrentUser } from "./domain/predicates.js";
+import { exFormTextKind, exFormTextPlan } from "./form-text.js";
 import {
   type ActionBinding,
   type HandleEventClause,
@@ -216,7 +218,7 @@ export function emitLiveViewPages(args: {
   const refLabelAggs = new Set<string>();
   const refLabelBatchAggs = new Set<string>();
   // Aggregates whose loaded rows are plain Ecto structs carrying each field
-  // as a key — the only rows `__loom_label_rows` may read a reference off.
+  // as a key — the only rows `__label_rows` may read a reference off.
   const refLabelSourceAggs = new Set<string>();
   // Module-qualified context name per aggregate, e.g.
   // "PhoenixApp.Sales" — used by the LiveView mount stub to build the
@@ -340,7 +342,7 @@ export function emitLiveViewPages(args: {
           gateUsesUser: !!find.requires && exprUsesCurrentUser(find.requires),
           mapperName: vanillaHistoryMapperName(agg),
           // `principalSource: "param"` — a LiveView is its own process, so the
-          // controller's ambient `Process.get(:loom_current_user)` is nil here.
+          // controller's ambient `Process.get(:current_principal)` is nil here.
           mapperSource: renderVanillaHistoryMapper(appModule, ctx, agg, "param"),
           mapperTakesPrincipal: vanillaHistoryMapperTakesPrincipal(ctx.payloads, agg),
         });
@@ -928,7 +930,7 @@ function renderLiveView(a: RenderArgs): {
     a.locales,
   );
   const heex = walked.heex;
-  // `__loom_ref_labels/1` — re-loads every `@<x>_labels` map the page's
+  // `__ref_labels/1` — re-loads every `@<x>_labels` map the page's
   // `IdLink`s read, from the rows its reads loaded.  Empty when the page
   // renders no labelled reference; every load path then stays byte-identical.
   const refLabelsHelper = renderRefLabelsHelper(
@@ -1015,6 +1017,7 @@ function renderLiveView(a: RenderArgs): {
   // ("new") page route with the trailing `/new` segment stripped
   // (`/customers/new` → `/customers`).
   const createSuccessRoute = page.route ? page.route.replace(/\/new$/, "") : null;
+  const formTextModule = `${appModule}Web.FormText`;
   const handleEventClauses =
     renderHandleEventClauses([
       ...withQueryReload(
@@ -1033,6 +1036,7 @@ function renderLiveView(a: RenderArgs): {
       createSuccessRoute,
       aggregatesByName,
       a.i18nEnabled === true,
+      formTextModule,
     ) +
     renderOperationEventClauses(
       walked.formBindings,
@@ -1042,11 +1046,14 @@ function renderLiveView(a: RenderArgs): {
       aggregatesByName,
       walked.queryBindings,
       a.i18nEnabled === true,
+      formTextModule,
     ) +
     renderWorkflowEventClauses(
       walked.formBindings,
       a.workflowModuleByName,
       a.workflowsTakingActor,
+      formTextModule,
+      a.i18nEnabled === true,
     ) +
     renderTableControlClauses(
       walked.tableControls,
@@ -1111,9 +1118,9 @@ end
 
 /** The line every load path appends once its reads have re-assigned — re-loads
  *  the page's reference labels from the fresh rows (`renderRefLabelsHelper`). */
-const REF_LABELS_RELOAD = "\n\n    socket = __loom_ref_labels(socket)";
+const REF_LABELS_RELOAD = `\n\n    socket = ${RT.refLabels}(socket)`;
 
-/** `defp __loom_ref_labels/1` — one `<Ctx>.<x>_labels(ids)` query per labelled
+/** `defp __ref_labels/1` — one `<Ctx>.<x>_labels(ids)` query per labelled
  *  target, over the ids of every `X id` field on the rows the page's reads
  *  loaded (`@data` record, `@items` page/list).  Batching is the point: an
  *  `IdLink` per table row reads the map, so a page costs one extra query per
@@ -1140,7 +1147,7 @@ function renderRefLabelsHelper(
       for (const f of agg.fields) {
         const t = f.type.kind === "optional" ? f.type.inner : f.type;
         if (t.kind !== "id" || t.targetName !== target) continue;
-        const src = `Enum.map(__loom_label_rows(socket.assigns[:${qb.assign}]), & &1.${snake(f.name)})`;
+        const src = `Enum.map(${RT.labelRows}(socket.assigns[:${qb.assign}]), & &1.${snake(f.name)})`;
         if (seen.has(src)) continue;
         seen.add(src);
         sources.push(src);
@@ -1153,15 +1160,15 @@ function renderRefLabelsHelper(
   }
   if (assigns.length === 0) return "";
   return `
-  defp __loom_ref_labels(socket) do
+  defp ${RT.refLabels}(socket) do
     socket
 ${assigns.join("\n")}
   end
 
-  defp __loom_label_rows(%{__struct__: _} = record), do: [record]
-  defp __loom_label_rows(%{items: items}) when is_list(items), do: items
-  defp __loom_label_rows(items) when is_list(items), do: items
-  defp __loom_label_rows(_), do: []
+  defp ${RT.labelRows}(%{__struct__: _} = record), do: [record]
+  defp ${RT.labelRows}(%{items: items}) when is_list(items), do: items
+  defp ${RT.labelRows}(items) when is_list(items), do: items
+  defp ${RT.labelRows}(_), do: []
 `;
 }
 
@@ -1328,7 +1335,7 @@ function renderTableControlClauses(
     // while deep in the list strands the user on a page that may not exist.
     const resetPage = pageAssign ? `\n      |> assign(:${pageAssign}, 1)` : "";
     clauses.push(`  @impl true
-  def handle_event("loom-sort", %{"key" => key}, socket) do
+  def handle_event("${RT.sortEvent}", %{"key" => key}, socket) do
     dir =
       if socket.assigns.${sortKey} == key and socket.assigns.${sortDir} == "asc",
         do: "desc",
@@ -1349,7 +1356,7 @@ ${reloadBlock}
     // rather than raising (`String.to_integer/1` would) or driving
     // `offset = (page - 1) * page_size` negative (Ecto rejects that).
     clauses.push(`  @impl true
-  def handle_event("loom-page", %{"page" => page}, socket) do
+  def handle_event("${RT.pageEvent}", %{"page" => page}, socket) do
     page_num =
       case Integer.parse(to_string(page)) do
         {n, _} when n > 0 -> n
@@ -1581,12 +1588,14 @@ function renderMount(
       // submits `%{"<agg>" => %{…}}` exactly as a changeset form does.
       if (aggregatesByName.get(fb.name)?.persistedAs === "eventLog") {
         assigns.push(`      |> assign(:form, to_form(%{}, as: "${snake(fb.name)}"))`);
+        assigns.push("      |> assign(:form_error, nil)");
         break;
       }
       // A blank Ecto changeset off the schema struct via the `change_<agg>`
       // context facade.
       assigns.push(
         `      |> assign(:form, ${ctxModule}.change_${snake(fb.name)}(%${ctxModule}.${upperFirst(fb.name)}{}) |> to_form())`,
+        "      |> assign(:form_error, nil)",
       );
       break; // single @form per page
     } else if (fb.kind === "workflow") {
@@ -1597,6 +1606,7 @@ function renderMount(
       // matches, and the same shape an aggregate create form gets for free
       // from `to_form(changeset)` (whose `as:` Ecto derives from the struct).
       assigns.push(`      |> assign(:form, to_form(%{}, as: "${snake(fb.name)}"))`);
+      assigns.push("      |> assign(:form_error, nil)");
       break;
     }
   }
@@ -1655,6 +1665,7 @@ function renderQueryLoadBlock(
   if (qb.kind === "single") {
     const opAssigns = opFbs.flatMap((fb) => [
       `        |> assign(:${fb.op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})`,
+      `        |> assign(:${fb.op}_form_error, nil)`,
       ...(fb.gated
         ? [`        |> assign(:can_${fb.op}, ${ctxModule}.can_${fb.op}_${aggSnake}(record))`]
         : []),
@@ -2039,6 +2050,39 @@ ${body}
   end`;
 }
 
+/** A submit handler's body behind the form text rule: `submitted` is parsed by
+ *  `plan` (`FormText.parse/2`); a refusal re-renders the form with its field
+ *  errors and sends nothing, and an accepted map is bound to `bound` for
+ *  `body`.  `body` unchanged, bound from `submitted`, when no field parses. */
+function parsedSubmit(o: {
+  formText: string;
+  submitted: string;
+  bound: string;
+  plan: string | undefined;
+  formAssign: string;
+  as: string;
+  body: string;
+}): string {
+  if (!o.plan) return `    ${o.bound} = ${o.submitted}\n${o.body}`;
+  const inner = o.body
+    .split("\n")
+    .map((l) => (l.trim() === "" ? l : `    ${l}`))
+    .join("\n");
+  return `    case ${o.formText}.parse(${o.submitted}, ${o.plan}) do
+      {:error, errors} ->
+        {:noreply,
+         assign(socket, :${o.formAssign}, to_form(${o.submitted}, as: "${o.as}", errors: errors, action: :validate))}
+
+      {:ok, ${o.bound}} ->
+${inner}
+    end`;
+}
+
+/** The submitted keys of an aggregate's fields, for its form's text plan. */
+function aggregateFormTextPlan(agg: AggregateIR | undefined): string | undefined {
+  return exFormTextPlan((agg?.fields ?? []).map((f) => ({ key: snake(f.name), type: f.type })));
+}
+
 /** Per-operation `validate_<op>` / `submit_<op>` handle_event clauses.  The
  *  Ecto-changeset form lifecycle: validate on change, submit on submit; on
  *  success re-load the record into its assign, rebuild the op form, flash, and
@@ -2058,6 +2102,7 @@ function renderOperationEventClauses(
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
   queryBindings: readonly QueryBinding[] = [],
   i18nEnabled = false,
+  formText = "FormText",
 ): string {
   const ops = formBindings.filter((fb) => fb.kind === "operation");
   if (ops.length === 0) return "";
@@ -2089,7 +2134,7 @@ function renderOperationEventClauses(
               `\n         |> assign(:can_${g.op}, ${ctxModule}.can_${g.op}_${aggSnake}(record))`,
           )
           .join("");
-        const labelRefresh = refreshLabels ? "\n         |> __loom_ref_labels()" : "";
+        const labelRefresh = refreshLabels ? `\n         |> ${RT.refLabels}()` : "";
         const opIR = aggregatesByName.get(fb.name)?.operations.find((o) => snake(o.name) === op);
         // A merge-patch `update` seam with a `mask unless` write gate evaluates
         // it against the actor, and may deny.
@@ -2103,8 +2148,9 @@ function renderOperationEventClauses(
         // reads and rewrites it.
         const rec = recordAssignFor(fb, queryBindings);
         if (fb.callsOp && opIR) {
-          return renderNamedOpClauses(fb, opIR, ctxModule, aggSnake, rec, {
+          return renderNamedOpClauses(fb, opIR, ctxModule, aggSnake, rec, formText, {
             human,
+            i18n: i18nEnabled,
             succeeded,
             gateRefresh,
             labelRefresh,
@@ -2117,8 +2163,11 @@ function renderOperationEventClauses(
         const errorArm = updateGated
           ? `
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "${human} failed: #{inspect(reason)}")}`
+      {:error, {:forbidden, _detail}} ->
+        ${formRefusal(`${op}_form_error`, refusalText("forbidden", i18nEnabled))}
+
+      {:error, _reason} ->
+        ${formRefusal(`${op}_form_error`, refusalText("internal", i18nEnabled))}`
           : "";
         return `  @impl true
   def handle_event("validate_${op}", params, socket) do
@@ -2134,7 +2183,15 @@ function renderOperationEventClauses(
 
   @impl true
   def handle_event("submit_${op}", params, socket) do
-    params = Map.get(params, "${op}", %{})
+    submitted = Map.get(params, "${op}", %{})
+${parsedSubmit({
+  formText,
+  submitted: "submitted",
+  bound: "params",
+  plan: aggregateFormTextPlan(aggregatesByName.get(fb.name)),
+  formAssign: `${op}_form`,
+  as: op,
+  body: `    socket = assign(socket, :${op}_form_error, nil)
 ${blankOptionalVoLine(aggregatesByName.get(fb.name))}
     case ${submitCall} do
       {:ok, record} ->
@@ -2146,11 +2203,28 @@ ${blankOptionalVoLine(aggregatesByName.get(fb.name))}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign(socket, :${op}_form, to_form(changeset, as: "${op}"))}${errorArm}
-    end
+    end`,
+})}
   end\n`;
       })
       .join("\n")
   );
+}
+
+/** The Elixir expression of a refusal class's sentence: the catalog lookup in
+ *  a translatable page, the source-language text otherwise. */
+function refusalText(cls: "forbidden" | "internal", i18n: boolean): string {
+  const code = wireCode(cls);
+  return i18n
+    ? pgettextCall(code, wireErrorMessage(code))
+    : elixirString(cls === "forbidden" ? CONSTANT_FORBIDDEN_DETAIL : wireErrorMessage(code));
+}
+
+/** A refusal that is not a changeset: it lands in the form's own message
+ *  assign (`@form_error`, `@<op>_form_error`), rendered inside the form as one
+ *  alert — never a flash. */
+function formRefusal(assign: string, message: string): string {
+  return `{:noreply, assign(socket, :${assign}, ${message})}`;
 }
 
 /** The `validate_<op>` / `submit_<op>` pair of a NAMED operation form.
@@ -2167,8 +2241,11 @@ function renderNamedOpClauses(
   ctxModule: string,
   aggSnake: string,
   rec: string,
+  formText: string,
   parts: {
     human: string;
+    /** The page is translatable: a refusal's sentence is a catalog lookup. */
+    i18n: boolean;
     /** The rendered success flash (a catalogued sentence under i18n). */
     succeeded: string;
     gateRefresh: string;
@@ -2179,6 +2256,7 @@ function renderNamedOpClauses(
 ): string {
   const op = fb.op!;
   const { human, succeeded, gateRefresh, labelRefresh, reload } = parts;
+  const errorAssign = `${op}_form_error`;
   const guardErrorModule = `${ctxModule.slice(0, ctxModule.lastIndexOf("."))}.GuardError`;
   const cu = opUsesCurrentUser(opIR);
   const params = opIR.params;
@@ -2188,9 +2266,7 @@ function renderNamedOpClauses(
       ? `%{\n${params
           .map(
             (pp) =>
-              `      ${elixirString(pp.name)} => __op_param(Map.get(raw, ${elixirString(
-                snake(pp.name),
-              )}), :${opParamKind(pp.type)})`,
+              `      ${elixirString(pp.name)} => ${opParamValue(pp.type, `Map.get(raw, ${elixirString(snake(pp.name))})`, formText)}`,
           )
           .join(",\n")}\n    }`
       : "%{}";
@@ -2219,8 +2295,26 @@ function renderNamedOpClauses(
     ? `
 
       {:error, tag, _data} when is_binary(tag) ->
-        {:noreply, put_flash(socket, :error, "${human} failed: #{tag}")}`
+        ${formRefusal(errorAssign, `"${human} failed: #{tag}"`)}`
     : "";
+  const opCase = `case ${call} do
+      ${okArm}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, :${op}_form, to_form(${rawVar === "raw" ? "raw" : "%{}"}, as: "${op}", errors: changeset.errors, action: :validate))}${tagArm}
+
+      {:error, {:forbidden, _detail}} ->
+        ${formRefusal(errorAssign, refusalText("forbidden", parts.i18n))}
+
+      {:error, {_kind, detail}} when is_binary(detail) ->
+        ${formRefusal(errorAssign, "detail")}
+
+      {:error, {_kind, %{detail: detail}}} when is_binary(detail) ->
+        ${formRefusal(errorAssign, "detail")}
+
+      {:error, _reason} ->
+        ${formRefusal(errorAssign, refusalText("internal", parts.i18n))}
+    end`;
   return `  @impl true
   def handle_event("validate_${op}", params, socket) do
     params = Map.get(params, "${op}", %{})
@@ -2229,50 +2323,51 @@ function renderNamedOpClauses(
 
   @impl true
   def handle_event("submit_${op}", ${rawVar === "raw" ? "submitted" : "_submitted"}, socket) do
-${rawVar === "raw" ? `    raw = Map.get(submitted, "${op}", %{})\n` : ""}    params = ${built}
+${
+  rawVar === "raw"
+    ? parsedSubmit({
+        formText,
+        submitted: `Map.get(submitted, "${op}", %{})`,
+        bound: "raw",
+        plan: exFormTextPlan(params.map((pp) => ({ key: snake(pp.name), type: pp.type }))),
+        formAssign: `${op}_form`,
+        as: op,
+        body: `    socket = assign(socket, :${errorAssign}, nil)
+    params = ${built}
 
-    case ${call} do
-      ${okArm}
+    ${opCase}`,
+      })
+    : `    socket = assign(socket, :${errorAssign}, nil)
+    params = ${built}
 
-      {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply, assign(socket, :${op}_form, to_form(${rawVar === "raw" ? "raw" : "%{}"}, as: "${op}", errors: changeset.errors, action: :validate))}${tagArm}
-
-      {:error, {_kind, detail}} when is_binary(detail) ->
-        {:noreply, put_flash(socket, :error, detail)}
-
-      {:error, {_kind, %{detail: detail}}} when is_binary(detail) ->
-        {:noreply, put_flash(socket, :error, detail)}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "${human} failed: #{inspect(reason)}")}
-    end
+    ${opCase}`
+}
   rescue
     # A guard on the op's pure core raises rather than returning; the REST
-    # action answers it as a problem response, a page as a flash.
+    # action answers it as a problem response, a page as the form's message.
     error in ${guardErrorModule} ->
-      {:noreply, put_flash(socket, :error, Exception.message(error))}
+      ${formRefusal(errorAssign, "Exception.message(error)")}
   end\n`;
+}
+
+/** A named op's param read off the submitted map: a parsed field through the
+ *  form text rule (already normalized by `FormText.parse/2`), any other through
+ *  `__op_param/2`. */
+function opParamValue(t: TypeIR, read: string, formText: string): string {
+  const k = exFormTextKind(t);
+  return k
+    ? `${formText}.value(${elixirString(k[0])}, ${read})`
+    : `__op_param(${read}, :${opParamKind(t)})`;
 }
 
 /** The `__op_param/2` kind token for a named op's declared param type — the
  *  buckets a browser form's string needs narrowing into before the op reads it
  *  as it reads a JSON body. */
-type OpParamKind = "int" | "decimal" | "bool" | "vo" | "string";
+type OpParamKind = "bool" | "vo" | "string";
 function opParamKind(t: TypeIR): OpParamKind {
   const inner = t.kind === "optional" ? t.inner : t;
   if (inner.kind === "valueobject") return "vo";
-  if (inner.kind !== "primitive") return "string";
-  switch (inner.name) {
-    case "int":
-    case "long":
-      return "int";
-    case "decimal":
-      return "decimal";
-    case "bool":
-      return "bool";
-    default:
-      return "string";
-  }
+  return inner.kind === "primitive" && inner.name === "bool" ? "bool" : "string";
 }
 
 /** `defp __op_param/2` — one per LiveView, covering every named op form on the
@@ -2289,26 +2384,12 @@ function renderOpParamCoercer(
   for (const fb of ops) {
     if (!fb.callsOp) continue;
     const opIR = aggregatesByName.get(fb.name)?.operations.find((o) => snake(o.name) === fb.op);
-    for (const pp of opIR?.params ?? []) kinds.add(opParamKind(pp.type));
+    for (const pp of opIR?.params ?? []) {
+      if (!exFormTextKind(pp.type)) kinds.add(opParamKind(pp.type));
+    }
   }
   if (kinds.size === 0) return "";
   const groups: string[] = [];
-  if (kinds.has("int")) {
-    groups.push(`  defp __op_param(v, :int) when is_binary(v) do
-    case Integer.parse(v) do
-      {n, ""} -> n
-      _ -> nil
-    end
-  end`);
-  }
-  if (kinds.has("decimal")) {
-    groups.push(`  defp __op_param(v, :decimal) when is_binary(v) do
-    case Decimal.parse(v) do
-      {d, ""} -> d
-      _ -> nil
-    end
-  end`);
-  }
   if (kinds.has("vo")) {
     // A value object left entirely blank is absent, not a map of blanks.
     groups.push(`  defp __op_param(%{} = v, :vo) do
@@ -2402,6 +2483,7 @@ function renderCreateEventClauses(
    *  `problem.forbidden`, resolved by gettext in this process.  Otherwise it is
    *  the constant detail the HTTP 403 body carries — never the failed gate. */
   i18nEnabled = false,
+  formText = "FormText",
 ): string {
   const creates = formBindings.filter((fb) => fb.kind === "aggregate");
   if (creates.length === 0) return "";
@@ -2442,8 +2524,7 @@ function renderCreateEventClauses(
   const eventSourced = createAgg?.persistedAs === "eventLog";
   const gated = lifecycleGates(canonicalCreate(createAgg)).length > 0;
   const usesUser = lifecycleGatesUseCurrentUser(canonicalCreate(createAgg));
-  return `\n  @impl true
-  def handle_event("save_${aggSnake}", %{"${aggSnake}" => params}, socket) do
+  const body = `    socket = assign(socket, :form_error, nil)
 ${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}    case ${ctxModule}.create_${aggSnake}(params${gated ? (usesUser ? ", current_user" : ", nil") : ""}) do
       {:ok, ${okBinding}} ->
         {:noreply,
@@ -2452,8 +2533,8 @@ ${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket
 
       ${
         eventSourced
-          ? `{:error, reason} ->
-        {:noreply, put_flash(socket, :error, "${humanizeOp("create")} failed: #{inspect(reason)}")}`
+          ? `{:error, _reason} ->
+        ${formRefusal("form_error", refusalText("internal", i18nEnabled))}`
           : `{:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}`
       }${
@@ -2461,14 +2542,26 @@ ${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket
           ? `
 
       {:error, {:forbidden, _detail}} ->
-        {:noreply, put_flash(socket, :error, ${
-          i18nEnabled
-            ? pgettextCall(wireCode("forbidden"), wireErrorMessage(wireCode("forbidden")))
-            : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL)
-        })}`
+        ${formRefusal("form_error", refusalText("forbidden", i18nEnabled))}`
           : ""
       }
-    end
+    end`;
+  const plan = aggregateFormTextPlan(createAgg);
+  return `\n  @impl true
+  def handle_event("save_${aggSnake}", %{"${aggSnake}" => ${plan ? "submitted" : "params"}}, socket) do
+${
+  plan
+    ? parsedSubmit({
+        formText,
+        submitted: "submitted",
+        bound: "params",
+        plan,
+        formAssign: "form",
+        as: aggSnake,
+        body,
+      })
+    : body
+}
   end\n`;
 }
 
@@ -2497,6 +2590,8 @@ function renderWorkflowEventClauses(
   formBindings: readonly import("./heex-walker.js").FormBinding[],
   workflowModuleByName: ReadonlyMap<string, string>,
   workflowsTakingActor: ReadonlySet<string> = new Set(),
+  formText = "FormText",
+  i18nEnabled = false,
 ): string {
   const runs = formBindings.filter((fb) => fb.kind === "workflow");
   if (runs.length === 0) return "";
@@ -2517,54 +2612,72 @@ function renderWorkflowEventClauses(
               // census's rule, and these two ARE Elixir string literals (the
               // wire key the workflow module destructures, and the form field
               // name the browser submits).
-              `      ${elixirString(pp.name)} => __wf_param(Map.get(raw, ${elixirString(
-                snake(pp.name),
-              )}), :${wfParamKind(pp.type)})`,
+              `      ${elixirString(pp.name)} => ${wfParamValue(pp.type, `Map.get(raw, ${elixirString(snake(pp.name))})`, formText)}`,
           )
           .join(",\n")}\n    }`
       : "%{}";
-  const coercer =
-    params.length > 0 ? wfParamCoercer(new Set(params.map((pp) => wfParamKind(pp.type)))) : "";
-  return `\n  @impl true
-  def handle_event("run_${wfSnake}", %{"${wfSnake}" => ${rawVar}}, socket) do
-    params = ${built}
-
-    case ${wfModule}.run(params${workflowsTakingActor.has(fb.name) ? ", Map.get(socket.assigns, :current_user)" : ""}) do
+  const coercer = params.some((pp) => !exFormTextKind(pp.type))
+    ? wfParamCoercer(
+        new Set(params.filter((pp) => !exFormTextKind(pp.type)).map((pp) => wfParamKind(pp.type))),
+      )
+    : "";
+  const wfCase = `case ${wfModule}.run(params${workflowsTakingActor.has(fb.name) ? ", Map.get(socket.assigns, :current_user)" : ""}) do
       {:ok, _result} ->
         {:noreply, put_flash(socket, :info, "${humanizeOp(wfSnake)} started")}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}
 
+      {:error, {:forbidden, _detail}} ->
+        ${formRefusal("form_error", refusalText("forbidden", i18nEnabled))}
+
       {:error, {_kind, detail}} when is_binary(detail) ->
-        {:noreply, put_flash(socket, :error, detail)}
+        ${formRefusal("form_error", "detail")}
 
       {:error, {_kind, %{detail: detail}}} when is_binary(detail) ->
-        {:noreply, put_flash(socket, :error, detail)}
+        ${formRefusal("form_error", "detail")}
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "${humanizeOp(wfSnake)} failed: #{inspect(reason)}")}
-    end
+      {:error, _reason} ->
+        ${formRefusal("form_error", refusalText("internal", i18nEnabled))}
+    end`;
+  const body = `    socket = assign(socket, :form_error, nil)
+    params = ${built}
+
+    ${wfCase}`;
+  const plan = exFormTextPlan(params.map((pp) => ({ key: snake(pp.name), type: pp.type })));
+  return `\n  @impl true
+  def handle_event("run_${wfSnake}", %{"${wfSnake}" => ${plan ? "submitted" : rawVar}}, socket) do
+${
+  plan
+    ? parsedSubmit({
+        formText,
+        submitted: "submitted",
+        bound: "raw",
+        plan,
+        formAssign: "form",
+        as: wfSnake,
+        body,
+      })
+    : body
+}
   end\n${coercer}`;
+}
+
+/** A workflow param read off the submitted map: a parsed field through the
+ *  form text rule (already normalized by `FormText.parse/2`), any other through
+ *  `__wf_param/2`. */
+function wfParamValue(t: TypeIR, read: string, formText: string): string {
+  const k = exFormTextKind(t);
+  return k
+    ? `${formText}.value(${elixirString(k[0])}, ${read})`
+    : `__wf_param(${read}, :${wfParamKind(t)})`;
 }
 
 /** The `__wf_param/2` kind token for a workflow param's declared type — the
  *  coarse buckets a browser form's string needs narrowing into. */
-function wfParamKind(t: TypeIR): "int" | "decimal" | "bool" | "string" {
+function wfParamKind(t: TypeIR): "bool" | "string" {
   const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind !== "primitive") return "string";
-  switch (inner.name) {
-    case "int":
-    case "long":
-      return "int";
-    case "decimal":
-    case "money":
-      return "decimal";
-    case "bool":
-      return "bool";
-    default:
-      return "string";
-  }
+  return inner.kind === "primitive" && inner.name === "bool" ? "bool" : "string";
 }
 
 /** Narrow one submitted form value to its declared kind.  Emitted once beside
@@ -2575,26 +2688,10 @@ function wfParamKind(t: TypeIR): "int" | "decimal" | "bool" | "string" {
  *  for an unused kind (`:decimal` on a workflow of int + string params) can
  *  never match and warns "this clause of defp __wf_param/2 is never used" —
  *  fatal under `--warnings-as-errors`. */
-function wfParamCoercer(kinds: ReadonlySet<"int" | "decimal" | "bool" | "string">): string {
+function wfParamCoercer(kinds: ReadonlySet<"bool" | "string">): string {
   // Blank-line-separated groups after the `nil`/`""` pair, in the historical
   // order — an all-kinds coercer is byte-identical to the former constant.
   const groups: string[] = [];
-  if (kinds.has("int")) {
-    groups.push(`  defp __wf_param(v, :int) when is_binary(v) do
-    case Integer.parse(v) do
-      {n, ""} -> n
-      _ -> nil
-    end
-  end`);
-  }
-  if (kinds.has("decimal")) {
-    groups.push(`  defp __wf_param(v, :decimal) when is_binary(v) do
-    case Decimal.parse(v) do
-      {d, ""} -> d
-      _ -> nil
-    end
-  end`);
-  }
   groups.push(
     [
       ...(kinds.has("bool")

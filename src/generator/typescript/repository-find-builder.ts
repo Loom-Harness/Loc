@@ -14,6 +14,7 @@
 // module stays the single import surface the sibling repository builders
 // already reference.
 
+import { codePointSortFields } from "../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   BoundedContextIR,
@@ -49,9 +50,11 @@ import {
   combinePredicate,
   contextFilterPredicate,
   criterionFnName,
+  drizzleClientSortColumns,
   drizzleClientSortTieBreak,
   drizzleKindPredicate,
   drizzleOrderBy,
+  drizzleOrderTerms,
   type FilterBypass,
   lowerToDrizzle,
   reifiableCriterion,
@@ -486,12 +489,15 @@ export function findQueryMethod(
     // default order).  The route's zod enum rejects out-of-whitelist keys at
     // the contract boundary; the `Object.hasOwn` below is the defence for
     // every other caller (and against the prototype chain — see its comment).
-    const sortCols = sortableFields(agg)
-      .map((f) => `${JSON.stringify(f)}: schema.${tableName}.${f}`)
-      .join(", ");
-    const declaredOrder = defaultSortOrder(find.defaultSort)
-      ?.map((t) => `${t.direction}(schema.${tableName}.${t.field})`)
-      .join(", ");
+    const sortCols = drizzleClientSortColumns(
+      tableName,
+      sortableFields(agg),
+      codePointSortFields(agg.fields),
+    );
+    const declaredTerms = defaultSortOrder(find.defaultSort);
+    const declaredOrder = declaredTerms
+      ? drizzleOrderTerms(tableName, declaredTerms, codePointSortFields(agg.fields))
+      : undefined;
     // The paged-only locals step aside for a same-named find param.
     const L = pagedLocalNames(
       [
@@ -511,7 +517,7 @@ export function findQueryMethod(
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${ret}> {`,
       `    const ${L.offset} = (page - 1) * pageSize;`,
-      `    const ${L.sortColumns}: Record<string, AnyPgColumn> = { ${sortCols} };`,
+      `    const ${L.sortColumns}: ${sortCols.type} = { ${sortCols.entries} };`,
       // `Object.hasOwn`, never a bare index: `sort` is CALLER-supplied, and a
       // plain lookup reaches `Object.prototype` — `?sort=constructor` resolved
       // to a Function (bound as an ORDER BY parameter, silently destroying the
@@ -634,7 +640,7 @@ export function findQueryMethod(
         // split is the exact defect shape `not-found-by-id-detail-parity`
         // and `absent-read-envelope-parity` exist to catch; the sibling
         // gate for THIS class is `find-miss-detail-parity.test.ts`.
-        `    if (${L.rootRows}.length === 0) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+        `    if (${L.rootRows}.length === 0) throw new ${T.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
     needsIdsLocal && `    const ${L.rootIds} = ${L.rootRows}.map((r) => r.id);`,
     ...bulkLoadContainmentLines(eagerContains, agg, ctx, L.rootIds),
     associationMapLines(agg, "this.db", "    ", L.rootIds),
@@ -723,7 +729,7 @@ export function runMethod(
   // with the `id` tie-break, or `id` alone (the read-scope order).  Only the
   // first path segment is used in v1 (a direct column); nested / collection
   // sort paths are a v2 concern, already gated by validateRetrievals.
-  const orderByClause = `.orderBy(${drizzleOrderBy(tableName, retrieval.sort)})`;
+  const orderByClause = `.orderBy(${drizzleOrderBy(tableName, retrieval.sort, codePointSortFields(agg.fields))})`;
 
   const eagerContains = eagerContainsOf(agg);
   const needsIdsLocal =

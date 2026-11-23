@@ -6,6 +6,7 @@ import {
   foldedEventNames,
   singleReadOrder,
 } from "../../../ir/plan/index.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   recordDurableLines,
@@ -85,10 +86,11 @@ import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js"
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, DOTNET_RUNTIME } from "../../_symbols/plan.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { csIdSqlType, csJsonSqlType, csSqlType } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
@@ -200,7 +202,7 @@ const PRIM_ROW_CS: Readonly<Record<string, string>> = {
   decimal: "decimal",
   money: "decimal",
   bool: "bool",
-  datetime: "DateTime",
+  datetime: CS_NAME.DateTime,
   date: "DateOnly",
   guid: "Guid",
   // A `json` field and a `File` field's FileRef persist as jsonb (M-T1.2); the
@@ -352,7 +354,15 @@ function idColumn(agg: EnrichedAggregateIR, idClass = `${agg.name}Id`): DapperCo
 }
 
 /** C# row types that are value types: a nullable one reads `.Value`. */
-const CS_VALUE_TYPES = new Set(["int", "long", "decimal", "bool", "DateTime", "DateOnly", "Guid"]);
+const CS_VALUE_TYPES = new Set([
+  "int",
+  "long",
+  "decimal",
+  "bool",
+  CS_NAME.DateTime,
+  "DateOnly",
+  "Guid",
+]);
 
 /** `read` (a nullable row slot of C# type `rowCs`) as its non-null value. */
 function nonNull(read: string, rowCs: string): string {
@@ -2096,7 +2106,7 @@ export function renderDapperRepository(
     ? [
         "        foreach (var __lin in aggregate.DrainProv())",
         "        {",
-        `            await conn.ExecuteAsync(new CommandDefinition("INSERT INTO provenance_records (trace_id, snapshot_id, target_type, field, inputs, computed_value, at, correlation_id, scope_id, actor_id, parent_id) VALUES (@trace_id, @snapshot_id, @target_type, @field, CAST(@inputs AS jsonb), CAST(@computed_value AS jsonb), @at, @correlation_id, @scope_id, @actor_id, @parent_id)", new { trace_id = Guid.NewGuid().ToString(), snapshot_id = __lin.SnapshotId, target_type = __lin.Target.Type, field = __lin.Target.Field, inputs = System.Text.Json.JsonSerializer.Serialize(__lin.Inputs, ProvJson.Options), computed_value = System.Text.Json.JsonSerializer.Serialize(__lin.ComputedValue, ProvJson.Options), at = DateTime.UtcNow, correlation_id = RequestContext.Current?.CorrelationId, scope_id = RequestContext.Current?.ScopeId, actor_id = RequestContext.Current?.ActorId, parent_id = RequestContext.Current?.ParentId }, transaction: __tx, cancellationToken: cancellationToken));`,
+        `            await conn.ExecuteAsync(new CommandDefinition("INSERT INTO provenance_records (trace_id, snapshot_id, target_type, field, inputs, computed_value, at, correlation_id, scope_id, actor_id, parent_id) VALUES (@trace_id, @snapshot_id, @target_type, @field, CAST(@inputs AS jsonb), CAST(@computed_value AS jsonb), @at, @correlation_id, @scope_id, @actor_id, @parent_id)", new { trace_id = Guid.NewGuid().ToString(), snapshot_id = __lin.SnapshotId, target_type = __lin.Target.Type, field = __lin.Target.Field, inputs = System.Text.Json.JsonSerializer.Serialize(__lin.Inputs, ProvJson.Options), computed_value = System.Text.Json.JsonSerializer.Serialize(__lin.ComputedValue, ProvJson.Options), at = ${CS_NAME.DateTime}.UtcNow, correlation_id = ${CS_NAME.RequestContext}.Current?.CorrelationId, scope_id = ${CS_NAME.RequestContext}.Current?.ScopeId, actor_id = ${CS_NAME.RequestContext}.Current?.ActorId, parent_id = ${CS_NAME.RequestContext}.Current?.ParentId }, transaction: __tx, cancellationToken: cancellationToken));`,
         "        }",
       ]
     : [];
@@ -2190,6 +2200,7 @@ export function renderDapperRepository(
     // to a literal ASC/DESC.
     if (pagedReturn(f.returnType)) {
       const fromClause = `FROM ${table}${where}${andFilter(where !== "", f)}`;
+      const codePoint = codePointSortFields(agg.fields);
       const sortArms = sortableFields(agg)
         .filter((wf) => wf !== "id")
         // The KEY is the wire sort name (matched against the request param, so
@@ -2197,10 +2208,14 @@ export function renderDapperRepository(
         // therefore a SQL identifier — a reserved-word column sorted here
         // emitted `ORDER BY order` and failed at RUNTIME, invisible to the
         // compile tier because the whole thing is a string (M-T6.42).
-        .map((wf) => `"${wf}" => "${sqlIdent(snake(wf))}"`)
+        // A text or enum key sorts by code point (`src/ir/plan/sort-order.ts`).
+        .map(
+          (wf) =>
+            `"${wf}" => "${sqlIdent(snake(wf))}${codePoint.has(wf) ? ' COLLATE \\"C\\"' : ""}"`,
+        )
         .join(", ");
       const declaredTerms = defaultSortOrder(f.defaultSort);
-      const declaredOrder = declaredTerms ? dapperOrderSql(declaredTerms) : undefined;
+      const declaredOrder = declaredTerms ? dapperOrderSql(declaredTerms, codePoint) : undefined;
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, ["int page", "int pageSize", "string sort", "string dir"], usesUser)})`,
         `    {`,
@@ -2226,7 +2241,7 @@ export function renderDapperRepository(
                 : []),
             ]
           : [
-              `        var ${L("items")} = ${L("rows")}.Select(Map).ToList();`,
+              `        var ${L("items")} = ${L("rows")}.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`,
               ...(hasAssoc
                 ? [`        await LoadRefsAsync(${L("conn")}, ${L("items")}, ${ct});`]
                 : []),
@@ -2251,11 +2266,11 @@ export function renderDapperRepository(
             : [`        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${ct});`]
           : hasAssoc
             ? [
-                `        var ${L("__roots")} = ${L("rows")}.Select(Map).ToList();`,
+                `        var ${L("__roots")} = ${L("rows")}.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`,
                 `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, ${ct});`,
                 `        return ${L("__roots")};`,
               ]
-            : [`        return ${L("rows")}.Select(Map).ToList();`]),
+            : [`        return ${L("rows")}.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`]),
         `    }`,
       );
     }
@@ -2299,11 +2314,13 @@ export function renderDapperRepository(
         : hasAssoc
           ? [
               absentGuard,
-              `        var ${L("__one")} = new List<${agg.name}> { Map(${L("r")}) };`,
+              `        var ${L("__one")} = new List<${agg.name}> { ${DOTNET_RUNTIME.rowMapper}(${L("r")}) };`,
               `        await LoadRefsAsync(${L("conn")}, ${L("__one")}, ${ct});`,
               `        return ${L("__one")}[0];`,
             ]
-          : [`        return ${L("r")} is null ? ${absent} : Map(${L("r")});`]),
+          : [
+              `        return ${L("r")} is null ? ${absent} : ${DOTNET_RUNTIME.rowMapper}(${L("r")});`,
+            ]),
       `    }`,
     );
   });
@@ -2323,7 +2340,7 @@ export function renderDapperRepository(
     // As on the find path: a refusal is `loom.query-emission-invalid`, not a stub.
     const whereSql = whereToSql(r.where, sqlCtx);
     // The declared terms with the `id` tie-break, or `id` alone (`readOrderFor`).
-    const orderSql = ` ORDER BY ${dapperOrderSql(readOrderFor(r.sort))}`;
+    const orderSql = ` ORDER BY ${dapperOrderSql(readOrderFor(r.sort), codePointSortFields(agg.fields))}`;
     // A retrieval's `ignoring` clause arrives at RUNTIME (the `FilterBypass
     // bypass` port param a workflow's inline `Repo.run(...) ignoring …` binds),
     // so unlike the find path the SQL cannot be decided at emit time: the
@@ -2394,11 +2411,11 @@ export function renderDapperRepository(
           : [`        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${own.ct});`]
         : hasAssoc
           ? [
-              `        var ${L("__roots")} = ${L("rows")}.Select(Map).ToList();`,
+              `        var ${L("__roots")} = ${L("rows")}.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`,
               `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, ${own.ct});`,
               `        return ${L("__roots")};`,
             ]
-          : [`        return ${L("rows")}.Select(Map).ToList();`]),
+          : [`        return ${L("rows")}.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`]),
       `    }`,
     );
   });
@@ -2488,7 +2505,7 @@ export function renderDapperRepository(
       ...(hasContains
         ? []
         : [
-            `    private static ${agg.name} Map(Row r) =>`,
+            `    private static ${agg.name} ${DOTNET_RUNTIME.rowMapper}(Row r) =>`,
             `        ${agg.name}._Create(new ${csStateHolderOf(agg.name)}`,
             "        {",
             ...mapBody,
@@ -2511,17 +2528,17 @@ export function renderDapperRepository(
         : hasAssoc
           ? [
               "        if (r is null) return null;",
-              "        var __one = new List<" + agg.name + "> { Map(r) };",
+              `        var __one = new List<${agg.name}> { ${DOTNET_RUNTIME.rowMapper}(r) };`,
               "        await LoadRefsAsync(conn, __one, cancellationToken);",
               "        return __one[0];",
             ]
-          : ["        return r is null ? null : Map(r);"]),
+          : [`        return r is null ? null : ${DOTNET_RUNTIME.rowMapper}(r);`]),
       "    }",
       "",
       ...writeScopeMethod,
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${idClass}> ids, CancellationToken cancellationToken = default)`,
       "    {",
-      "        if (ids.Count == 0) return Array.Empty<" + agg.name + ">();",
+      `        if (ids.Count == 0) return ${CS_NAME.Array}.Empty<${agg.name}>();`,
       `        ${dapperOpenConn(ns)}`,
       `        var rows = await conn.QueryAsync<Row>(new CommandDefinition(${csSqlLiteral(`SELECT ${colList} FROM ${table} WHERE id = ANY(@ids)${andFilter(true)}`)}, new { ids = ids.Select(x => x.Value).ToArray()${princSuffix} }, cancellationToken: cancellationToken));`,
       ...(hasContains
@@ -2534,11 +2551,11 @@ export function renderDapperRepository(
           : ["        return await HydrateAsync(conn, rows.ToList(), cancellationToken);"]
         : hasAssoc
           ? [
-              "        var __roots = rows.Select(Map).ToList();",
+              `        var __roots = rows.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`,
               "        await LoadRefsAsync(conn, __roots, cancellationToken);",
               "        return __roots;",
             ]
-          : ["        return rows.Select(Map).ToList();"]),
+          : [`        return rows.Select(${DOTNET_RUNTIME.rowMapper}).ToList();`]),
       "    }",
       "",
       ...handleSaveOverloadLines(agg, bclTask),
@@ -2886,7 +2903,7 @@ export function renderDapperDocumentRepository(
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${agg.name}Id> ids, CancellationToken cancellationToken = default)`,
       "    {",
-      `        if (ids.Count == 0) return Array.Empty<${agg.name}>();`,
+      `        if (ids.Count == 0) return ${CS_NAME.Array}.Empty<${agg.name}>();`,
       `        ${dapperOpenConn(ns)}`,
       `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} WHERE id = ANY(@ids)", new { ids = ids.Select(x => x.Value).ToArray() }, cancellationToken: cancellationToken));`,
       `        return __rows.Select(__d => ${deser})${capFilter}.ToList();`,
@@ -3129,7 +3146,7 @@ export function renderDapperEventSourcedRepository(
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${agg.name}Id> ids, CancellationToken cancellationToken = default)`,
       "    {",
-      `        if (ids.Count == 0) return Array.Empty<${agg.name}>();`,
+      `        if (ids.Count == 0) return ${CS_NAME.Array}.Empty<${agg.name}>();`,
       `        var __out = new List<${agg.name}>();`,
       "        foreach (var __id in ids)",
       "        {",
@@ -3314,14 +3331,22 @@ function renderDapperDateOnlyHandler(ns: string): string {
     "    }",
     "",
     "    public override DateOnly Parse(object value) =>",
-    "        value is DateOnly d ? d : DateOnly.FromDateTime((DateTime)value);",
+    `        value is DateOnly d ? d : DateOnly.FromDateTime((${CS_NAME.DateTime})value);`,
     "}",
   );
 }
 
 /** `col DIR, …` — a list of order terms over the candidate's own columns. */
-function dapperOrderSql(terms: readonly ReadOrderTerm[]): string {
+/** ORDER BY text; a text or enum column sorts by code point (`COLLATE "C"`,
+ *  the one sort order — `src/ir/plan/sort-order.ts`). */
+function dapperOrderSql(
+  terms: readonly ReadOrderTerm[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
   return terms
-    .map((t) => `${sqlIdent(snake(t.field))} ${t.direction === "desc" ? "DESC" : "ASC"}`)
+    .map(
+      (t) =>
+        `${sqlIdent(snake(t.field))}${codePoint.has(t.field) ? ' COLLATE \\"C\\"' : ""} ${t.direction === "desc" ? "DESC" : "ASC"}`,
+    )
     .join(", ");
 }

@@ -44,7 +44,7 @@ system PolicyDeny {
   subdomain Core {
     context Vault {
       payload Settled { amt: int }
-      payload Short { need: int }
+      payload Shortfall { need: int }
       // READ-denied — invisible to every caller, mutations 404.
       aggregate Secret with tenantOwned, crudish {
         code: string
@@ -54,7 +54,7 @@ system PolicyDeny {
         balance: int
         // Returning operations are commands: they load through the write
         // scope, so a write-denied aggregate refuses them like `update`.
-        operation settle(amt: int): Settled or Short {
+        operation settle(amt: int): Settled or Shortfall {
           return Settled { amt: amt }
         }
         operation doubled(): int {

@@ -30,6 +30,7 @@ import { type ProvStmt, stmtHasProv } from "../../../ir/util/prov-id.js";
 import { snake } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { collectLeaves, type ProvLeaf } from "../../_stmt/leaves.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
   exLineageValue,
@@ -131,7 +132,7 @@ defmodule ${appModule}.Provenance do
 
   require Logger
 
-  @buffer_key :loom_prov_traces
+  @buffer_key :${RT.provTraces}
 
   @doc "Push one lineage onto the per-process trace buffer; returns it unchanged."
   @spec record(map()) :: map()
@@ -303,6 +304,7 @@ function leavesResolveToColumns(e: ExprIR, columns: ReadonlySet<string>): boolea
     case "method-call":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
       return false;
@@ -353,6 +355,7 @@ function paramLeafNames(e: ExprIR, out: string[] = []): string[] {
     case "method-call":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
       break;

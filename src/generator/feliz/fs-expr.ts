@@ -15,12 +15,15 @@
 // JS leaf table (React/Vue/Svelte/Angular) stays inline in walker-core until
 // the seam extraction converts it.
 
+import { numericOpPlan } from "../../ir/plan/numeric-op.js";
+import type { SortKey } from "../../ir/plan/sort-order.js";
 import type { BinOp, ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { isCollectionType, isDescendingSort } from "../../ir/util/collection-op-site.js";
+import { formatTokens, ISO_SLICE, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
-import { isIntDivWidenedToDecimal } from "../_expr/target.js";
+import { sortByKey } from "../_expr/js-collection-ops.js";
 import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { fsIdent } from "./fs-ident.js";
@@ -108,6 +111,11 @@ export const FS_LEAVES = {
   ternary(cond: string, then: string, otherwise: string): string {
     return `(if ${cond} then ${then} else ${otherwise})`;
   },
+  /** The absence test against `None` (F# absence is the option `None`), with
+   *  `left` spelled in both the test and the present branch. */
+  coalesce(left: string, fallback: string): string {
+    return FS_LEAVES.ternary(FS_LEAVES.binary(left, "None", "=="), fallback, left);
+  },
   convert(value: string, target: PrimitiveName, from: PrimitiveName | undefined): string {
     void from;
     if (target === "string") return `(string ${value})`;
@@ -174,7 +182,7 @@ export const FS_LEAVES = {
  *  reachable from a gated body.) */
 export const FS_COLLECTION_RENDERERS: Record<
   string,
-  (recv: string, args: readonly string[], desc: boolean) => string | undefined
+  (recv: string, args: readonly string[], desc: boolean, key: SortKey) => string | undefined
 > = {
   count: (recv) => `(List.length ${recv})`,
   where: (recv, args) => (args[0] ? `(${recv} |> List.filter ${args[0]})` : recv),
@@ -184,10 +192,25 @@ export const FS_COLLECTION_RENDERERS: Record<
     args[0] ? `(${recv} |> List.exists ${args[0]})` : `(not (List.isEmpty ${recv}))`,
   all: (recv, args) => (args[0] ? `(${recv} |> List.forall ${args[0]})` : "true"),
   map: (recv, args) => (args[0] ? `(${recv} |> List.map ${args[0]})` : recv),
-  sortBy: (recv, args, desc) =>
-    args[0]
-      ? `(${recv} |> List.${desc ? "sortByDescending" : "sortBy"} ${args[0]})`
-      : `(List.sort ${recv})`,
+  // The one sort order (`src/ir/plan/sort-order.ts`): `List.sortWith` is
+  // stable; descending negates the comparison so ties keep order; an absent
+  // key (`None`) sorts last ascending; text and enum keys compare by code
+  // point — Fable iterates a string by UTF-16 unit, so each unit is remapped
+  // into code-point order (a surrogate above U+E000–U+FFFF) and the int lists
+  // compare lexicographically.
+  sortBy: (recv, args, desc, key) => {
+    if (!args[0]) return `(List.sort ${recv})`;
+    const units = (s: string) =>
+      `[ for __c in ${s} -> (let __n = int __c in if __n >= 0xD800 && __n <= 0xDFFF then __n + 0x2000 elif __n >= 0xE000 then __n - 0x800 else __n) ]`;
+    const cmp = (x: string, y: string) =>
+      key.cls === "text" || key.cls === "enum"
+        ? `compare ${units(x)} ${units(y)}`
+        : `compare ${x} ${y}`;
+    const ordered = key.optional
+      ? `(match ka, kb with | None, None -> 0 | None, _ -> 1 | _, None -> -1 | Some __x, Some __y -> ${cmp("__x", "__y")})`
+      : `(${cmp("ka", "kb")})`;
+    return `(${recv} |> List.sortWith (fun __a __b -> let ka = ${args[0]} __a in let kb = ${args[0]} __b in ${desc ? `-${ordered}` : ordered}))`;
+  },
   // `List.truncate` and NOT `List.take`: `List.take` RAISES when the list is
   // shorter than `n`, while Loom's `take` (and JS `.slice(0, n)`, and Dart
   // `.take`) clamps.  A short list is the ordinary case for a page reading a
@@ -215,7 +238,12 @@ export function renderFsCollectionOp(spec: {
 }): string | undefined {
   const render = FS_COLLECTION_RENDERERS[spec.op];
   if (!render) return undefined;
-  return render(spec.recv, spec.args, spec.call ? isDescendingSort(spec.call) : false);
+  return render(
+    spec.recv,
+    spec.args,
+    spec.call ? isDescendingSort(spec.call) : false,
+    sortByKey(spec.call),
+  );
 }
 
 /** The datetime-involving `+`/`-` arms, or `null` to fall through to the plain
@@ -274,18 +302,14 @@ export function fsMoneyBinary(
   right: string,
   e: Extract<ExprIR, { kind: "binary" }>,
 ): string | null {
-  const operand = (t: TypeIR | undefined): "" | "?" | null => {
-    const inner = t?.kind === "optional" ? t.inner : t;
-    if (inner?.kind !== "primitive" || (inner.name !== "money" && inner.name !== "decimal")) {
-      return null;
-    }
-    return t?.kind === "optional" ? "?" : "";
-  };
-  const isNull = (x: ExprIR) => x.kind === "literal" && x.lit === "null";
-  if (isNull(e.left) || isNull(e.right)) return null;
-  const lt = operand(e.leftType);
-  const rt = operand(e.rightType);
-  if (lt === null || rt === null || (lt === "" && rt === "")) return null;
+  // The plan's absent-side ordering / equality between two money/decimal
+  // operands (both F# `decimal`).  An integral side is not lifted into an
+  // option here.
+  const plan = numericOpPlan(e);
+  if (plan.kind !== "absent-ordering" && plan.kind !== "absent-equality") return null;
+  if (plan.left.family === "integral" || plan.right.family === "integral") return null;
+  const lt = plan.left.optional ? "?" : "";
+  const rt = plan.right.optional ? "?" : "";
   const opt = (text: string, t: "" | "?") => (t === "?" ? text : `(Some (${text}))`);
   if (e.op === "==" || e.op === "!=") {
     return FS_LEAVES.binary(opt(left, lt), opt(right, rt), e.op);
@@ -324,7 +348,7 @@ export function fsValueEquality(
  *
  *   1. `/` on two integral operands widens to `decimal` (`5 / 2` is `2.5`) —
  *      the same rule .NET, Java, Elixir and the SQL renderer already honour
- *      through the shared `isIntDivWidenedToDecimal` predicate.  F# is in the
+ *      through the numeric-op plan's `intDivWidened`.  F# is in the
  *      truncating family (`5 / 2 = 2`), so BOTH operands convert.
  *   2. `int` meets `long` — the int side converts up (`int64 x`), else the
  *      operator is a hard F# type error (the int64 spelling of `long` is what
@@ -343,20 +367,31 @@ export function fsNumericBinary(
   right: string,
   e: Extract<ExprIR, { kind: "binary" }>,
 ): string | null {
-  if (isIntDivWidenedToDecimal(e)) return `((decimal ${left}) / (decimal ${right}))`;
+  const plan = numericOpPlan(e);
+  if (plan.kind === "decimal-arithmetic" && plan.intDivWidened) {
+    return `((decimal ${left}) / (decimal ${right}))`;
+  }
+  // Integral vs decimal/money (both F# `decimal`): the integral side converts
+  // up — the scalar side the plan's money / decimal operation names.
+  if (
+    plan.kind === "money" ||
+    plan.kind === "decimal-arithmetic" ||
+    plan.kind === "decimal-comparison"
+  ) {
+    if (plan.left.family === "integral" && plan.right.family !== "integral") {
+      return FS_LEAVES.binary(`(decimal ${left})`, right, e.op);
+    }
+    if (plan.right.family === "integral" && plan.left.family !== "integral") {
+      return FS_LEAVES.binary(left, `(decimal ${right})`, e.op);
+    }
+  }
+  // int vs long: the int side converts up to int64.
   const prim = (t: typeof e.leftType): string | undefined =>
     t?.kind === "primitive" ? t.name : undefined;
   const l = prim(e.leftType);
   const r = prim(e.rightType);
-  if (!l || !r || l === r) return null;
-  const integral = (n: string): boolean => n === "int" || n === "long";
-  const fractional = (n: string): boolean => n === "decimal" || n === "money";
-  // Case 2 — int vs long: the int side converts up to int64.
   if (l === "int" && r === "long") return FS_LEAVES.binary(`(int64 ${left})`, right, e.op);
   if (l === "long" && r === "int") return FS_LEAVES.binary(left, `(int64 ${right})`, e.op);
-  // Case 3 — integral vs decimal/money: the integral side converts up.
-  if (integral(l) && fractional(r)) return FS_LEAVES.binary(`(decimal ${left})`, right, e.op);
-  if (fractional(l) && integral(r)) return FS_LEAVES.binary(left, `(decimal ${right})`, e.op);
   return null;
 }
 
@@ -386,6 +421,11 @@ export function fsNumericBinary(
 // ---------------------------------------------------------------------------
 
 export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+  "string.uncheckedInt": (recv) => `(System.Int32.Parse(${recv}))`,
+  "string.uncheckedLong": (recv) => `(System.Int64.Parse(${recv}))`,
+  "string.uncheckedDecimal": (recv) =>
+    `(System.Decimal.Parse(${recv}, System.Globalization.CultureInfo.InvariantCulture))`,
+  "string.uncheckedDate": (recv) => `(${recv})`,
   "string.trim": (recv) => `(${recv}.Trim())`,
   "string.toUpper": (recv) => `(${recv}.ToUpper())`,
   "string.toLower": (recv) => `(${recv}.ToLower())`,
@@ -480,7 +520,38 @@ export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
     `((${recv}).Substring(0, 8) + (string (System.DateTime.DaysInMonth(${fsPart(recv, 0, 4)}, ${fsPart(recv, 5, 2)}))).PadLeft(2, '0'))`,
   "date.monthsUntil": (recv, args) =>
     `(let ay, am, ad = ${fsPart(recv, 0, 4)}, ${fsPart(recv, 5, 2)}, ${fsPart(recv, 8, 2)} in let by, bm, bd = ${fsPart(args[0]!, 0, 4)}, ${fsPart(args[0]!, 5, 2)}, ${fsPart(args[0]!, 8, 2)} in let m = (by - ay) * 12 + bm - am in let c = min ad (System.DateTime.DaysInMonth(by, bm)) in if m > 0 && c > bd then m - 1 elif m < 0 && c < bd then m + 1 else m)`,
+  // ---- duration — a `System.TimeSpan`; `int64` of a float truncates toward
+  // zero (the catalogue contract).
+  "duration.toDays": (recv) => `(int64 ((${recv}).TotalDays))`,
+  "duration.toHours": (recv) => `(int64 ((${recv}).TotalHours))`,
+  "duration.toMinutes": (recv) => `(int64 ((${recv}).TotalMinutes))`,
+  // ---- formatting — invariant text (the catalogue contract).  Lengths are
+  // this frontend's `.Length` (UTF-16 units).
+  "string.padStart": (recv, args) =>
+    `(let s = ${recv} in let k = max 0 ((${args[0]}) - s.Length) in let p = String.replicate k (${args[1]}) in (if p.Length > k then p.Substring(0, k) else p) + s)`,
+  "string.padEnd": (recv, args) =>
+    `(let s = ${recv} in let k = max 0 ((${args[0]}) - s.Length) in let p = String.replicate k (${args[1]}) in s + (if p.Length > k then p.Substring(0, k) else p))`,
+  "date.format": (recv, args) => fsIsoFormat(`(${recv})`, args[0]!),
+  "datetime.format": (recv, args) =>
+    fsIsoFormat(`((${recv}).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss"))`, args[0]!),
+  "decimal.format": (recv, args) => fsFixed(recv, args[0]!),
+  "money.format": (recv, args) => fsFixed(recv, args[0]!),
 };
+
+/** A pattern printed as `Substring`s of canonical ISO text. */
+function fsIsoFormat(iso: string, pattern: string): string {
+  const parts = formatTokens(patternFromRenderedLiteral(pattern)).map((t) =>
+    t.kind === "literal"
+      ? fsString(t.text)
+      : `${iso}.Substring(${ISO_SLICE[t.field][0]}, ${ISO_SLICE[t.field][1] - ISO_SLICE[t.field][0]})`,
+  );
+  return parts.length === 0 ? `""` : `(${parts.join(" + ")})`;
+}
+
+/** Fixed-point text: half-even, invariant, no negative zero. */
+function fsFixed(x: string, places: string): string {
+  return `(let p = max 0 (${places}) in let r = System.Math.Round((${x}), p, System.MidpointRounding.ToEven) in (if r = 0M then 0M else r).ToString("F" + string p, System.Globalization.CultureInfo.InvariantCulture))`;
+}
 
 /** An integer field of an ISO `YYYY-MM-DD` date text. */
 function fsPart(d: string, start: number, len: number): string {
@@ -699,6 +770,8 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       return FS_LEAVES.unary(e.op, r(e.operand));
     case "ternary":
       return FS_LEAVES.ternary(r(e.cond), r(e.then), r(e.otherwise));
+    case "coalesce":
+      return FS_LEAVES.coalesce(r(e.left), r(e.fallback));
     case "convert":
       return FS_LEAVES.convert(r(e.value), e.target, e.from);
     case "i18nFormat":

@@ -109,7 +109,7 @@ describe("feliz DataGrid (M-T1.1 slice 10e)", () => {
     expect(fs).toContain('"name" ==> box row.name');
     expect(fs).toContain('"sequence" ==> box row.sequence');
     // ...and a computed column carries a LAZY markup thunk instead.
-    expect(fs).toContain('"loom-cell-col3" ==> box (fun () ->');
+    expect(fs).toContain('"cell-col3" ==> box (fun () ->');
     // The child itself is typed `obj array` — it never names `Customer`.
     expect(fs).not.toContain("(rows: Customer list)");
   });

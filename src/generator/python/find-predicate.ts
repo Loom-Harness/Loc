@@ -94,6 +94,7 @@ export const SQLALCHEMY_INTRINSIC_SQL: Record<string, (recv: string, args: strin
   // position test is escaping-free by construction — see
   // `src/util/intrinsics.ts`.
   "string.startsWith": (recv, args) => `(${FUNC}.strpos(${recv}, ${args[0]}) == 1)`,
+  "string.contains": (recv, args) => `(${FUNC}.strpos(${recv}, ${args[0]}) > 0)`,
   // ---- numerics (A3 math batch) -------------------------------------------
   // Postgres round(numeric, n) is already half-away-from-zero (the catalogue
   // contract), so the SQL side needs no mode forcing; min/max are the
@@ -634,6 +635,7 @@ function lower(
     case "match":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
       return null;
@@ -727,6 +729,7 @@ function isColumnRooted(e: ExprIR): boolean {
     case "match":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":
@@ -814,7 +817,7 @@ export function aggUsesPrincipalContextFilter(agg: EnrichedAggregateIR): boolean
  *  `requireCurrentUser()` weave).  Multiple filters conjoin with ` and `.
  *
  *  `bypass` (a read's `ignoring` clause) drops the named capability-origin
- *  filters exactly like the read-scope hook's `loom_ignoring` option.  Returns null
+ *  filters exactly like the read-scope hook's `ignoring` option.  Returns null
  *  when no filter survives (no capability filter, or all bypassed) — emission
  *  then stays byte-identical to the pre-DEBT-02 document repository. */
 export function documentCapabilityBody(

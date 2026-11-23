@@ -51,12 +51,14 @@ import { chromium } from "playwright";
 import { chromiumLaunchOptions } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
 import {
+  FORM_FAILURE_MESSAGES,
   judgeBlankRuleRefused,
   judgeNothingPosted,
   judgeUntouchedTally,
   listRows,
 } from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE, moneyCompareExpected } from "./money-compare-ui.mjs";
+import { judgeSortOrder, SORT_ORDER_ROUTE, sortOrderExpected } from "./sort-order-ui.mjs";
 import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
 import { buildServerModule, findDistRoot, findNodeDeployable, walk } from "./ui-stack.mjs";
 
@@ -197,6 +199,20 @@ const MONEY_COMPARE_PROBES = [
   },
 ];
 
+/** The sort-order probe for a `textProbe: "sort-order"` case:
+ *  `sort-order-ui.ddd` sorts its own page `state`, so there is no seed and no
+ *  backend read, and the verdict is `judgeSortOrder` over the accessibility
+ *  tree. */
+const SORT_ORDER_PROBES = [
+  {
+    name: `the sort order page (${SORT_ORDER_ROUTE}) sorts text by code point and an enum by name`,
+    route: `#${SORT_ORDER_ROUTE}`,
+    api: null,
+    expect: sortOrderExpected(),
+    judge: judgeSortOrder,
+  },
+];
+
 /** The scaffolded-form probes for a `textProbe: "form-spec"` case — the
  *  untouched-submit halves of `form-spec-ui.mjs`, driven over the
  *  accessibility tree: an untouched `Tally` create form sends each required
@@ -249,6 +265,45 @@ const FORM_SPEC_PROBES = [
       await page.waitForTimeout(3_000);
       const why = await judgeBlankRuleRefused(origin, posts, await accessibleText(page));
       if (why.length) throw new Error(why.join("; "));
+    },
+  },
+  {
+    // A refusal other than field errors, then a submit that gets no answer: each
+    // is ONE message inside the form — the refusal's catalog text, the
+    // unreachable sentence — and the form stays on screen.
+    name: "a refused or unanswered submit shows one form message and keeps the form",
+    refuses: true,
+    route: "#/meters/new",
+    expect: [],
+    api: "",
+    async drive(page) {
+      const isCreate = (url) => url.pathname === "/api/meters";
+      const attempt = async (handler, want, label) => {
+        await page.route(isCreate, (r) => (r.request().method() === "POST" ? handler(r) : r.continue()));
+        try {
+          await clickSemantic(page, "Create");
+          await waitForText(page, [want], `after ${label}`);
+        } finally {
+          await page.unroute(isCreate);
+        }
+      };
+      await attempt(
+        (r) =>
+          r.fulfill({
+            status: 409,
+            contentType: "application/problem+json",
+            body: JSON.stringify({
+              type: "about:blank",
+              title: "Conflict",
+              status: 409,
+              code: "problem.version-conflict",
+              detail: FORM_FAILURE_MESSAGES.conflict,
+            }),
+          }),
+        FORM_FAILURE_MESSAGES.conflict,
+        "a 409 refusal",
+      );
+      await attempt((r) => r.abort("failed"), FORM_FAILURE_MESSAGES.unreachable, "a network failure");
     },
   },
 ];
@@ -467,7 +522,9 @@ async function runCase(c) {
     const probes =
       c.textProbe === "money-compare"
         ? MONEY_COMPARE_PROBES
-        : c.textProbe === "form-spec"
+        : c.textProbe === "sort-order"
+          ? SORT_ORDER_PROBES
+          : c.textProbe === "form-spec"
           ? FORM_SPEC_PROBES
           : [...PROBES, ...DRIVEN_PROBES];
     const seeded = c.textProbe ? undefined : await seed(origin);
@@ -545,7 +602,9 @@ async function runCase(c) {
         } else text = await renderRoute(page, origin, probe.route, probe.expect);
         const missing = probe.judge ? [] : probe.expect.filter((e) => !text.includes(e));
         const read = api.find((r) => r.method === "GET" && r.path === probe.api);
-        const bad = api.filter((r) => r.status >= 400);
+        // A probe that FORCES refusals and dropped requests expects them: the
+        // refused answers and aborted requests are its input, not a finding.
+        const bad = probe.refuses ? [] : api.filter((r) => r.status >= 400);
         const why = [];
         if (probe.judge) {
           const wrong = probe.judge(text);
@@ -557,7 +616,8 @@ async function runCase(c) {
         if (bad.length) why.push(`api errors: ${bad.map((r) => `${r.method} ${r.path} -> ${r.status}`).join(", ")}`);
         if (missing.length)
           why.push(`not rendered: ${missing.join(", ")} — accessible text was ${JSON.stringify(text.slice(0, 300))}`);
-        if (errors.length) why.push(errors.slice(0, 3).join(" | "));
+        const found = probe.refuses ? errors.filter((e) => !e.startsWith("requestfailed:")) : errors;
+        if (found.length) why.push(found.slice(0, 3).join(" | "));
         // Cross-origin failures never decide the verdict, but they are printed
         // next to it either way: this leg is hermetic by construction
         // (`--no-web-resources-cdn`), so a cross-origin fetch at all is worth

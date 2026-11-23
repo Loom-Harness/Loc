@@ -97,7 +97,7 @@ describe("vanilla shape: document persistence (DEBT-07)", () => {
     expect(schema).toContain("|> validate_required([:reference, :status, :subtotal, :item_count])");
     // The same invariant-derived validator the relational path emits.
     expect(schema).toContain(
-      '{"Item Count must be at least 0", validation: :number, loom_code: "field.min", loom_params: %{min: 0}}',
+      '{"Item Count must be at least 0", validation: :number, msg_code: "field.min", rule_params: %{min: 0}}',
     );
     // The root changeset casts attrs INTO the embed + stamps version.
     const cs = file(await generateSystemFiles(DOC), "/carts/cart_changeset.ex");
@@ -375,7 +375,9 @@ system Shop {
     expect(repo).toContain("|> Records.all()");
     expect(repo).toContain("total = length(matched)");
     expect(repo).toContain('"title" -> Map.get(row.data, :title)');
-    expect(repo).toContain('if(dir == "desc", do: :desc, else: :asc)');
+    expect(repo).toContain(
+      'if dir == "desc", do: le.(key.(b), key.(a)), else: le.(key.(a), key.(b))',
+    );
     expect(repo).toContain("items = Enum.slice(sorted, offset, page_size)");
     // camelCase envelope keys (Jason serialises the atoms verbatim).
     expect(repo).toContain("pageSize: page_size");

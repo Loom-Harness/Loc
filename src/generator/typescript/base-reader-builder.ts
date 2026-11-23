@@ -41,7 +41,8 @@ import { reasonPhrase, wireStatus } from "../../ir/util/wire-policy.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import { spellMarkers } from "../_imports/symbol.js";
+import { camelId, DOMAIN_NAMES, opGetById, opList, SCHEMA_NAMES } from "../_symbols/plan.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";
 import { renderTsExpr } from "./render-expr.js";
@@ -106,7 +107,8 @@ interface ImportSpec {
  *  name it offers is used in `body` (string contents ignored), and its line
  *  names exactly the used ones — so an import and its usage cannot drift. */
 function derivedImports(body: string, specs: readonly ImportSpec[]): string[] {
-  const scan = stripStringLiterals(body);
+  // A name referenced through its symbol is scanned as spelled.
+  const scan = stripStringLiterals(spellMarkers(body));
   const used = (n: string): boolean => new RegExp(`(^|[^\\w$.])${n}\\b`).test(scan);
   return specs.flatMap((spec) => renderImport(spec, used));
 }
@@ -175,7 +177,7 @@ export function buildBaseReaderFile(
     `export class ${base.name}Repository {`,
     `  private readonly db: Db;`,
     ...concretes.map((c) => `  private readonly ${repoField(c.name)}: ${repoCtor(c.name)};`),
-    `  constructor(db: Db, events: DomainEventDispatcher) {`,
+    `  constructor(db: Db, events: ${TT.DomainEventDispatcher}) {`,
     `    this.db = db;`,
     ...concretes.map((c) => `    this.${repoField(c.name)} = new ${repoCtor(c.name)}(db, events);`),
     `  }`,
@@ -222,7 +224,7 @@ export function buildBaseReaderFile(
     ...new Set(concretes.flatMap((c) => [...collectValueObjects(c, ctx), ...collectEnums(c, ctx)])),
   ];
   const isValueUsed = (n: string): boolean => new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(scan);
-  const fullBody = lines(`type Db = NodePgDatabase<typeof schema>;`, "", body);
+  const fullBody = lines(`type Db = ${TT.NodePgDatabase}<typeof schema>;`, "", body);
   return lines(
     "// Auto-generated.  Do not edit by hand.",
     ...derivedImports(fullBody, [
@@ -295,14 +297,14 @@ export function buildTpcBaseReaderFile(
 ): string {
   const mikro = persistence === "mikroorm";
   const body = lines(
-    mikro ? `type Db = EntityManager;` : `type Db = NodePgDatabase<typeof schema>;`,
+    mikro ? `type Db = EntityManager;` : `type Db = ${TT.NodePgDatabase}<typeof schema>;`,
     "",
     `// Polymorphic ${base.name} reader (TPC / ownTable): each concrete's own read`,
     `// applies that concrete's whole scope; the reads merge in one global \`id\``,
     `// order before paging.  Read-only; writes go through the per-concrete repos.`,
     `export class ${base.name}Repository {`,
     ...concretes.map((c) => `  private readonly ${repoField(c.name)}: ${repoCtor(c.name)};`),
-    `  constructor(db: Db, events: DomainEventDispatcher) {`,
+    `  constructor(db: Db, events: ${TT.DomainEventDispatcher}) {`,
     ...concretes.map((c) => `    this.${repoField(c.name)} = new ${repoCtor(c.name)}(db, events);`),
     `  }`,
     "",
@@ -401,7 +403,7 @@ export function buildMikroBaseReaderFile(
     `export class ${base.name}Repository {`,
     `  private readonly em: EntityManager;`,
     ...concretes.map((c) => `  private readonly ${repoField(c.name)}: ${repoCtor(c.name)};`),
-    `  constructor(em: EntityManager, events: DomainEventDispatcher) {`,
+    `  constructor(em: EntityManager, events: ${TT.DomainEventDispatcher}) {`,
     `    this.em = em;`,
     ...concretes.map((c) => `    this.${repoField(c.name)} = new ${repoCtor(c.name)}(em, events);`),
     `  }`,
@@ -498,7 +500,7 @@ export function buildBaseRoutesFile(
   const forbiddenResponse = (kind: "find" | "getById"): string[] =>
     ops.find((o) => o.kind === kind)?.errorStatuses.includes(forbidden)
       ? [
-          `        ${forbidden}: { description: ${JSON.stringify(reasonPhrase(forbidden))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+          `        ${forbidden}: { description: ${JSON.stringify(reasonPhrase(forbidden))}, content: { "application/problem+json": { schema: ${T.ProblemDetails} } } },`,
         ]
       : [];
   const wireArgs = masked.size > 0 ? ", currentUser" : "";
@@ -511,9 +513,9 @@ export function buildBaseRoutesFile(
     `  pageSize: z.coerce.number().int().min(1).max(500).default(20),`,
     `}).openapi("${B}PageQuery");`,
     `export const ${B}Response = z.discriminatedUnion("type", [${members.join(", ")}]).openapi("${B}Response");`,
-    `export const ${B}Paged = z.object({ items: z.array(${B}Response), page: z.number().int(), pageSize: z.number().int(), total: z.number().int(), totalPages: z.number().int() }).openapi("${B}Paged");`,
+    `export const ${SCHEMA_NAMES.paged(base.name)} = z.object({ items: z.array(${B}Response), page: z.number().int(), pageSize: z.number().int(), total: z.number().int(), totalPages: z.number().int() }).openapi("${SCHEMA_NAMES.paged(base.name)}");`,
     "",
-    `export function ${N.stem(B)}Routes(repo: ${B}Repository): OpenAPIHono {`,
+    `export function ${N.stem(B)}Routes(repo: ${B}Repository): ${T.OpenAPIHono} {`,
     `  const app = newApp();`,
     "",
     `  app.openapi(`,
@@ -521,19 +523,19 @@ export function buildBaseRoutesFile(
     `      method: "get",`,
     `      path: "/",`,
     `      tags: ["${routeSegmentFor(B)}"],`,
-    `      operationId: "all${B}",`,
+    `      operationId: "${camelId(opList(B))}",`,
     `      request: { query: ${B}PageQuery },`,
     `      responses: {`,
-    `        200: { description: "OK", content: { "application/json": { schema: ${B}Paged } } },`,
+    `        200: { description: "OK", content: { "application/json": { schema: ${SCHEMA_NAMES.paged(base.name)} } } },`,
     ...forbiddenResponse("find"),
-    `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ${T.ProblemDetails} } } },`,
     `      },`,
     `    }),`,
     `    async (c) => {`,
     ...handlerHead,
     `      const params = c.req.valid("query");`,
     `      const result = await repo.findPage(params.page, params.pageSize);`,
-    `      return c.json({ ...result, items: result.items.map((r) => repo.toWire(r${wireArgs})) } as z.infer<typeof ${B}Paged>, 200);`,
+    `      return c.json({ ...result, items: result.items.map((r) => repo.toWire(r${wireArgs})) } as z.infer<typeof ${SCHEMA_NAMES.paged(base.name)}>, 200);`,
     `    },`,
     `  );`,
     "",
@@ -584,7 +586,7 @@ function baseReadHandlerHead(
     `${pad}const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser") ?? null;`,
     ...gates.map(
       (g) =>
-        `${pad}if (!currentUser || !(${renderTsExpr(g.find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${g.find.name}`)});`,
+        `${pad}if (!currentUser || !(${renderTsExpr(g.find.requires)})) throw new ${T.ForbiddenError}(${JSON.stringify(`Forbidden: find ${g.find.name}`)});`,
     ),
   ];
 }
@@ -604,13 +606,13 @@ function byIdRouteLines(
     `      method: "get",`,
     `      path: "/{id}",`,
     `      tags: ["${routeSegmentFor(B)}"],`,
-    `      operationId: "get${B}ById",`,
-    `      request: { params: z.object({ id: UuidString }) },`,
+    `      operationId: "${camelId(opGetById(B))}",`,
+    `      request: { params: z.object({ id: ${T.UuidString} }) },`,
     `      responses: {`,
     `        200: { description: "OK", content: { "application/json": { schema: ${B}Response } } },`,
     ...forbiddenResponse,
-    `        ${wireStatus("not-found")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("not-found")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-    `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `        ${wireStatus("not-found")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("not-found")))}, content: { "application/problem+json": { schema: ${T.ProblemDetails} } } },`,
+    `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ${T.ProblemDetails} } } },`,
     `      },`,
     `    }),`,
     `    async (c) => {`,

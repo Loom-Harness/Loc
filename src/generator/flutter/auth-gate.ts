@@ -37,8 +37,11 @@
 
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
+import { RETURN_TO_PARAM } from "../../util/return-to.js";
+import { groupedOperand, groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
 import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { flutterHttpImport } from "./api-client.js";
+import { DART_LEAVES } from "./dart-expr.js";
 import { type DartRecord, renderDartModel } from "./dart-model-emit.js";
 import { dartStringLit } from "./i18n.js";
 
@@ -95,6 +98,7 @@ export function renderFlutterAuthModule(
     "",
     "import 'dart:convert';",
     "",
+    "import 'package:flutter/foundation.dart' show kIsWeb;",
     "import 'package:flutter/material.dart';",
     "import 'package:flutter_riverpod/flutter_riverpod.dart';",
     flutterHttpImport(credentialed),
@@ -123,12 +127,17 @@ export function renderFlutterAuthModule(
     "/// Loom owns no auth runtime: sign-in and sign-out are REDIRECTS to the",
     "/// backend's own handshake.  `_self` makes it a same-tab navigation on the",
     "/// web; on a native surface it opens the system browser.",
-    "Future<void> signIn() => _authRedirect('/auth/login');",
+    "/// On the web, the sign-in returns to the page it started from.",
+    `Future<void> signIn() => _authRedirect('/auth/login', kIsWeb ? {'${RETURN_TO_PARAM}': _here()} : const {});`,
     "",
-    "Future<void> signOut() => _authRedirect('/auth/logout');",
+    "Future<void> signOut() => _authRedirect('/auth/logout', const {});",
     "",
-    "Future<void> _authRedirect(String path) async {",
-    "  await launchUrl(apiUri(path), webOnlyWindowName: '_self');",
+    "/// This page's address, the route included (its fragment, under hash routing).",
+    "String _here() => Uri.base.toString();",
+    "",
+    "Future<void> _authRedirect(String path, Map<String, String> query) async {",
+    "  final uri = apiUri(path);",
+    "  await launchUrl(query.isEmpty ? uri : uri.replace(queryParameters: query), webOnlyWindowName: '_self');",
     "}",
     "",
     "/// Gates the whole app on a session: a spinner while the probe is in flight,",
@@ -224,14 +233,20 @@ export function renderFlutterGate(e: ExprIR, userVar: string): string {
         )})`;
       }
       throw new Error(`flutter UI gate: method '.${e.member}' is not supported in a UI gate.`);
-    case "binary":
-      // Every operator the gate subset admits (`&&`/`||`/`==`/`!=`/comparisons)
+    case "binary": // Every operator the gate subset admits (`&&`/`||`/`==`/`!=`/comparisons)
       // is spelled identically in Dart.
-      return `${renderFlutterGate(e.left, userVar)} ${e.op} ${renderFlutterGate(e.right, userVar)}`;
+      {
+        const [l, r] = groupedOperands(
+          e,
+          (x) => renderFlutterGate(x, userVar),
+          NESTED_COMPARISONS_GROUPED,
+        );
+        return `${l} ${e.op} ${r}`;
+      }
     case "unary":
       return e.op === "!"
         ? `!(${renderFlutterGate(e.operand, userVar)})`
-        : `${e.op}${renderFlutterGate(e.operand, userVar)}`;
+        : `${e.op}${groupedOperand(e, (x) => renderFlutterGate(x, userVar))}`;
     case "paren":
       return `(${renderFlutterGate(e.inner, userVar)})`;
     case "ternary":
@@ -239,6 +254,11 @@ export function renderFlutterGate(e: ExprIR, userVar: string): string {
         e.then,
         userVar,
       )} : ${renderFlutterGate(e.otherwise, userVar)})`;
+    case "coalesce":
+      return DART_LEAVES.coalesce(
+        renderFlutterGate(e.left, userVar),
+        renderFlutterGate(e.fallback, userVar),
+      );
     default:
       throw new Error(
         `flutter UI gate: expression kind '${e.kind}' is not supported in a UI gate.`,

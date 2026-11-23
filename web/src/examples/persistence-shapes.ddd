@@ -34,17 +34,17 @@ system PersistenceShapes {
       abstract aggregate Account inheritanceUsing: ownTable {
         owner: string
         kind: AccountKind
-        invariant owner.length > 0
+        invariant ownerIsRequired: owner.trim().length > 0
         derived display: string = owner
       }
 
       // Each concrete is its own table; both inherit owner / kind and add
       // their own columns.  `with crudish` gives them create/update/destroy.
       aggregate CheckingAccount extends Account inheritanceUsing: ownTable with crudish {
-        overdraftLimit: money
+        overdraftLimit: money check overdraftLimitCannotBeNegative: overdraftLimit >= 0
       }
       aggregate SavingsAccount extends Account inheritanceUsing: ownTable with crudish {
-        interestRate: decimal
+        interestRate: decimal check interestRateMustBeBetweenZeroAndOne: interestRate >= 0 && interestRate <= 1
       }
 
       repository CheckingAccounts for CheckingAccount { }
@@ -55,17 +55,17 @@ system PersistenceShapes {
       // Arithmetic is closed: money ± money → money, money × decimal → money.
       aggregate Invoice with crudish {
         subtotal: money
-        taxRate: decimal
+        taxRate: decimal check taxRateMustBeBetweenZeroAndOne: taxRate >= 0 && taxRate <= 1
         metadata: json                    // opaque JSON primitive
 
         derived tax:   money = subtotal * taxRate
         derived total: money = subtotal + tax
 
-        invariant subtotal >= 0
+        invariant subtotalCannotBeNegative: subtotal >= 0
 
         operation applyDiscount(amount: money) {
-          precondition amount > 0
-          precondition amount <= subtotal
+          precondition discountMustBePositive: amount > 0
+          precondition discountCannotExceedSubtotal: amount <= subtotal
           subtotal := subtotal - amount
         }
       }
@@ -76,23 +76,23 @@ system PersistenceShapes {
       // JSONB blob.  Document/embedded aggregates use an explicit
       // canonical create (no crudish hard-delete on a blob).
       aggregate Receipt shape: document {
-        store: string
+        store: string check storeIsRequired: store.trim().length > 0
         contains lines: ReceiptLine[]
 
         create(store: string) { store := store }
 
         derived total: money = lines.sum(l => l.amount)
-        invariant lines.count >= 0
+        invariant lineCountCannotBeNegative: lines.count >= 0
 
         operation addLine(label: string, amount: money) {
-          precondition amount > 0
+          precondition lineAmountMustBePositive: amount > 0
           lines += ReceiptLine { label: label, amount: amount }
         }
 
         entity ReceiptLine {
-          label: string
+          label: string check lineLabelIsRequired: label.trim().length > 0
           amount: money
-          invariant amount > 0
+          invariant receiptLineAmountMustBePositive: amount > 0
         }
       }
       repository Receipts for Receipt { }
@@ -101,7 +101,7 @@ system PersistenceShapes {
       // The root (owner, label) stays queryable columns; the contained
       // TagItem parts fold into a JSONB column.
       aggregate TagList shape: embedded {
-        owner: string
+        owner: string check tagListOwnerIsRequired: owner.trim().length > 0
         label: string
         contains tags: TagItem[]
 
@@ -110,7 +110,7 @@ system PersistenceShapes {
           label := label
         }
 
-        invariant label.length > 0
+        invariant labelIsRequired: label.trim().length > 0
 
         operation addTag(name: string) {
           tags += TagItem { name: name }
@@ -118,7 +118,7 @@ system PersistenceShapes {
 
         entity TagItem {
           name: string
-          invariant name.length > 0
+          invariant tagNameIsRequired: name.trim().length > 0
         }
       }
       repository TagLists for TagList { }

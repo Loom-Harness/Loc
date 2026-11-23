@@ -603,6 +603,40 @@ end
 
 `Repo.all(<Criterion | Retrieval>(args))` is the read-only port a handler body reads through — the criterion-driven replacement for a list find. A `queryHandler` that returns `<Agg> paged` over it is the ergonomic paged list read (what [`scaffoldPaged`](22-macros.md) expands to): enrichment synthesises a paged find on the aggregate's repository — `findAllBy<Criterion>` for a criterion, `page<Retrieval>` for a retrieval — which is not auto-exposed (the handler's `route` is the exposure). The handler's return is auto-projected to `<Agg>Response paged`, and `page`/`pageSize`/`sort`/`dir` come from the paged infra, never from handler params. Over a retrieval, its `where` filters and its `sort:` is the default order: the route's `sort` defaults to `""`, which the paged find reads as "the declared terms, then `id`" (a whitelisted `sort` column still wins). Emitted on all five backends. The body is the handler's `requires` gates (each a 403 before the read) followed by `let r = Repo.all(<read>(args))` at the top level, then `return r`; anything else is refused with `loom.paged-query-handler-shape`. A sorted retrieval over an aggregate that pages in memory — event-log, `shape: document`/embedded, an inheritance subtype — is refused under the same code (`#sorted-retrieval-shape`) rather than silently left unordered.
 
+A paged handler may also page **every row** with the bare `Repo.all()`. It pages through the aggregate's own list read, the one its derived `GET /<aggs>` runs, so it never loads the table and its page envelope is that route's. This is the only place a bare `Repo.all()` is admitted; in any other body it is still `loom.workflow-load-array-unsupported`. The aggregate must be single-table relational, because only there is the list read paged in SQL; an event-log, document, embedded, inheritance or abstract aggregate is refused (`loom.paged-list-unsupported`). `with scaffoldHandlers` writes this handler as `List<Aggs>` for every such aggregate, unrouted while the derived list route serves the list.
+
+```ddd
+queryHandler ListOrders(): Order paged {
+  let r = Orders.all()
+  return r
+}
+api SalesApi from Sales { route GET "/reports/orders" -> Ordering.ListOrders }
+```
+
+::: tabs backend
+== node
+```ts
+const result = await orders.all(query.page, query.pageSize, query.sort, query.dir);
+```
+== dotnet
+```csharp
+var domain = await _orders.All(query.Page, query.PageSize, query.Sort, query.Dir, cancellationToken);
+```
+== java
+```java
+return ordersRepository.findAllPaged(page, pageSize, sort, dir);
+```
+== python
+```python
+result = await orders.all(page, page_size, sort, dir)
+```
+== elixir
+```elixir
+{:ok, result} <-
+  D.Ordering.list_orders(page_arg, page_size_arg, Map.get(params, "sort", "id"), Map.get(params, "dir", "asc")) do
+```
+:::
+
 ```ddd
 queryHandler ListBig(min: money): Order paged {
   let r = Orders.all(HighValue(min))
@@ -694,7 +728,7 @@ async runFindAllByBigIgnoringSoftDeletable(page?: { offset?: number; limit?: num
 ```python
 # python — the same read
 async def run_find_all_by_big_ignoring_soft_deletable(self, offset: int | None = None, limit: int | None = None) -> list[Order]:
-    query = select(OrderRow).where((OrderRow.total > 10)).execution_options(loom_ignoring=frozenset({"softDeletable"}))
+    query = select(OrderRow).where((OrderRow.total > 10)).execution_options(ignoring=frozenset({"softDeletable"}))
 ```
 
 ### Widened single-row reads
@@ -751,7 +785,7 @@ try {
 == python
 ```python
 async def find_by_id_ignoring_soft_deletable(self, id: ProductId) -> Product | None:
-    row = (await self._session.execute(select(ProductRow).where((ProductRow.id == id)).execution_options(loom_ignoring=frozenset({"softDeletable"})))).scalars().first()
+    row = (await self._session.execute(select(ProductRow).where((ProductRow.id == id)).execution_options(ignoring=frozenset({"softDeletable"})))).scalars().first()
     …
 ```
 == elixir

@@ -18,6 +18,7 @@ import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
@@ -41,7 +42,7 @@ import {
   savedVersionOnInsert,
   savedVersionOnUpdate,
 } from "../saved-version.js";
-import { TT } from "../ts-symbols.js";
+import { T, TT } from "../ts-symbols.js";
 import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
@@ -153,7 +154,7 @@ export function renderMikroDocumentRepository(
         `  async ${f.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
         ...loadLines,
         `    const ${L.matched} = ${pred ? `${allExpr}.filter(${pred})` : allExpr};`,
-        ...inMemoryPagedTailLines(agg, L, f.name),
+        ...inMemoryPagedTailLines(agg, L, f),
         `  }`,
       );
     }
@@ -213,7 +214,7 @@ export function renderMikroDocumentRepository(
         savedVersionOnInsert("      "),
         `    } else {`,
         `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, ${ROW_VERSION_FIELD}: expected }, { data, ${ROW_VERSION_FIELD}: expected + 1 });`,
-        `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+        `      if (affected === 0) throw new ${T.ConcurrencyError}("${agg.name}", aggregate.id as string);`,
         savedVersionOnUpdate("      "),
         `    }`,
       ]
@@ -229,10 +230,10 @@ export function renderMikroDocumentRepository(
   const body = lines(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,
     `  private readonly em: EntityManager;`,
-    `  private readonly events: DomainEventDispatcher;`,
+    `  private readonly events: ${TT.DomainEventDispatcher};`,
     `  constructor(`,
     `    em: EntityManager,`,
-    `    events: DomainEventDispatcher,`,
+    `    events: ${TT.DomainEventDispatcher},`,
     `  ) {`,
     `    this.em = em;`,
     `    this.events = events;`,
@@ -342,9 +343,7 @@ export function renderMikroDocumentRepository(
       `import { ${[agg.name, ...agg.parts.map((p) => p.name)].join(", ")} } from "../../domain/${N.stem(agg.name)}";`,
       voImportLine,
       `import * as Ids from "../../domain/ids";`,
-      versioned
-        ? `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`
-        : `import { AggregateNotFoundError } from "../../domain/errors";`,
+      tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),
       `import type { DomainEventDispatcher } from "../../domain/events";`,
       docAudited && stampImportLine(agg, { update: false }),
       `import { requestLog } from "../../obs/als";`,

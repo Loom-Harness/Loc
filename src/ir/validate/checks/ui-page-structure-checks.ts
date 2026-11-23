@@ -491,6 +491,10 @@ function directlyRenderedRefs(e: ExprIR, out: Extract<ExprIR, { kind: "ref" }>[]
       directlyRenderedRefs(e.then, out);
       directlyRenderedRefs(e.otherwise, out);
       return;
+    case "coalesce":
+      directlyRenderedRefs(e.left, out);
+      directlyRenderedRefs(e.fallback, out);
+      return;
     // Every remaining kind STOPS the descent, deliberately — see the note
     // above: a receiver-rooted shape (`member` / `method-call` / a nested
     // `call`) roots at an `unknown` ref BY DESIGN (an enum name, an api

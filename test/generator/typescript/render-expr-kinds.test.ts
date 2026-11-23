@@ -259,13 +259,13 @@ describe("ts renderTsExpr — A4 collection transformation ops", () => {
 
   it("renders `sortBy(λ)` as an ascending spread-and-sort", () => {
     expect(renderTsExpr(mc("sortBy", [idLambda]))).toBe(
-      "[...(this._items)].sort((__a, __b) => { const ka = ((x) => x)(__a), kb = ((x) => x)(__b); return ka < kb ? -1 : ka > kb ? 1 : 0; })",
+      "[...(this._items)].sort((__a, __b) => { const ka = ((x) => x)(__a), kb = ((x) => x)(__b); const c = ka < kb ? -1 : ka > kb ? 1 : 0; return c; })",
     );
   });
 
   it("renders `sortBy(λ, true)` descending (flips the comparator)", () => {
     expect(renderTsExpr(mc("sortBy", [idLambda, litBool("true")]))).toBe(
-      "[...(this._items)].sort((__a, __b) => { const ka = ((x) => x)(__a), kb = ((x) => x)(__b); return kb < ka ? -1 : kb > ka ? 1 : 0; })",
+      "[...(this._items)].sort((__a, __b) => { const ka = ((x) => x)(__a), kb = ((x) => x)(__b); const c = ka < kb ? -1 : ka > kb ? 1 : 0; return -c; })",
     );
   });
 
@@ -354,13 +354,13 @@ describe("ts renderTsExpr — A4 reductions min(λ)/max(λ)", () => {
   // (same money special-case as min/max).  A non-money projection stays native.
   it("renders a money `sortBy(λ)` via decimal.js `.lt`/`.gt` (native `<` mis-sorts Decimals)", () => {
     expect(renderTsExpr(mc("sortBy", [moneyLambda]))).toBe(
-      "[...(this._items)].sort((__a, __b) => { const ka = ((x) => x.price)(__a), kb = ((x) => x.price)(__b); return ka.lt(kb) ? -1 : ka.gt(kb) ? 1 : 0; })",
+      "[...(this._items)].sort((__a, __b) => { const ka = ((x) => x.price)(__a), kb = ((x) => x.price)(__b); const c = ka.lt(kb) ? -1 : ka.gt(kb) ? 1 : 0; return c; })",
     );
   });
 
   it("renders a descending money `sortBy(λ, true)` via `.lt`/`.gt`", () => {
     expect(renderTsExpr(mc("sortBy", [moneyLambda, litBool("true")]))).toBe(
-      "[...(this._items)].sort((__a, __b) => { const ka = ((x) => x.price)(__a), kb = ((x) => x.price)(__b); return kb.lt(ka) ? -1 : kb.gt(ka) ? 1 : 0; })",
+      "[...(this._items)].sort((__a, __b) => { const ka = ((x) => x.price)(__a), kb = ((x) => x.price)(__b); const c = ka.lt(kb) ? -1 : ka.gt(kb) ? 1 : 0; return -c; })",
     );
   });
 });
@@ -702,22 +702,12 @@ describe("ts renderTsExpr — binary, unary, paren, ternary", () => {
     ).toBe("true ? 1 : 2");
   });
 
-  it("renders the lowered coalesce shape (`left == null ? x : left`) as `??`, left evaluated once", () => {
-    const left = thisProp("nick");
+  it("renders a coalesce node as `??`, left evaluated once", () => {
     const out = renderTsExpr({
-      kind: "ternary",
-      cond: {
-        kind: "binary",
-        op: "==",
-        left,
-        right: { kind: "literal", lit: "null", value: "" },
-        leftType: STRING,
-        rightType: STRING,
-        resultType: BOOL,
-      },
-      // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then`
-      then: litStr("dflt"),
-      otherwise: left,
+      kind: "coalesce",
+      left: thisProp("nick"),
+      fallback: litStr("dflt"),
+      leftType: STRING,
     });
     expect(out).toContain(" ?? ");
     expect(out).not.toContain("=== null");

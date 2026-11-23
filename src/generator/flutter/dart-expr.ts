@@ -11,10 +11,14 @@
 // Flutter is structurally a Feliz clone (a non-JSX, function-call-tree target),
 // so the shape mirrors `FS_LEAVES` exactly; only the syntax is Dart, not F#.
 
+import { numericOpPlan } from "../../ir/plan/numeric-op.js";
+import type { SortKey } from "../../ir/plan/sort-order.js";
 import type { ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
+import { formatTokens, ISO_SLICE, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
+import { sortByKey } from "../_expr/js-collection-ops.js";
 import { MONEY_WIRE_SCALE, MONEY_WIRE_ZERO } from "../money-scale.js";
 
 /** The constructor parameter a component widget's `Slot { }` reads, and the one
@@ -101,6 +105,9 @@ export const DART_LEAVES = {
   ternary(cond: string, then: string, otherwise: string): string {
     return `(${cond} ? ${then} : ${otherwise})`;
   },
+  coalesce(left: string, fallback: string): string {
+    return `(${left} ?? ${fallback})`;
+  },
   convert(value: string, target: string, from: string | undefined): string {
     // `money` is a Dart String holding the wire's digits, so every conversion
     // that touches it goes through the runtime rather than through `double`
@@ -168,7 +175,7 @@ export const DART_LEAVES = {
  *  and `false` for a value-object element. */
 export const DART_COLLECTION_RENDERERS: Record<
   string,
-  (recv: string, args: readonly string[], desc: boolean) => string | undefined
+  (recv: string, args: readonly string[], desc: boolean, key: SortKey) => string | undefined
 > = {
   count: (recv) => `${recv}.length`,
   where: (recv, args) => (args[0] ? `${recv}.where(${args[0]}).toList()` : recv),
@@ -198,12 +205,25 @@ export const DART_COLLECTION_RENDERERS: Record<
   // (The JS family needs none of this: TypeScript DOES contextually type an
   // immediately-invoked arrow's parameter from its argument — measured with
   // `tsc --strict` on the emitted text, since the JS arm predates this work.)
-  sortBy: (recv, args, desc) => {
+  // The one sort order (`src/ir/plan/sort-order.ts`).  Dart's `List.sort` is
+  // not stable, so the arm sorts INDICES and breaks a tie by position;
+  // descending negates the comparison; an absent key sorts last ascending;
+  // text and enum keys (Dart `String`s) compare by `runes` — code points, not
+  // the UTF-16 units `compareTo` uses; a money key (a decimal `String`)
+  // compares by value.
+  sortBy: (recv, args, desc, sortKey) => {
     const key = args[0];
     if (!key) return `([...${recv}]..sort())`;
-    const [lo, hi] = desc ? ["b", "a"] : ["a", "b"];
-    const at = (p: string) => `(${key})(${p}) as Comparable`;
-    return `([...${recv}]..sort((a, b) => Comparable.compare(${at(lo)}, ${at(hi)})))`;
+    const cmp =
+      sortKey.cls === "text" || sortKey.cls === "enum"
+        ? "((String x, String y) { final p = x.runes.toList(); final q = y.runes.toList(); for (var n = 0; n < p.length && n < q.length; n++) { if (p[n] != q[n]) return p[n] - q[n]; } return p.length - q.length; })(ka as String, kb as String)"
+        : sortKey.cls === "money"
+          ? "num.parse(ka as String).compareTo(num.parse(kb as String))"
+          : "Comparable.compare(ka as Comparable, kb as Comparable)";
+    const ordered = sortKey.optional
+      ? `ka == null ? (kb == null ? 0 : 1) : kb == null ? -1 : ${cmp}`
+      : cmp;
+    return `(() { final __l = [...${recv}]; final __ix = List<int>.generate(__l.length, (i) => i); __ix.sort((i, j) { final ka = (${key})(__l[i]); final kb = (${key})(__l[j]); final int c = ${ordered}; final d = ${desc ? "-c" : "c"}; return d != 0 ? d : i - j; }); return [for (final i in __ix) __l[i]]; })()`;
   },
   // Dart's `take`/`skip` already CLAMP on a short list (they are lazy views,
   // not range checks) — matching Loom's contract without a guard, unlike F#'s
@@ -225,7 +245,12 @@ export function renderDartCollectionOp(spec: {
 }): string | undefined {
   const render = DART_COLLECTION_RENDERERS[spec.op];
   if (!render) return undefined;
-  return render(`(${spec.recv})`, spec.args, spec.call ? isDescendingSort(spec.call) : false);
+  return render(
+    `(${spec.recv})`,
+    spec.args,
+    spec.call ? isDescendingSort(spec.call) : false,
+    sortByKey(spec.call),
+  );
 }
 
 /** The datetime-involving `+`/`-` arms, or `null` to fall through to the plain
@@ -282,24 +307,17 @@ export function dartMoneyBinary(
   right: string,
   e: Extract<ExprIR, { kind: "binary" }>,
 ): string | null {
-  const prim = (t: TypeIR | undefined): string | undefined =>
-    t?.kind === "primitive"
-      ? t.name
-      : t?.kind === "optional" && t.inner.kind === "primitive"
-        ? t.inner.name
-        : undefined;
-  if (prim(e.leftType) !== "money" && prim(e.rightType) !== "money") return null;
+  // The plan's money operation, or its absent-side ordering / equality with
+  // a money side.  A null test (`x == null`) stays a plain null check.
+  const plan = numericOpPlan(e);
+  const moneySide =
+    (plan.kind === "money" || plan.kind === "absent-ordering" || plan.kind === "absent-equality") &&
+    (plan.left.family === "money" || plan.right.family === "money");
+  if (!moneySide) return null;
   // A comparison with a `money?` side: `compare` reads an absent value as
   // zero (`null < 10` held), so the null-aware runtime answers instead —
-  // ordering against an absent side is false, equality is null-safe.  The
-  // `null` literal itself (`x == null`) stays a plain null check.
-  const isNull = (x: ExprIR | undefined) => x?.kind === "literal" && x.lit === "null";
-  if (
-    ["<", "<=", ">", ">=", "==", "!="].includes(e.op) &&
-    (e.leftType?.kind === "optional" || e.rightType?.kind === "optional") &&
-    !isNull(e.left) &&
-    !isNull(e.right)
-  ) {
+  // ordering against an absent side is false, equality is null-safe.
+  if (plan.kind === "absent-ordering" || plan.kind === "absent-equality") {
     return `LoomMoney.compareNullable(${left}, '${e.op}', ${right})`;
   }
   switch (e.op) {
@@ -363,6 +381,10 @@ export function dartMoneyBinary(
  *  `component-emit.ts`) — so a page that never calls one of these three never
  *  carries an unused import under `flutter analyze`. */
 export const DART_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+  "string.uncheckedInt": (recv) => `(int.parse(${recv}))`,
+  "string.uncheckedLong": (recv) => `(int.parse(${recv}))`,
+  "string.uncheckedDecimal": (recv) => `(double.parse(${recv}))`,
+  "string.uncheckedDate": (recv) => `(${recv})`,
   "string.trim": (recv) => `(${recv}.trim())`,
   "string.toUpper": (recv) => `(${recv}.toUpperCase())`,
   "string.toLower": (recv) => `(${recv}.toLowerCase())`,
@@ -458,7 +480,33 @@ export const DART_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
     `DateTime.utc(${dartPart(recv, 0, 4)}, ${dartPart(recv, 5, 7)} + 1, 0).toIso8601String().substring(0, 10)`,
   "date.monthsUntil": (recv, args) =>
     `(() { final ay = ${dartPart(recv, 0, 4)}, am = ${dartPart(recv, 5, 7)}, ad = ${dartPart(recv, 8, 10)}; final by = ${dartPart(args[0]!, 0, 4)}, bm = ${dartPart(args[0]!, 5, 7)}, bd = ${dartPart(args[0]!, 8, 10)}; final m = (by - ay) * 12 + bm - am; final last = DateTime.utc(by, bm + 1, 0).day; final c = ad < last ? ad : last; return m > 0 && c > bd ? m - 1 : m < 0 && c < bd ? m + 1 : m; })()`,
+  // ---- duration — a Dart `Duration`; `inDays` / `inHours` / `inMinutes`
+  // divide with `~/`, which truncates toward zero (the catalogue contract).
+  "duration.toDays": (recv) => `(${recv}).inDays`,
+  "duration.toHours": (recv) => `(${recv}).inHours`,
+  "duration.toMinutes": (recv) => `(${recv}).inMinutes`,
+  // ---- formatting — invariant text (the catalogue contract).  Lengths are
+  // this frontend's `.length` (UTF-16 units).
+  "string.padStart": (recv, args) =>
+    `(() { final s = ${recv}; final k = (${args[0]}) - s.length; if (k <= 0) return s; final p = (${args[1]}) * k; return (p.length > k ? p.substring(0, k) : p) + s; })()`,
+  "string.padEnd": (recv, args) =>
+    `(() { final s = ${recv}; final k = (${args[0]}) - s.length; if (k <= 0) return s; final p = (${args[1]}) * k; return s + (p.length > k ? p.substring(0, k) : p); })()`,
+  "date.format": (recv, args) => isoSliceFormat(`(${recv})`, args[0]!, dartString),
+  "datetime.format": (recv, args) =>
+    isoSliceFormat(`(${recv}).toUtc().toIso8601String()`, args[0]!, dartString),
+  "decimal.format": (recv, args) => `LoomMoney.format(${recv}, ${args[0]})`,
+  "money.format": (recv, args) => `LoomMoney.format(${recv}, ${args[0]})`,
 };
+
+/** A pattern printed as `substring`s of canonical ISO text. */
+function isoSliceFormat(iso: string, pattern: string, lit: (s: string) => string): string {
+  const parts = formatTokens(patternFromRenderedLiteral(pattern)).map((t) =>
+    t.kind === "literal"
+      ? lit(t.text)
+      : `${iso}.substring(${ISO_SLICE[t.field][0]}, ${ISO_SLICE[t.field][1]})`,
+  );
+  return parts.length === 0 ? lit("") : `(${parts.join(" + ")})`;
+}
 
 /** An integer field of an ISO `YYYY-MM-DD` date String. */
 function dartPart(d: string, start: number, end: number): string {

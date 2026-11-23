@@ -28,6 +28,7 @@ import { ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { unionMembers } from "../../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { CS_NAME } from "../cs-symbols.js";
 import {
   maskNamer,
   projectEntityArgs,
@@ -97,7 +98,7 @@ function requiresGate(
       const cond = present
         ? `command.PatchedKeys.Contains(${JSON.stringify(present)}) && !(${pred})`
         : `!(${pred})`;
-      return `        if (${cond}) throw new ForbiddenException(${JSON.stringify(
+      return `        if (${cond}) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
         `Forbidden: ${g.source}`,
       )});\n`;
     })
@@ -157,7 +158,7 @@ function lifecycleGate(
               params.has(name) ? `command.${DOMAIN_NAMES.csharp.prop(name)}` : undefined,
           })}))\n` +
           `        {\n` +
-          `            throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});\n` +
+          `            throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(`Forbidden: ${g.source}`)});\n` +
           `        }\n`,
       )
       .join("");
@@ -182,7 +183,7 @@ type DepList = readonly { readonly type: string; readonly field: string }[];
 function whenGate(agg: AggregateIR, op: AggregateIR["operations"][number]): string {
   if (!op.when) return "";
   const pred = renderCsExpr(op.when, { thisName: "aggregate" });
-  return `        if (!(${pred})) throw new DisallowedException(${JSON.stringify(disallowedDetail(op.name, agg.name))});\n`;
+  return `        if (!(${pred})) throw new ${CS_NAME.DisallowedException}(${JSON.stringify(disallowedDetail(op.name, agg.name))});\n`;
 }
 
 /** Namespaces the gates rendered INTO the handler body reach into — the `when`
@@ -262,19 +263,19 @@ export function emitCreateCommandAndHandler(
       `            Action = "create",\n` +
       `            TargetType = ${JSON.stringify(agg.name)},\n` +
       `            TargetId = aggregate.Id.Value.ToString(),\n` +
-      `            Actor = RequestContext.Current?.PrincipalJson(),\n` +
+      `            Actor = ${CS_NAME.RequestContext}.Current?.PrincipalJson(),\n` +
       `            Before = null,\n` +
       `            After = System.Text.Json.JsonSerializer.SerializeToNode(${createAfterExpr}),\n` +
-      `            At = DateTime.UtcNow,\n` +
+      `            At = ${CS_NAME.DateTime}.UtcNow,\n` +
       `            Status = "ok",\n` +
-      `            CorrelationId = RequestContext.Current?.CorrelationId,\n` +
-      `            ScopeId = RequestContext.Current?.ScopeId,\n` +
-      `            ParentId = RequestContext.Current?.ParentId,\n` +
+      `            CorrelationId = ${CS_NAME.RequestContext}.Current?.CorrelationId,\n` +
+      `            ScopeId = ${CS_NAME.RequestContext}.Current?.ScopeId,\n` +
+      `            ParentId = ${CS_NAME.RequestContext}.Current?.ParentId,\n` +
       `        });\n` +
       `        ${renderDotnetLogCall("auditRecorded", [
         { name: "action", valueExpr: `"create"` },
         { name: "target", valueExpr: JSON.stringify(agg.name) },
-        { name: "actor", valueExpr: "RequestContext.Current?.PrincipalJson()" },
+        { name: "actor", valueExpr: `${CS_NAME.RequestContext}.Current?.PrincipalJson()` },
       ])}\n`
     : "";
   const createAuditDeps = auditCreate
@@ -400,19 +401,19 @@ export function emitDestroyCommandAndHandler(
       `            Action = "destroy",\n` +
       `            TargetType = ${JSON.stringify(agg.name)},\n` +
       `            TargetId = command.Id.Value.ToString(),\n` +
-      `            Actor = RequestContext.Current?.PrincipalJson(),\n` +
+      `            Actor = ${CS_NAME.RequestContext}.Current?.PrincipalJson(),\n` +
       `            Before = System.Text.Json.JsonSerializer.SerializeToNode(${destroyBeforeExpr}),\n` +
       `            After = null,\n` +
-      `            At = DateTime.UtcNow,\n` +
+      `            At = ${CS_NAME.DateTime}.UtcNow,\n` +
       `            Status = "ok",\n` +
-      `            CorrelationId = RequestContext.Current?.CorrelationId,\n` +
-      `            ScopeId = RequestContext.Current?.ScopeId,\n` +
-      `            ParentId = RequestContext.Current?.ParentId,\n` +
+      `            CorrelationId = ${CS_NAME.RequestContext}.Current?.CorrelationId,\n` +
+      `            ScopeId = ${CS_NAME.RequestContext}.Current?.ScopeId,\n` +
+      `            ParentId = ${CS_NAME.RequestContext}.Current?.ParentId,\n` +
       `        });\n` +
       `        ${renderDotnetLogCall("auditRecorded", [
         { name: "action", valueExpr: `"destroy"` },
         { name: "target", valueExpr: JSON.stringify(agg.name) },
-        { name: "actor", valueExpr: "RequestContext.Current?.PrincipalJson()" },
+        { name: "actor", valueExpr: `${CS_NAME.RequestContext}.Current?.PrincipalJson()` },
       ])}\n`
     : "";
   const destroyAuditDeps = auditDestroy
@@ -623,19 +624,19 @@ export function emitOperationCommandAndHandler(
         `            Action = ${JSON.stringify(op.name)},\n` +
         `            TargetType = ${JSON.stringify(agg.name)},\n` +
         `            TargetId = command.Id.Value.ToString(),\n` +
-        `            Actor = RequestContext.Current?.PrincipalJson(),\n` +
+        `            Actor = ${CS_NAME.RequestContext}.Current?.PrincipalJson(),\n` +
         `            Before = __before,\n` +
         `            After = __after,\n` +
-        `            At = DateTime.UtcNow,\n` +
+        `            At = ${CS_NAME.DateTime}.UtcNow,\n` +
         `            Status = "ok",\n` +
-        `            CorrelationId = RequestContext.Current?.CorrelationId,\n` +
-        `            ScopeId = RequestContext.Current?.ScopeId,\n` +
-        `            ParentId = RequestContext.Current?.ParentId,\n` +
+        `            CorrelationId = ${CS_NAME.RequestContext}.Current?.CorrelationId,\n` +
+        `            ScopeId = ${CS_NAME.RequestContext}.Current?.ScopeId,\n` +
+        `            ParentId = ${CS_NAME.RequestContext}.Current?.ParentId,\n` +
         `        });\n` +
         `        ${renderDotnetLogCall("auditRecorded", [
           { name: "action", valueExpr: JSON.stringify(op.name) },
           { name: "target", valueExpr: JSON.stringify(agg.name) },
-          { name: "actor", valueExpr: "RequestContext.Current?.PrincipalJson()" },
+          { name: "actor", valueExpr: `${CS_NAME.RequestContext}.Current?.PrincipalJson()` },
         ])}\n`
       : "";
     const auditDeps = audited

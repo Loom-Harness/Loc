@@ -35,30 +35,4 @@ describe("typescript generator — A6 string interpolation", () => {
     expect(domain).toContain('get plain(): string { return "no holes"; }');
     expect(domain).toContain('get greeting(): string { return "Hi " + this._customerName + "!"; }');
   });
-
-  // The key i18n-slice-1 claim: on a backend the `, format` suffix is DROPPED
-  // (the `i18nFormat` node renders as `inner`), so a formatted hole emits
-  // byte-identically to the format-less one.  Only the JS/TS frontends' i18n
-  // runtime formats it — the domain layer never sees the difference.
-  it("drops the ICU format on the backend — byte-identical to a format-less hole", async () => {
-    const domainOf = async (deriveBody: string): Promise<string> => {
-      const src = `
-        context Sales {
-          aggregate Order {
-            total: money
-            ${deriveBody}
-          }
-          repository Orders for Order { }
-        }
-      `;
-      const domain = (await generateBackendFiles(src, "node")).get("domain/order.ts")!;
-      return domain.split("\n").find((l) => l.includes("get display")) ?? "";
-    };
-    const formatted = await domainOf(
-      "derived display: string = `Total: {total, number, ::currency/USD}`",
-    );
-    const plain = await domainOf("derived display: string = `Total: {total}`");
-    expect(formatted).toBe(plain);
-    expect(formatted).toContain('return "Total: " + this._total.toString();');
-  });
 });

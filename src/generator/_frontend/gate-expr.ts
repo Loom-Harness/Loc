@@ -28,6 +28,8 @@
 // the subset (the backend 403 still enforces them).
 
 import type { BinOp, ExprIR } from "../../ir/types/loom-ir.js";
+import { nullishOperand } from "../_expr/coalesce.js";
+import { groupedOperand, groupedOperands } from "../_expr/grouping.js";
 
 /** Binary operators that differ between Loom source and JS output; the rest
  *  pass through verbatim. */
@@ -67,13 +69,12 @@ export function renderGateExpr(e: ExprIR, userVar: string): string {
           .join(", ")})`;
       }
       throw new Error(`UI gate: method '.${e.member}' is not supported in a UI gate.`);
-    case "binary":
-      return `${renderGateExpr(e.left, userVar)} ${JS_BIN_OP[e.op] ?? e.op} ${renderGateExpr(
-        e.right,
-        userVar,
-      )}`;
+    case "binary": {
+      const [l, r] = groupedOperands(e, (x) => renderGateExpr(x, userVar));
+      return `${l} ${JS_BIN_OP[e.op] ?? e.op} ${r}`;
+    }
     case "unary":
-      return `${e.op}${renderGateExpr(e.operand, userVar)}`;
+      return `${e.op}${groupedOperand(e, (x) => renderGateExpr(x, userVar))}`;
     case "paren":
       return `(${renderGateExpr(e.inner, userVar)})`;
     case "ternary":
@@ -81,6 +82,8 @@ export function renderGateExpr(e: ExprIR, userVar: string): string {
         e.then,
         userVar,
       )} : ${renderGateExpr(e.otherwise, userVar)}`;
+    case "coalesce":
+      return `${nullishOperand(renderGateExpr(e.left, userVar))} ?? ${nullishOperand(renderGateExpr(e.fallback, userVar))}`;
     default:
       throw new Error(`UI gate: expression kind '${e.kind}' is not supported in a UI gate.`);
   }

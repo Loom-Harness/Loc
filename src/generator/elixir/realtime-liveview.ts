@@ -26,6 +26,7 @@
 
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { elixirString, snake } from "../../util/naming.js";
+import { groupedOperands } from "../_expr/grouping.js";
 import { toastMemberPath } from "../_frontend/realtime.js";
 
 /** The PubSub topic every domain `emit` broadcasts on.  A realtime LiveView
@@ -72,6 +73,7 @@ export function exprUsesBind(e: ExprIR, bind: string): boolean {
     case "method-call":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":
@@ -131,10 +133,12 @@ export function renderMessageExprElixir(e: ExprIR, bind: string): string {
       }
       case "paren":
         return `(${go(x.inner)})`;
-      case "binary":
-        // Toast messages are strings, so a `+` between parts is Elixir string
+      case "binary": // Toast messages are strings, so a `+` between parts is Elixir string
         // concatenation (`<>`); any other operator passes through verbatim.
-        return `${go(x.left)} ${x.op === "+" ? "<>" : x.op} ${go(x.right)}`;
+        {
+          const [l, r] = groupedOperands(x, go);
+          return `${l} ${x.op === "+" ? "<>" : x.op} ${r}`;
+        }
       default:
         throw new Error(
           `realtime handle_info: unsupported expression kind '${x.kind}' in toast message.`,

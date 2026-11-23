@@ -1,6 +1,7 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { clientSortTieBreak, domainFindShape, foldedEventNames } from "../../../ir/plan/index.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -25,12 +26,14 @@ import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { efReadSource, efWriteSet } from "../ef-read-source.js";
 import { inMemoryOrderByClauseFor, renderCsOrderTerms } from "../find-emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
   AMBIENT_CURRENT_USER,
+  csSortComparer,
   csValueTypeForId,
   renderCsExpr,
   renderCsType,
@@ -305,11 +308,11 @@ export function renderRepositoryImpl(
         "                Field = __lin.Target.Field,",
         "                Inputs = System.Text.Json.JsonSerializer.Serialize(__lin.Inputs, ProvJson.Options),",
         "                ComputedValue = System.Text.Json.JsonSerializer.Serialize(__lin.ComputedValue, ProvJson.Options),",
-        "                At = DateTime.UtcNow,",
-        "                CorrelationId = RequestContext.Current?.CorrelationId,",
-        "                ScopeId = RequestContext.Current?.ScopeId,",
-        "                ActorId = RequestContext.Current?.ActorId,",
-        "                ParentId = RequestContext.Current?.ParentId,",
+        `                At = ${CS_NAME.DateTime}.UtcNow,`,
+        `                CorrelationId = ${CS_NAME.RequestContext}.Current?.CorrelationId,`,
+        `                ScopeId = ${CS_NAME.RequestContext}.Current?.ScopeId,`,
+        `                ActorId = ${CS_NAME.RequestContext}.Current?.ActorId,`,
+        `                ParentId = ${CS_NAME.RequestContext}.Current?.ParentId,`,
         "            });",
         "        }",
         "        if (__prov.Count > 0)",
@@ -355,9 +358,26 @@ export function renderRepositoryImpl(
         .map((wf) => `"${wf}" => "${N.prop(wf)}"`)
         .join(", ");
       const declaredTerms = defaultSortOrder(f.defaultSort);
-      const declaredOrder = declaredTerms ? renderCsOrderTerms(declaredTerms, "e") : undefined;
-      const orderExpr = (asc: boolean): string =>
+      const declaredOrder = declaredTerms
+        ? renderCsOrderTerms(declaredTerms, "e", false, codePointSortFields(agg.fields))
+        : undefined;
+      const byProperty = (asc: boolean): string =>
         `_db.${readSet}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))${renderCsOrderTerms(clientSortTieBreak(), "e", true)}`;
+      // A text or enum key sorts by code point like every other sort
+      // (`src/ir/plan/sort-order.ts`): `Collate` needs the typed property, so
+      // each such key is its own arm; the rest order by name.
+      const codePoint = codePointSortFields(agg.fields);
+      const collatedArms = sortableFields(agg)
+        .filter((wf) => wf !== "id" && codePoint.has(wf))
+        .map((wf) => {
+          const by = (dir: "asc" | "desc") =>
+            `_db.${readSet}${ignore}${filter}${renderCsOrderTerms([{ field: wf, direction: dir }, ...clientSortTieBreak()], "e", false, codePoint)}`;
+          return `"${wf}" => dir == "desc" ? ${by("desc")} : ${by("asc")}`;
+        });
+      const orderExpr = (asc: boolean): string =>
+        collatedArms.length > 0
+          ? `(sort switch { ${collatedArms.join(", ")}, _ => ${byProperty(asc)} })`
+          : byProperty(asc);
       return [
         `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(f.params, usesUser, ["int page", "int pageSize", "string sort", "string dir"])})`,
         "    {",
@@ -583,7 +603,7 @@ export function renderRepositoryImpl(
         : []),
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${idClass}> ids, CancellationToken cancellationToken = default)`,
       "    {",
-      "        if (ids.Count == 0) return Array.Empty<" + agg.name + ">();",
+      `        if (ids.Count == 0) return ${CS_NAME.Array}.Empty<${agg.name}>();`,
       ...loadManyByIdsLines,
       "    }",
       "",
@@ -1159,7 +1179,7 @@ export function renderDocumentRepositoryImpl(
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${idClass}> ids, CancellationToken cancellationToken = default)`,
       "    {",
-      `        if (ids.Count == 0) return Array.Empty<${agg.name}>();`,
+      `        if (ids.Count == 0) return ${CS_NAME.Array}.Empty<${agg.name}>();`,
       "        var __raw = ids.Select(i => i.Value).ToList();",
       `        var __docs = await _db.${setName}.Where(x => __raw.Contains(x.Id)).ToListAsync(cancellationToken);`,
       `        return __docs.Select(__d => ${deser})${capPredicate ? ".Where(_CapabilityVisible)" : ""}.ToList();`,
@@ -1509,7 +1529,7 @@ export function renderEventSourcedRepositoryImpl(
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${idClass}> ids, CancellationToken cancellationToken = default)`,
       "    {",
-      `        if (ids.Count == 0) return Array.Empty<${agg.name}>();`,
+      `        if (ids.Count == 0) return ${CS_NAME.Array}.Empty<${agg.name}>();`,
       `        var __out = new List<${agg.name}>();`,
       "        foreach (var __id in ids)",
       "        {",
@@ -1545,7 +1565,7 @@ export function renderEventSourcedRepositoryImpl(
       "                    Version = __version,",
       "                    Type = __ev.GetType().Name,",
       "                    Data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json),",
-      "                    OccurredAt = DateTime.UtcNow,",
+      `                    OccurredAt = ${CS_NAME.DateTime}.UtcNow,`,
       ...(tenancy
         ? tenancy.metadata.map(
             (m) => `                    ${N.prop(m.field)} = aggregate.${N.prop(m.field)},`,
@@ -1714,7 +1734,7 @@ export function inMemoryRunMethodLines(
       currentUserExpr: AMBIENT_CURRENT_USER,
     });
     const conds = [...caps, `(${where})`].join(" && ");
-    const order = inMemoryOrderByClauseFor(r, x);
+    const order = inMemoryOrderByClauseFor(r, x, agg);
     return [
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> Run${N.type(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
@@ -1771,9 +1791,18 @@ export function inMemoryPagedFindLines(
 ): string[] {
   // `items` yields to a same-named find param (CS0136).
   const items = csLocalNamer(f.params.map((p) => p.name))("items");
+  // One typed arm per sortable key, ordered by the one sort order
+  // (`src/ir/plan/sort-order.ts`) through its comparer; LINQ's sort is stable.
+  const ordered = (key: string, comparer: string | undefined) => {
+    const c = comparer ? `, ${comparer}` : "";
+    return `dir == "desc" ? __matched.OrderByDescending(__x => ${key}${c}) : __matched.OrderBy(__x => ${key}${c})`;
+  };
   const sortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
-    .map((wf) => `"${wf}" => (object?)__x.${N.prop(wf)}`)
+    .map(
+      (wf) =>
+        `"${wf}" => ${ordered(`__x.${N.prop(wf)}`, csSortComparer(agg.fields.find((x) => x.name === wf)?.type))}`,
+    )
     .join(", ");
   return [
     `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(
@@ -1786,10 +1815,7 @@ export function inMemoryPagedFindLines(
     `        var __matched = __all${opts.filter}.ToList();`,
     "        var __total = __matched.Count;",
     "        var __totalPages = pageSize > 0 ? (int)System.Math.Ceiling((double)__total / pageSize) : 0;",
-    `        System.Func<${agg.name}, object?> __key = __x => sort switch { ${sortArms}${
-      sortArms ? ", " : ""
-    }_ => (object?)__x.Id.Value };`,
-    '        var __ordered = dir == "desc" ? __matched.OrderByDescending(__key) : __matched.OrderBy(__key);',
+    `        var __ordered = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => ${declaredInMemoryOrder(agg, f) ?? ordered("__x.Id.Value", undefined)} };`,
     `        var ${items} = __ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();`,
     // The Dapper mirrors carry no `_log` (no Dapper repository logs a read
     // today), so the caller can drop the event rather than reference a field
@@ -1806,6 +1832,28 @@ export function inMemoryPagedFindLines(
     `        return new Paged<${agg.name}>(${items}, page, pageSize, __total, __totalPages);`,
     "    }",
   ];
+}
+
+/** An unwhitelisted `sort` (the route's `""` default) takes the read's
+ *  declared order (`defaultSortOrder`) — term by term, each through the one
+ *  sort order's comparer; `undefined` when the read declares none. */
+function declaredInMemoryOrder(agg: EnrichedAggregateIR, f: FindIR): string | undefined {
+  const declared = defaultSortOrder(f.defaultSort);
+  if (!declared) return undefined;
+  return `__matched${declared
+    .map((t, i) => {
+      const comparer = csSortComparer(agg.fields.find((x) => x.name === t.field)?.type);
+      const method =
+        i === 0
+          ? t.direction === "desc"
+            ? "OrderByDescending"
+            : "OrderBy"
+          : t.direction === "desc"
+            ? "ThenByDescending"
+            : "ThenBy";
+      return `.${method}(__x => __x.${N.prop(t.field)}${comparer ? `, ${comparer}` : ""})`;
+    })
+    .join("")}`;
 }
 
 function findRowsExpr(returnType: TypeIR, result = "result"): string {

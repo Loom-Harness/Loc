@@ -52,7 +52,6 @@ import type {
   RouteIR,
   SystemIR,
   TypeIR,
-  WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
@@ -63,6 +62,7 @@ import {
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
+  type PagedRunStmt,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
@@ -77,9 +77,11 @@ import { hatchStub } from "../../util/hatch.js";
 import { plural } from "../../util/naming.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { HOOK_CONTRACT_NOTE } from "../_hatch-note.js";
+import { spellMarkers } from "../_imports/symbol.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { sortedCsUsings } from "./cs-symbols.js";
+import { DotnetOutputMap } from "./cs-output.js";
+import { CS_NAME, sortedCsUsings } from "./cs-symbols.js";
 import {
   csIdValueClrType,
   projectEntityExpr,
@@ -596,10 +598,7 @@ ${body}
  *  (`queryHandler H(...): <Agg> paged { let r = Repo.run(<Criterion>(args));
  *  return r }`) — carrying the repo/aggregate + the paged FIND method name
  *  (`retrievalName` = `findAllBy<Criterion>`) + the criterion args. */
-function pagedRunStmt(
-  h: Handler,
-  ctx: EnrichedBoundedContextIR,
-): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
+function pagedRunStmt(h: Handler, ctx: EnrichedBoundedContextIR): PagedRunStmt {
   const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
@@ -670,7 +669,7 @@ function renderPagedQueryHandlerClass(
     ...(usesUser ? ["        var currentUser = _currentUser.User;"] : []),
     ...gates.map(
       (g) =>
-        `        if (!(${renderCsExpr(g.expr, gateCtx)})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`,
+        `        if (!(${renderCsExpr(g.expr, gateCtx)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(`Forbidden: ${g.source}`)});`,
     ),
   ];
   const repoParam = `I${agg}Repository ${field.slice(1)}`;
@@ -970,13 +969,20 @@ function handlerSlice(
   const existing = out.get(`${home}/${DOMAIN_NAMES.csharp.type(h.name)}${kind}.cs`);
   const shape = existing === undefined ? undefined : recordShape(existing);
   const standsIn =
-    existing === undefined || (shape !== undefined && shape === recordShape(render(h)));
+    existing === undefined ||
+    (shape !== undefined && shape === recordShape(finalizedLike(out, render(h))));
   const name = standsIn ? h.name : `${h.name}Entry`;
   return {
     record: `${home}/${DOMAIN_NAMES.csharp.type(name)}${kind}.cs`,
     handler: `${home}/${DOMAIN_NAMES.csharp.type(name)}Handler.cs`,
     typed: name === h.name ? h : { ...h, name },
   };
+}
+
+/** `text` spelled the way `out` finalizes a unit — so a rendered record
+ *  compares with one already written, whose markers `out` has spelled. */
+function finalizedLike(out: ReadonlyMap<string, string>, text: string): string {
+  return out instanceof DotnetOutputMap ? out.finalized("<record>.cs", text) : spellMarkers(text);
 }
 
 /** A Mediator record's positional parameter TYPES and the interface it

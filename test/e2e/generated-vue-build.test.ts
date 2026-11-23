@@ -3,12 +3,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import { withoutRefusedThemeTokens } from "../_helpers/theme.js";
 import {
   assertExternUserModulesUnchanged,
   externUserModules,
   externUserPathSource,
   seedExternUserModules,
 } from "./support/extern-user-path.js";
+import { maskedFieldsSource } from "./support/masked-fields.js";
 import { installGeneratedProjectAsync } from "./support/npm-install.js";
 import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
@@ -319,6 +321,14 @@ const EXTERN_USER_PATH: Case = {
   userModules: externUserModules("vue"),
 };
 
+/** Masked fields read null-safely on every scaffolded page
+ *  (`support/masked-fields.ts`). */
+const MASKED_FIELDS: Case = {
+  name: "masked-fields",
+  vueDir: "web",
+  source: maskedFieldsSource("vue"),
+};
+
 const PACKS = ["vuetify@v3", "shadcnVue@v1"] as const;
 
 interface MatrixCase extends Case {
@@ -327,7 +337,7 @@ interface MatrixCase extends Case {
 }
 
 const allCases: MatrixCase[] = [
-  ...[MINIMAL, SCAFFOLD, SHOWCASE, STORE, FILE, GRID].flatMap((c) =>
+  ...[MINIMAL, SCAFFOLD, SHOWCASE, STORE, FILE, GRID, MASKED_FIELDS].flatMap((c) =>
     PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })),
   ),
   // Pack-independent: one pack is enough to prove the shims resolve.
@@ -338,6 +348,10 @@ const allCases: MatrixCase[] = [
  *  existing slot in place; otherwise appends to the single-line or
  *  multi-line `platform: web` deployable block. */
 function injectDesign(src: string, qualified: string): string {
+  return withoutRefusedThemeTokens(retargetDesign(src, qualified), qualified.split("@")[0]!);
+}
+
+function retargetDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
   // Single-line: `deployable web { platform: web, targets: api, ui: WebApp, port: 3003 }`

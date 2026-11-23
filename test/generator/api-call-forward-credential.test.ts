@@ -76,8 +76,8 @@ const FORWARD_MARKERS: Record<Platform, readonly RegExp[]> = {
   ],
   elixir: [
     /def caller_credential\(conn\) do/,
-    /Process\.put\(:loom_caller_credential, caller_credential\(conn\)\)/,
-    /headers: Process\.get\(:loom_caller_credential, \[\]\),/,
+    /Process\.put\(:caller_credential, caller_credential\(conn\)\)/,
+    /headers: Process\.get\(:caller_credential, \[\]\),/,
   ],
 };
 

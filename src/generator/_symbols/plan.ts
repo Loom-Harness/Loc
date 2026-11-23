@@ -17,7 +17,16 @@
 //     sibling operation resolves to that operation's function;
 //   - ambient collisions — a domain type whose name a namespace the unit
 //     imports also exports (`.NET`: `TaskStatus`, `ServiceProvider`) is
-//     bound to the domain type by an alias in each unit that sees both.
+//     bound to the domain type by an alias in each unit that sees both, and a
+//     platform type the .NET emitters name (`DateTime`, the generated
+//     `DomainException`) is spelled `global::` in a project with a domain
+//     type of its simple name (`dotnetPlatformNameTaken`); a
+//     Java domain type whose simple name `java.lang` or a framework import
+//     owns in a unit (`String`, `Record`, `Page`, `Instant`) is spelled fully
+//     qualified there (`javaAmbientClash`, read by the Java import finalizer);
+//     a TypeScript module that binds a model type's name and also needs the
+//     library or runtime symbol of that name imports the symbol under an
+//     alias (`tsClashAlias`, read by the TypeScript import finalizer).
 //
 // Every rule moves ONLY a colliding name: a model without collisions emits
 // exactly what it emitted before the plan existed.
@@ -37,6 +46,7 @@ import {
 } from "../../util/naming.js";
 import { escapeTargetFieldMember, escapeTargetMember } from "../../util/target-identifiers.js";
 import { DOTNET_IMPLICIT_USING_NAMESPACES, DOTNET_NAMESPACE_TYPES } from "./ambient-dotnet.js";
+import { JAVA_LANG_TYPES } from "./ambient-java.js";
 
 /** The targets whose domain layer spells names through the plan. */
 export type SymbolTarget = "ts" | "csharp" | "java" | "python" | "elixir";
@@ -136,6 +146,56 @@ export const DOMAIN_NAMES: Readonly<Record<SymbolTarget, DomainNamer>> = {
 export const pythonModuleFnName: (name: string) => string = pythonModuleFn;
 
 // ---------------------------------------------------------------------------
+// OpenAPI operationIds
+// ---------------------------------------------------------------------------
+
+export type { OpIdTokens } from "../../util/openapi-ids.js";
+/** The operationId every backend stamps on an operation is decided once, as
+ *  an ordered token array (`src/util/openapi-ids.ts`, which the language
+ *  layer's typing pass reads too), and each backend renders it in its own
+ *  idiom with `camelId` / `snakeId`.  The emitters read the deciders from
+ *  here; `test/system/symbol-plan-census.test.ts` refuses an operationId
+ *  spelled by hand. */
+export {
+  camelId,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opHandler,
+  opList,
+  opOperation,
+  opProjection,
+  opProjectionGet,
+  opProjectionList,
+  opUpdate,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+  snakeId,
+} from "../../util/openapi-ids.js";
+
+// ---------------------------------------------------------------------------
+// OpenAPI schema component names
+// ---------------------------------------------------------------------------
+
+/** The schema names derived from a domain name.  Each one is at once a class
+ *  or type every backend emits, the component its published spec names, and
+ *  the type the frontend clients import, so the three agree only when they
+ *  read one decider.  The prefix is the `type` slot every backend shares
+ *  (`upperFirst`). */
+export const SCHEMA_NAMES = {
+  /** The list wrapper of an aggregate, projection or abstract base. */
+  listResponse: (name: string): string => `${upperFirst(name)}ListResponse`,
+  /** The paged carrier of an aggregate or abstract base. */
+  paged: (name: string): string => `${upperFirst(name)}Paged`,
+  /** One observable-workflow instance on the wire. */
+  instanceResponse: (wf: string): string => `${upperFirst(wf)}InstanceResponse`,
+  /** The list carrier of a workflow's instances. */
+  instanceListResponse: (wf: string): string => `${upperFirst(wf)}InstanceListResponse`,
+} as const;
+
+// ---------------------------------------------------------------------------
 // Domain-service operations
 // ---------------------------------------------------------------------------
 
@@ -184,7 +244,81 @@ export function isDotnetAmbientTypeName(name: string): boolean {
   return ALL_AMBIENT.has(name);
 }
 
+/** True when a platform type the generated code references by `name` (a BCL
+ *  type such as `DateTime`, or a type the project generates for itself such as
+ *  `DomainException`) must be spelled `global::`-qualified because a domain type
+ *  of the project — `projectTypes`, its declared simple names — takes that
+ *  name.  The domain type keeps the bare name. */
+export function dotnetPlatformNameTaken(name: string, projectTypes: ReadonlySet<string>): boolean {
+  return projectTypes.has(name);
+}
+
+/** True when `name` is the root namespace of an assembly the generated
+ *  projects reference (`System`, `Microsoft`, `OpenTelemetry`): the global
+ *  namespace's member of that name is found before any `using`, so a domain
+ *  type of the name is reached through an alias in each unit that names it,
+ *  and that unit spells the namespace `global::` (`dotnet/bcl-collision.ts`). */
+export function isDotnetRootNamespace(name: string): boolean {
+  return ROOT_NAMESPACES.has(name);
+}
+
+const ROOT_NAMESPACES: ReadonlySet<string> = new Set(
+  [...Object.keys(DOTNET_NAMESPACE_TYPES), ...DOTNET_IMPLICIT_USING_NAMESPACES].map(
+    (ns) => ns.split(".")[0]!,
+  ),
+);
+
 const AMBIENT_BY_NS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
   Object.entries(DOTNET_NAMESPACE_TYPES).map(([ns, names]) => [ns, new Set(names)]),
 );
 const ALL_AMBIENT: ReadonlySet<string> = new Set(Object.values(DOTNET_NAMESPACE_TYPES).flat());
+
+// ---------------------------------------------------------------------------
+// Ambient type collisions (Java)
+// ---------------------------------------------------------------------------
+
+/** True when a domain type named `name`, referenced from a unit whose
+ *  single-type imports bind `imported` (simple name → fully-qualified name),
+ *  must be spelled fully qualified there: `java.lang` is implicit and cannot be
+ *  un-imported (`String`, `Record`, `Error`), and a framework type the unit
+ *  imports by name (`Page`, `Instant`, `Column`) owns the simple name.  The
+ *  bare name then keeps meaning the platform type in that unit.  `fqn` is the
+ *  domain type's own name, which never clashes with itself. */
+export function javaAmbientClash(
+  name: string,
+  fqn: string,
+  imported: ReadonlyMap<string, string>,
+): boolean {
+  if (JAVA_LANG.has(name)) return true;
+  const bound = imported.get(name);
+  return bound !== undefined && bound !== fqn;
+}
+
+/** True when `name` is a `java.lang` type — in scope in every Java unit. */
+export function isJavaLangTypeName(name: string): boolean {
+  return JAVA_LANG.has(name);
+}
+
+const JAVA_LANG: ReadonlySet<string> = new Set(JAVA_LANG_TYPES);
+
+// ---------------------------------------------------------------------------
+// Import clashes (TypeScript)
+// ---------------------------------------------------------------------------
+
+/** The local name a TypeScript module imports a library or runtime symbol
+ *  under when a model type of the same name is bound in that module: the
+ *  symbol's name behind an underscore (`HTTPException` → `_HTTPException`),
+ *  repeated until it is free in the module.  The model type keeps its name;
+ *  only the module that meets both spells the alias, so a model without such a
+ *  clash emits exactly what it emitted before. */
+export function tsClashAlias(name: string, taken: ReadonlySet<string>): string {
+  let alias = `_${name}`;
+  while (taken.has(alias)) alias = `_${alias}`;
+  return alias;
+}
+
+// ---------------------------------------------------------------------------
+// Runtime names
+// ---------------------------------------------------------------------------
+
+export * from "./runtime-names.js";

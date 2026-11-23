@@ -49,7 +49,7 @@ import { type WriteScopeContext, writeScopeContext } from "../../../ir/util/writ
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, workflowFnCamel } from "../../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import { opUnionResponses } from "../../_payload/union-wire.js";
@@ -57,7 +57,7 @@ import {
   workflowParamPayloads,
   workflowParamTypeSeeds,
 } from "../../_payload/workflow-param-payloads.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, SCHEMA_NAMES } from "../../_symbols/plan.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../_workflow/create-state.js";
 import { renderPostBody } from "../../_workflow/post-body.js";
@@ -405,7 +405,9 @@ export function javaWorkflowStmtTarget(
         if (!v) return "null";
         return renderJavaExpr(v, renderCtx);
       });
-      return [`${indent}var ${bound(s.name)} = ${s.aggName}.create(${args.join(", ")});`];
+      return [
+        `${indent}var ${bound(s.name)} = ${javaProjectRef(s.aggName)}.create(${args.join(", ")});`,
+      ];
     },
     repoLet: (s, indent) => {
       const args = s.args.map((a) => renderJavaExpr(a, renderCtx)).join(", ");
@@ -939,8 +941,8 @@ function workflowVoMappers(
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports, basePkg);
     return [
-      `    private static ${vo} to${vo}(${vo}Request request, String at) {`,
-      `        return new ${vo}(${args});`,
+      `    private static ${javaProjectRef(vo, "valueobject")} to${vo}(${vo}Request request, String at) {`,
+      `        return new ${javaProjectRef(vo, "valueobject")}(${args});`,
       `    }`,
       ``,
     ];
@@ -1321,7 +1323,7 @@ export function renderJavaWorkflows(
           ]
         : selfResult
           ? [
-              `            var workflowResult = new ${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse(${(
+              `            var workflowResult = new ${SCHEMA_NAMES.instanceResponse(wf.name)}(${(
                 wf.instanceWireShape ?? []
               )
                 .map((f) => domainToWire(f.type, `state.${DOMAIN_NAMES.java.prop(f.name)}()`))
@@ -1349,7 +1351,7 @@ export function renderJavaWorkflows(
       er && result?.type.kind === "union"
         ? entryUnionJava(result.type)
         : selfResult
-          ? `${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse`
+          ? SCHEMA_NAMES.instanceResponse(wf.name)
           : result
             ? workflowResultWireRef(result.type)
             : "void";
@@ -1727,7 +1729,7 @@ export function renderJavaWorkflows(
     if (isWorkflowSelfType(wf, result.type)) {
       return [
         ...mapping,
-        `    public ${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse ${DOMAIN_NAMES.java.stem(wf.name)}(${sig}) {`,
+        `    public ${SCHEMA_NAMES.instanceResponse(wf.name)} ${DOMAIN_NAMES.java.stem(wf.name)}(${sig}) {`,
         `        return ${call};`,
         `    }`,
         ``,

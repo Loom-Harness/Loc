@@ -44,18 +44,6 @@ import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/forei
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { errorStatuses, type OpErrorKind, PROBLEM_JSON } from "../../../ir/util/openapi-errors.js";
-import {
-  camelId,
-  opCreate,
-  opDestroy,
-  opFind,
-  opGetById,
-  opList,
-  opOperation,
-  opWorkflow,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../../ir/util/openapi-ids.js";
 import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { routedErrorStatuses, routedParamSource } from "../../../ir/util/routed-handler.js";
 import {
@@ -77,6 +65,20 @@ import {
   type UnionMember,
 } from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
+import {
+  camelId,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opHandler,
+  opList,
+  opOperation,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+  SCHEMA_NAMES,
+} from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
 import { exReasonPhrase, exStatus } from "../wire-policy-ex.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
@@ -356,7 +358,7 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     if (poly) {
       files.set(
         `${schemaDir}/${snake(agg.name)}_paged.ex`,
-        renderAggregatePagedResponseSchema(agg, `${agg.name}Paged`, webModule, true),
+        renderAggregatePagedResponseSchema(agg, SCHEMA_NAMES.paged(agg.name), webModule, true),
       );
     }
     // List response — an abstract base's list is the paged envelope instead.
@@ -704,7 +706,6 @@ function apiOperations(
   // read-only saga-state surface every backend serves.
   for (const wf of observableWorkflows) {
     const slug = snake(wf.name);
-    const T = upperFirst(wf.name);
     ops.push(
       {
         method: "get",
@@ -713,7 +714,9 @@ function apiOperations(
         operationId: camelId(opWorkflowInstances(wf.name)),
         tags: ["workflows"],
         parameters: [],
-        responses: [jsonResponse(200, "OK", `${schemasModule}.${T}InstanceListResponse`)],
+        responses: [
+          jsonResponse(200, "OK", `${schemasModule}.${SCHEMA_NAMES.instanceListResponse(wf.name)}`),
+        ],
       },
       {
         method: "get",
@@ -723,7 +726,7 @@ function apiOperations(
         tags: ["workflows"],
         parameters: [pathIdParam()],
         responses: [
-          jsonResponse(200, "OK", `${schemasModule}.${T}InstanceResponse`),
+          jsonResponse(200, "OK", `${schemasModule}.${SCHEMA_NAMES.instanceResponse(wf.name)}`),
           ...errorResponses("getById", schemasModule),
         ],
       },
@@ -765,7 +768,11 @@ function apiOperations(
         tags,
         parameters: listPagedName ? pagingQueryParams() : [],
         responses: [
-          jsonResponse(200, "OK", `${schemasModule}.${listPagedName ?? `${agg.name}ListResponse`}`),
+          jsonResponse(
+            200,
+            "OK",
+            `${schemasModule}.${listPagedName ?? SCHEMA_NAMES.listResponse(agg.name)}`,
+          ),
           ...resolved(
             derivedOps.find((o) => o.kind === "find" && o.find?.name === "all")?.errorStatuses ??
               [],
@@ -1203,7 +1210,7 @@ function routedOperation(
     method: route.method.toLowerCase() as ApiRoute["method"],
     path: route.path,
     summary: h.name,
-    operationId: `${h.name.charAt(0).toLowerCase()}${h.name.slice(1)}`,
+    operationId: camelId(opHandler(h.name)),
     tags: [route.path.split("/")[1] ?? ""],
     parameters,
     requestBody,
@@ -1618,7 +1625,7 @@ end
 }
 
 function renderAggregateListResponseSchema(agg: AggregateIR, webModule: string): string {
-  const moduleName = `${webModule}.Api.Schemas.${agg.name}ListResponse`;
+  const moduleName = `${webModule}.Api.Schemas.${SCHEMA_NAMES.listResponse(agg.name)}`;
   // Array-type schema — wraps the item schema reference
   return `# Auto-generated.
 defmodule ${moduleName} do
@@ -1627,7 +1634,7 @@ defmodule ${moduleName} do
   require OpenApiSpex
 
   OpenApiSpex.schema(%{
-    title: "${agg.name}ListResponse",
+    title: "${SCHEMA_NAMES.listResponse(agg.name)}",
     type: :array,
     items: %OpenApiSpex.Reference{"$ref": "#/components/schemas/${agg.name}Response"}
   })
@@ -1698,7 +1705,7 @@ function polymorphicOperations(
       tags: [aggSlug],
       parameters: pagingQueryParams().slice(0, 2),
       responses: [
-        jsonResponse(200, "OK", `${schemasModule}.${base.name}Paged`),
+        jsonResponse(200, "OK", `${schemasModule}.${SCHEMA_NAMES.paged(base.name)}`),
         ...statusResponses([...forbidden("find"), 422], schemasModule),
       ],
     },
@@ -1975,7 +1982,7 @@ function renderWorkflowInstanceResponseSchema(
   webModule: string,
 ): string {
   const schemasModule = `${webModule}.Api.Schemas`;
-  const schemaName = `${upperFirst(wf.name)}InstanceResponse`;
+  const schemaName = SCHEMA_NAMES.instanceResponse(wf.name);
   return renderSchemaModule(
     `${schemasModule}.${schemaName}`,
     schemaName,
@@ -1992,7 +1999,7 @@ function renderWorkflowInstanceListResponseSchema(
   webModule: string,
 ): string {
   const schemasModule = `${webModule}.Api.Schemas`;
-  const schemaName = `${upperFirst(wf.name)}InstanceListResponse`;
+  const schemaName = SCHEMA_NAMES.instanceListResponse(wf.name);
   return `# Auto-generated.
 defmodule ${schemasModule}.${schemaName} do
   @moduledoc "OpenApiSpex schema for #{__MODULE__}."
@@ -2002,7 +2009,7 @@ defmodule ${schemasModule}.${schemaName} do
   OpenApiSpex.schema(%{
     title: "${schemaName}",
     type: :array,
-    items: ${schemasModule}.${upperFirst(wf.name)}InstanceResponse
+    items: ${schemasModule}.${SCHEMA_NAMES.instanceResponse(wf.name)}
   })
 end
 `;

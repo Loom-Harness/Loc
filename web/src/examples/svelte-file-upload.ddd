@@ -7,7 +7,7 @@ system SFileUp {
   subdomain Media {
     context Docs {
       aggregate Attachment with crudish {
-        title: string
+        title: string check titleIsRequired: title.trim().length > 0
         blob: File
       }
     }

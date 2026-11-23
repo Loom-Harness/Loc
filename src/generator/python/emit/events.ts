@@ -2,7 +2,7 @@ import { eventsKeepOriginFrame } from "../../../ir/enrich/stream-tenancy.js";
 import type { BoundedContextIR, EventIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, PYTHON_RUNTIME } from "../../_symbols/plan.js";
 import { PY } from "../py-symbols.js";
 import { renderPyType } from "../render-expr.js";
 
@@ -32,7 +32,10 @@ export function renderPyEvents(ctx: BoundedContextIR): string {
     "",
     "",
     hasEvents
-      ? `DomainEvent = ${ctx.events.map((e) => e.name).join(" | ")}`
+      ? // The module's own event classes, as markers: a framework name an
+        // event shares (`Callable`, `ValueError`) is renamed in this module,
+        // and a marker is never mistaken for that framework use.
+        `DomainEvent = ${ctx.events.map((e) => pyRef(EVENTS_MODULE, e.name)).join(" | ")}`
       : `DomainEvent = ${PY.Never}`,
     "",
     "",
@@ -60,6 +63,8 @@ export function renderPyEvents(ctx: BoundedContextIR): string {
  *  list per HTTP request, runs it after `session.commit()` and drops it on a
  *  rollback; off the request path (seeds, the outbox relay, the scheduler, a
  *  broker consumer) it is `None`, and dispatch stays immediate. */
+/** This module's own dotted path. */
+const EVENTS_MODULE = "app.domain.events";
 const CONTEXT_VAR = pyRef("contextvars", "ContextVar");
 const CALLABLE = pyRef("collections.abc", "Callable");
 const AWAITABLE = pyRef("collections.abc", "Awaitable");
@@ -70,7 +75,7 @@ const POST_COMMIT_LINES: readonly string[] = [
   "# runs it after the commit and drops it on a rollback.  None off the request",
   "# path (seeds, relay, scheduler, consumers): dispatch there stays immediate.",
   `post_commit: ${CONTEXT_VAR}[list[${CALLABLE}[[], ${AWAITABLE}[None]]] | None] = ${CONTEXT_VAR}(`,
-  '    "loom_post_commit", default=None',
+  `    "${PYTHON_RUNTIME.postCommitVar}", default=None`,
   ")",
 ];
 

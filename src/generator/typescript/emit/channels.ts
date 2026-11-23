@@ -35,6 +35,7 @@ import {
 import { CHANNEL_CONSUMER, CHANNEL_RECONNECT } from "../../_channels/delivery-policy.js";
 import { decodeField, type WireValueObjectFields } from "../../_channels/wire-codec.js";
 import { tsImportSlot } from "../../_imports/ts.js";
+import { freshName, TS_RUNTIME } from "../../_symbols/plan.js";
 import { tsEnvelopeInstant } from "../codec-spelling.js";
 import { T, TT } from "../ts-symbols.js";
 import { TS_WIRE_DECODE } from "../wire-codec.js";
@@ -132,6 +133,12 @@ export function renderChannelsModule(
     "DomainEvent",
     "DomainEventDispatcher",
   ].sort();
+  // The decoded-event alias sits beside every event and value-object name the
+  // module imports, so it takes a spelling none of them holds.
+  const consumedType = freshName(
+    TS_RUNTIME.consumedEvent,
+    new Set([...eventImports, ...domainTypeImports, ...domainValueImports]),
+  );
   return (
     lines(
       "// Auto-generated.",
@@ -813,9 +820,9 @@ export function renderChannelsModule(
       " * durable rows publish here instead of re-entering the local chain. */",
       "export function channelPublishTee(",
       "  transports: Map<string, ChannelTransport>,",
-      "  inner: DomainEventDispatcher,",
+      `  inner: ${TT.DomainEventDispatcher},`,
       "  opts: { fromRelay?: boolean } = {},",
-      "): DomainEventDispatcher {",
+      `): ${TT.DomainEventDispatcher} {`,
       "  return {",
       "    async dispatch(event: DomainEvent): Promise<void> {",
       "      const durableAddress = DURABLE_CHANNEL_ROUTING[event.type];",
@@ -864,7 +871,7 @@ export function renderChannelsModule(
       " * consumer-side idempotency marker.  It is NOT a declared field of any",
       " * event, so it is typed on the way in rather than cast past the type",
       " * system — the reactor reads it back off this exact shape. */",
-      `type LoomConsumed<E extends DomainEvent> = E & { readonly ${EVENT_ID_KEY}: string };`,
+      `type ${consumedType}<E extends DomainEvent> = E & { readonly ${EVENT_ID_KEY}: string };`,
       "",
       "/** Per-event-type wire decoders — the typed inverse of the envelope",
       " * `data` the producer publishes.",
@@ -883,10 +890,10 @@ export function renderChannelsModule(
       " * host form.  A decoder that stopped at the wire form does not build. */",
       "const CHANNEL_EVENT_DECODERS: Record<",
       "  string,",
-      "  ((data: Record<string, unknown>, eventId: string) => LoomConsumed<DomainEvent>) | undefined",
+      `  ((data: Record<string, unknown>, eventId: string) => ${consumedType}<DomainEvent>) | undefined`,
       "> = {",
       ...carried.flatMap((ev) => [
-        `  ${ev.name}: (data, eventId): LoomConsumed<${ev.name}> => ({`,
+        `  ${ev.name}: (data, eventId): ${consumedType}<${ev.name}> => ({`,
         `    type: ${JSON.stringify(ev.name)},`,
         ...ev.fields.map((f) => `    ${f.name}: ${decodeField("data", f, TS_WIRE_DECODE, vos)},`),
         `    ${EVENT_ID_KEY}: eventId,`,
@@ -902,7 +909,7 @@ export function renderChannelsModule(
       "  type: string,",
       "  data: Record<string, unknown>,",
       "  eventId: string,",
-      "): LoomConsumed<DomainEvent> | null {",
+      `): ${consumedType}<DomainEvent> | null {`,
       "  const decode = CHANNEL_EVENT_DECODERS[type];",
       "  return decode ? decode(data, eventId) : null;",
       "}",
@@ -918,7 +925,7 @@ export function renderChannelsModule(
       " * until the consumer is genuinely listening. */",
       "export async function startChannelConsumers(",
       "  transports: Map<string, ChannelTransport>,",
-      "  dispatcher: DomainEventDispatcher,",
+      `  dispatcher: ${TT.DomainEventDispatcher},`,
       "): Promise<() => Promise<void>> {",
       "  const unsubs: Array<() => void> = [];",
       "  for (const b of CHANNEL_BINDINGS) {",

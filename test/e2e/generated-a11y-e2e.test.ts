@@ -8,6 +8,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
 import { describe, expect, it } from "vitest";
 import { type PackFormat, packFormatForBuiltin } from "../../src/util/builtin-formats.js";
+import { withoutRefusedThemeTokens } from "../_helpers/theme.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
@@ -160,6 +161,13 @@ function run(cmd: string, cwd: string): string {
  *  slot is inserted into the matching `platform: <p>` deployable block (single-
  *  or multi-line).  Generalised from the per-framework build-gate helpers. */
 function injectDesign(src: string, qualified: string, platform: string): string {
+  return withoutRefusedThemeTokens(
+    retargetDesign(src, qualified, platform),
+    qualified.split("@")[0]!,
+  );
+}
+
+function retargetDesign(src: string, qualified: string, platform: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
   const p = platform.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

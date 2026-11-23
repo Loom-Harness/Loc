@@ -16,6 +16,7 @@ import { admittedReferences } from "../../../ir/plan/ref-scope.js";
 import type { AggregateIR, BoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 
 /** True when the aggregate's write seam probes at least one reference. */
 export function hasAdmittedReferences(
@@ -89,13 +90,13 @@ ${calls.join("\n")}
       changeset
     else
       opts = [constraint: :foreign, constraint_name: constraint]
-      opts = if path == [], do: opts, else: opts ++ [loom_path: path]
+      opts = if path == [], do: opts, else: opts ++ [${RT.fieldPath}: path]
       Ecto.Changeset.add_error(changeset, field, "does not exist", opts)
     end
   end
 
   defp __admit_count(schema, ids) do
-    case Process.get(:loom_current_user) do
+    case Process.get(:${RT.currentPrincipal}) do
       nil ->
         0
 

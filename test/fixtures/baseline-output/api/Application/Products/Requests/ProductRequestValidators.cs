@@ -1,5 +1,6 @@
 // Auto-generated.
 using FluentValidation;
+using System.Text.RegularExpressions;
 
 namespace Api.Application.Products.Requests;
 
@@ -7,14 +8,16 @@ public sealed class MoneyRequestValidator : AbstractValidator<MoneyRequest>
 {
     public MoneyRequestValidator()
     {
-        RuleFor(x => x.Amount).GreaterThanOrEqualTo(0)
-            .WithMessage("Amount must be at least 0")
-            .WithErrorCode("field.min")
-            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["min"] = 0 });
-        RuleFor(x => x.Currency).Must(v => v == null || v.EnumerateRunes().Count() == 3)
-            .WithMessage("Currency must be exactly 3 characters")
-            .WithErrorCode("field.length")
-            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["length"] = 3 });
+        RuleFor(x => x).Must(x => x.Amount >= 0m)
+            .WithName("Amount")
+            .WithMessage("Amount cannot be negative")
+            .WithErrorCode("Products.Money.rule.amountCannotBeNegative")
+            .WithState(x => new System.Collections.Generic.Dictionary<string, object?> { ["amount"] = x.Amount });
+        RuleFor(x => x).Must(x => Regex.IsMatch(x.Currency, "^[A-Z]{3}$"))
+            .WithName("Currency")
+            .WithMessage("Currency must be three uppercase letters")
+            .WithErrorCode("Products.Money.rule.currencyMustBeThreeUppercaseLetters")
+            .WithState(x => new System.Collections.Generic.Dictionary<string, object?> { ["currency"] = x.Currency });
     }
 }
 

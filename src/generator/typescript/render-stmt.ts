@@ -14,6 +14,7 @@ import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt
 import type { ChunkMark } from "../_trace/sourcemap.js";
 import { tsLineageValue } from "./codec-spelling.js";
 import { renderTsExpr, renderTsExprWithMarks, type TsRenderContext } from "./render-expr.js";
+import { T } from "./ts-symbols.js";
 import { tsRuleParams } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -201,7 +202,7 @@ function tsStmtTarget(
     requires: (s) =>
       // Authorization gate — surfaces as 403 via the route-level
       // ForbiddenError catch in the per-aggregate routes file.
-      `${INDENT}if (!(${rx(s.expr)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${s.source}`)});`,
+      `${INDENT}if (!(${rx(s.expr)})) throw new ${T.ForbiddenError}(${JSON.stringify(`Forbidden: ${s.source}`)});`,
 
     let: (s) =>
       // `let`-names may collide with a JS reserved word; escape consistently
@@ -381,8 +382,8 @@ function precondition(
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
   const params = code ? tsRuleParams({ expr }, rx) : undefined;
   const thrown = code
-    ? `throw new DomainError(${JSON.stringify(detail)}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
-    : `throw new DomainError(${JSON.stringify(detail)}, "precondition")`;
+    ? `throw new ${T.DomainError}(${JSON.stringify(detail)}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
+    : `throw new ${T.DomainError}(${JSON.stringify(detail)}, "precondition")`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${rx(expr)})) ${thrown};`;
   }
@@ -441,7 +442,9 @@ function withTrace(
   const computed = tsLineageValue(renderPath(target), targetType);
   const field = prov.target.field;
   return wrapProvCapture(base, {
-    snapshot: `${INDENT}const ${tmp} = [${inputs}];`,
+    // A rule that reads no leaf (`n := 0`) snapshots an empty list, which
+    // `noImplicitAny` refuses to type from the literal alone.
+    snapshot: `${INDENT}const ${tmp}${inputs === "" ? ': ProvLineage["inputs"]' : ""} = [${inputs}];`,
     lineage: `${INDENT}const ${lin}: ProvLineage = { snapshotId: ${JSON.stringify(prov.snapshotId)}, target: ${targetLit}, inputs: ${tmp}, computedValue: ${computed} };`,
     colocated: `${INDENT}this._${field}_provenance = ${lin};`,
     sink: `${INDENT}this._provTraces.push(${lin});`,

@@ -62,9 +62,12 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
     expect(tsx).toBeDefined();
     expect(tsx).toMatch(/import \{[^}]*useForm[^}]*\} from "react-hook-form"/);
     expect(tsx).toMatch(/import \{ zodResolver \} from "(\.\.\/)+lib\/zod-resolver"/);
-    expect(tsx).toMatch(/import \{ CreateOrderRequest, useCreateOrder \} from "\.\.\/api\/order"/);
+    expect(tsx).toMatch(
+      /import \{ CreateOrderRequest, type CreateOrderFormState, useCreateOrder \} from "\.\.\/api\/order"/,
+    );
     expect(tsx).toMatch(/const create = useCreateOrder\(\)/);
-    expect(tsx).toMatch(/useForm<CreateOrderRequest>/);
+    // An int field holds its typed text: the form is typed on the schema's input.
+    expect(tsx).toMatch(/useForm<CreateOrderFormState, unknown, CreateOrderRequest>/);
     expect(tsx).toMatch(/resolver: zodResolver\(CreateOrderRequest\)/);
   });
 
@@ -73,9 +76,9 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
     const tsx = files.get("web/src/pages/create_order.tsx")!;
     // string → TextInput with register("customerId")
     expect(tsx).toMatch(/<TextInput[^>]*\{\.\.\.register\("customerId"\)\}/);
-    // int → NumberInput inside Controller (RHF requirement for non-
-    // string inputs)
-    expect(tsx).toMatch(/<Controller[\s\S]*name="quantity"[\s\S]*<NumberInput/);
+    // int → a numeric-keyboard text input inside a Controller, holding the
+    // typed text the request schema parses
+    expect(tsx).toMatch(/<Controller[\s\S]*name="quantity"[\s\S]*inputMode="numeric"/);
   });
 
   it("excludes optional fields from the create form (scaffold-parity rule)", async () => {

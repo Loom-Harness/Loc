@@ -3,24 +3,25 @@ import { z } from "zod";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context, MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { ValueObjectInvariantError } from "../domain/errors";
+import { DomainError, ValueObjectInvariantError } from "../domain/errors";
 
 /** The domain-floor answer with ONE RFC 7807 errors[] entry — the shape the
  *  wire rung gives a request member, for a refusal the wire could not see:
  *  a value object a domain BODY built (an operation, a workflow, a handler —
  *  not the request body, whose value objects the request schema already
- *  checked).  The entry carries the rule's message, the same code the wire
+ *  checked), or a NAMED invariant / check / precondition tripped at the domain
+ *  floor.  The entry carries the rule's message, the same code the wire
  *  rung carries (its identity key, or the generic key of an unnamed rule) and
  *  the values the rule read as `params`; the body's own `code` is the
  *  rule's too, since its `detail` is the rule's text.  The pointer is the
  *  rule's ("/<field>" for a single-field rule) or "" — the whole request.
  *  Anything else answers undefined and the caller's own arm runs. */
 export function domainFloorProblem(c: Context, err: unknown, status: number, title: string): Response | undefined {
-  if (!(err instanceof ValueObjectInvariantError)) return undefined;
+  if (!(err instanceof DomainError) || (!(err instanceof ValueObjectInvariantError) && err.code === undefined)) return undefined;
   const trace_id = c.get("requestId") ?? "";
   const code = err.code ?? "problem.domain-floor";
   const params = err.params;
-  const entry = { pointer: "", message: err.message, code, ...(params ? { params } : {}) };
+  const entry = { pointer: err.pointer ?? "", message: err.message, code, ...(params ? { params } : {}) };
   return c.body(
     JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, code, ...(params ? { params } : {}), errors: [entry] }),
     status as 422,
@@ -122,14 +123,14 @@ function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
 
 
 /** The zod issue `params` Loom's own checks attach: the catalog code of the
- *  refusal (`loomCode`), the values its message names (`loomValues`), or —
- *  for a named rule — the request members it reads (`loomReads`), read off
- *  the object the rule judged (the issue's parent when `loomPointed`). */
+ *  refusal (`code`), the values its message names (`values`), or —
+ *  for a named rule — the request members it reads (`reads`), read off
+ *  the object the rule judged (the issue's parent when `pointed`). */
 interface LoomIssueParams {
-  loomCode?: string;
-  loomValues?: Record<string, unknown>;
-  loomReads?: readonly string[];
-  loomPointed?: boolean;
+  code?: string;
+  values?: Record<string, unknown>;
+  reads?: readonly string[];
+  pointed?: boolean;
 }
 
 interface ZodIssueLike {
@@ -160,7 +161,7 @@ function valueAt(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
  *  by: the code a Loom check attached, else the field reason read off what
  *  zod found.  A declared field limit carries its own (`field.min`, …). */
 function issueCode(issue: ZodIssueLike): string {
-  if (issue.params?.loomCode) return issue.params.loomCode;
+  if (issue.params?.code) return issue.params.code;
   if (issue.message === "Expected UUID.") return "field.malformed-id";
   if (issue.message === "Integer out of range") return "field.integer-range";
   if (QUERY_MISMATCH_MESSAGES.has(issue.message)) return "field.type-mismatch";
@@ -171,13 +172,13 @@ function issueCode(issue: ZodIssueLike): string {
 /** The `errors[].params` of an issue — the values its message names. */
 function issueParams(input: unknown, issue: ZodIssueLike): Record<string, unknown> | undefined {
   const p = issue.params;
-  if (p?.loomValues) return p.loomValues;
+  if (p?.values) return p.values;
   if (issue.message === "Integer out of range") return {"min":-2147483648,"max":2147483647};
-  if (!p?.loomReads || p.loomReads.length === 0) return undefined;
-  const owner = valueAt(input, p.loomPointed ? issue.path.slice(0, -1) : issue.path);
+  if (!p?.reads || p.reads.length === 0) return undefined;
+  const owner = valueAt(input, p.pointed ? issue.path.slice(0, -1) : issue.path);
   if (owner === null || typeof owner !== "object") return undefined;
   const out: Record<string, unknown> = {};
-  for (const name of p.loomReads) out[name] = (owner as Record<string, unknown>)[name];
+  for (const name of p.reads) out[name] = (owner as Record<string, unknown>)[name];
   return out;
 }
 

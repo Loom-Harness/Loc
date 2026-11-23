@@ -3,12 +3,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import { withoutRefusedThemeTokens } from "../_helpers/theme.js";
 import {
   assertExternUserModulesUnchanged,
   externUserModules,
   externUserPathSource,
   seedExternUserModules,
 } from "./support/extern-user-path.js";
+import { maskedFieldsSource } from "./support/masked-fields.js";
 import { installGeneratedProjectAsync } from "./support/npm-install.js";
 import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
@@ -682,7 +684,7 @@ const NESTED_VO: Case = {
   name: "nested-vo",
   angularDir: "web",
   mustEmit: [
-    "geo: new FormGroup({ lat: new FormControl(0, { nonNullable: true })",
+    'geo: new FormGroup({ lat: new FormControl("0", { nonNullable: true',
     'formGroupName="spot"',
     "  zone: string;",
     ".address.zone",
@@ -745,7 +747,7 @@ const NESTED_ARRAY: Case = {
           valueobject Note { text: string  tags: string[] }
           valueobject Stop { label: string  tags: string[] }
           valueobject Route { name: string  tags: string[]  stops: Stop[] }
-          aggregate Venue {
+          aggregate Venue with crudish {
             name: string
             note: Note
             operation plan(route: Route, routes: Route[]) { }
@@ -891,6 +893,14 @@ const EXTERN_USER_PATH: Case = {
   userModules: externUserModules("angular"),
 };
 
+/** Masked fields read null-safely on every scaffolded page
+ *  (`support/masked-fields.ts`). */
+const MASKED_FIELDS: Case = {
+  name: "masked-fields",
+  angularDir: "web",
+  source: maskedFieldsSource("angular"),
+};
+
 const PACKS = ["angularMaterial@v1", "primeng@v1", "spartanNg@v1"] as const;
 
 interface MatrixCase extends Case {
@@ -911,6 +921,7 @@ const allCases: MatrixCase[] = [
   NESTED_ARRAY,
   I18N_TEXT,
   OPTIONAL_VO_ENUM_REF,
+  MASKED_FIELDS,
 ]
   .flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })))
   // Pack-independent: one pack is enough to prove the shims resolve.
@@ -919,6 +930,10 @@ const allCases: MatrixCase[] = [
 /** Inject `design: "<pack>"` into the angular deployable (single-line or
  *  multi-line `platform: web` block). */
 function injectDesign(src: string, qualified: string): string {
+  return withoutRefusedThemeTokens(retargetDesign(src, qualified), qualified.split("@")[0]!);
+}
+
+function retargetDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
   const singleLine = /(deployable \w+ \{[^}\n]*platform: web\b[^}\n]*?)(\s*)\}/;

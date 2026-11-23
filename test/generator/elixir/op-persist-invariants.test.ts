@@ -75,9 +75,7 @@ describe("elixir operation persist re-runs single-field invariants (E11)", () =>
       "counter_changeset.ex",
     );
     const fn = defBody(cs, "assert_op_invariants");
-    expect(fn).toContain(
-      'add_error(changeset, :qty, "Business rule violated", loom_invariant: true)',
-    );
+    expect(fn).toContain('add_error(changeset, :qty, "Business rule violated", invariant: true)');
     expect(fn).toContain('"Business rule violated"');
     expect(fn.indexOf(":qty")).toBeLessThan(fn.indexOf(":label"));
   });

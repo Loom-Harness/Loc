@@ -38,9 +38,16 @@ import { notFoundStmtDetail, wireStatusResolver } from "../../ir/util/wire-polic
 import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { finalizeCsUnit } from "../_imports/dotnet.js";
 import { spellMarkers } from "../_imports/symbol.js";
-import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+  SCHEMA_NAMES,
+} from "../_symbols/plan.js";
 import { type PostBodyLeaves, renderPostBody, splitPostBody } from "../_workflow/post-body.js";
-import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
+import { CS, CS_NAME, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 import { projectionRowMethod, projectionRowsMethod } from "./projection-emit.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
@@ -54,12 +61,6 @@ type ResolvedWorkflowBody = {
 import { valueObjectParams } from "../../ir/plan/value-object-params.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { errorStatuses } from "../../ir/util/openapi-errors.js";
-import {
-  camelId,
-  opWorkflow,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../ir/util/openapi-ids.js";
 import { collectReachableTypes } from "../../ir/util/reachable-types.js";
 import { mapExprChildren, workflowEmits } from "../../ir/util/walk.js";
 import { wireStatus } from "../../ir/util/wire-policy.js";
@@ -749,7 +750,7 @@ function renderEventReactorHandler(
   // hoisted gate included — reads `currentUser` (it was an unbound CS0103).
   if (reactorNeedsPrincipal(statements, ctx)) {
     stmtLines.push(
-      `        var currentUser = global::${ns}.Auth.User.SystemPrincipal(RequestContext.Current?.CurrentUser);`,
+      `        var currentUser = global::${ns}.Auth.User.SystemPrincipal(${CS_NAME.RequestContext}.Current?.CurrentUser);`,
     );
   }
   const resourceClasses = buildResourceClasses(sys);
@@ -1657,7 +1658,7 @@ function renderHandler(
       if (result && isWorkflowSelfType(wf, result.type)) {
         // `create(…): <Wf> { …; return this }` — the saved instance state.
         return [
-          `        workflowResult = new ${DOMAIN_NAMES.csharp.type(wf.name)}InstanceResponse(${(
+          `        workflowResult = new ${SCHEMA_NAMES.instanceResponse(wf.name)}(${(
             wf.instanceWireShape ?? []
           )
             .map((f) =>
@@ -1896,13 +1897,13 @@ export function csWorkflowStmtTarget(
       // A named precondition also hands up the values it read (the wire `params`).
       const params = st.message ? csRuleParams({ expr: st.expr }, renderArg) : undefined;
       return [
-        `${indent}if (!(${expr})) throw new DomainException(${workflowPreconditionThrowArgs(st, "DomainErrorKind.Precondition")}${params ? `, ${params}` : ""});`,
+        `${indent}if (!(${expr})) throw new ${CS_NAME.DomainException}(${workflowPreconditionThrowArgs(st, "DomainErrorKind.Precondition")}${params ? `, ${params}` : ""});`,
       ];
     },
     requires: (st, indent) => {
       const expr = renderArg(st.expr);
       return [
-        `${indent}if (!(${expr})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${st.source}`)});`,
+        `${indent}if (!(${expr})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(`Forbidden: ${st.source}`)});`,
       ];
     },
     emit: (st, indent) => {
@@ -2011,7 +2012,7 @@ export function csWorkflowStmtTarget(
             return i >= 0 ? renderedArgs[i] : undefined;
           },
         });
-        return `${indent}if (!(${pred})) throw new ForbiddenException(${JSON.stringify(
+        return `${indent}if (!(${pred})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
           `Forbidden: ${g.source}`,
         )});`;
       });
@@ -2040,14 +2041,14 @@ export function csWorkflowStmtTarget(
           `${indent}    Action = ${JSON.stringify(st.op)},`,
           `${indent}    TargetType = ${JSON.stringify(st.aggName)},`,
           `${indent}    TargetId = ${st.target}.Id.Value.ToString(),`,
-          `${indent}    Actor = RequestContext.Current?.PrincipalJson(),`,
+          `${indent}    Actor = ${CS_NAME.RequestContext}.Current?.PrincipalJson(),`,
           `${indent}    Before = ${before},`,
           `${indent}    After = ${after},`,
-          `${indent}    At = DateTime.UtcNow,`,
+          `${indent}    At = ${CS_NAME.DateTime}.UtcNow,`,
           `${indent}    Status = "ok",`,
-          `${indent}    CorrelationId = RequestContext.Current?.CorrelationId,`,
-          `${indent}    ScopeId = RequestContext.Current?.ScopeId,`,
-          `${indent}    ParentId = RequestContext.Current?.ParentId,`,
+          `${indent}    CorrelationId = ${CS_NAME.RequestContext}.Current?.CorrelationId,`,
+          `${indent}    ScopeId = ${CS_NAME.RequestContext}.Current?.ScopeId,`,
+          `${indent}    ParentId = ${CS_NAME.RequestContext}.Current?.ParentId,`,
           `${indent}});`,
         ];
       }
@@ -2365,7 +2366,7 @@ export function csWorkflowStmtTarget(
     // The exception a by-id miss throws, so `DomainExceptionFilter`'s
     // not-found arm renders the identical ProblemDetails.
     notFound: (st, indent) => [
-      `${indent}throw new AggregateNotFoundException(${JSON.stringify(notFoundStmtDetail(st))});`,
+      `${indent}throw new ${CS_NAME.AggregateNotFoundException}(${JSON.stringify(notFoundStmtDetail(st))});`,
     ],
     // A held row is re-loaded through `GetByIdForWriteAsync` — the load every
     // mutation command handler uses — before the statement mutates or deletes
@@ -2486,7 +2487,7 @@ function workflowResultCs(
 ): string {
   if (t.kind === "union") return `global::${entryResultNs(ns)}.${entryUnionName(t)}`;
   if (isWorkflowSelfType(wf, t))
-    return `global::${ns}.Application.Workflows.${DOMAIN_NAMES.csharp.type(wf.name)}InstanceResponse`;
+    return `global::${ns}.Application.Workflows.${SCHEMA_NAMES.instanceResponse(wf.name)}`;
   return renderCsType(t);
 }
 
@@ -2613,7 +2614,7 @@ export function emitWorkflowInstanceReads(
   if (observable.length === 0) return;
   for (const wf of observable) {
     out.set(
-      `Application/Workflows/${DOMAIN_NAMES.csharp.type(wf.name)}InstanceResponse.cs`,
+      `Application/Workflows/${SCHEMA_NAMES.instanceResponse(wf.name)}.cs`,
       renderInstanceResponseDto(wf, ctx, ns),
     );
   }
@@ -2656,7 +2657,7 @@ using ${ns}.Domain.Enums;
 
 namespace ${ns}.Application.Workflows;
 
-public sealed record ${DOMAIN_NAMES.csharp.type(wf.name)}InstanceResponse(${params});
+public sealed record ${SCHEMA_NAMES.instanceResponse(wf.name)}(${params});
 `;
 }
 
@@ -2732,7 +2733,7 @@ function renderInstancesController(
           `        await using var conn = await _db.OpenConnectionAsync();\n` +
           `        var __rows = (await conn${CS.Dapper}.QueryAsync<${rec}>(new CommandDefinition("SELECT ${cols} FROM ${table} WHERE stream_type = @st ORDER BY stream_id, version", new { st = "${st}" }))).ToList();\n` +
           `        var rows = __rows.GroupBy(e => e.StreamId).Select(g => ${stateCls}._FromEvents(new ${corrId}(${csIdFromString("g.Key", corrClr)}), g.Select(${stateCls}.RowToEvent).ToList()));\n` +
-          `        return Ok(rows.Select(x => new ${T}InstanceResponse(${proj("x")})));\n`;
+          `        return Ok(rows.Select(x => new ${SCHEMA_NAMES.instanceResponse(wf.name)}(${proj("x")})));\n`;
         byIdBody =
           `        var __sid = id.ToString();\n` +
           `        await using var conn = await _db.OpenConnectionAsync();\n` +
@@ -2742,13 +2743,13 @@ function renderInstancesController(
           // envelope from every other 404 in the same service.
           `        if (__rows.Count == 0) ${dotnetNotFoundThrow(ns, T, "id")}\n` +
           `        var x = ${stateCls}._FromEvents(new ${corrId}(id), __rows.Select(${stateCls}.RowToEvent).ToList());\n` +
-          `        return Ok(new ${T}InstanceResponse(${proj("x")}));\n`;
+          `        return Ok(new ${SCHEMA_NAMES.instanceResponse(wf.name)}(${proj("x")}));\n`;
       } else {
         const eventSet = esEventDbSet(wf, ownerOf);
         listBody =
           `        var __rows = await _db.${eventSet}${CS.EfCore}.AsNoTracking().Where(e => e.StreamType == "${st}").OrderBy(e => e.StreamId).ThenBy(e => e.Version).ToListAsync();\n` +
           `        var rows = __rows.GroupBy(e => e.StreamId).Select(g => ${stateCls}._FromEvents(new ${corrId}(${csIdFromString("g.Key", corrClr)}), g.Select(${stateCls}.RowToEvent).ToList()));\n` +
-          `        return Ok(rows.Select(x => new ${T}InstanceResponse(${proj("x")})));\n`;
+          `        return Ok(rows.Select(x => new ${SCHEMA_NAMES.instanceResponse(wf.name)}(${proj("x")})));\n`;
         byIdBody =
           `        var __sid = id.ToString();\n` +
           `        var __rows = await _db.${eventSet}${CS.EfCore}.AsNoTracking().Where(e => e.StreamType == "${st}" && e.StreamId == __sid).OrderBy(e => e.Version).ToListAsync();\n` +
@@ -2757,7 +2758,7 @@ function renderInstancesController(
           // envelope from every other 404 in the same service.
           `        if (__rows.Count == 0) ${dotnetNotFoundThrow(ns, T, "id")}\n` +
           `        var x = ${stateCls}._FromEvents(new ${corrId}(id), __rows.Select(${stateCls}.RowToEvent).ToList());\n` +
-          `        return Ok(new ${T}InstanceResponse(${proj("x")}));\n`;
+          `        return Ok(new ${SCHEMA_NAMES.instanceResponse(wf.name)}(${proj("x")}));\n`;
       }
     } else if (usingDapper) {
       const stateFqn = `global::${ns}.Infrastructure.Persistence.Workflows.${workflowStateClass(wf)}`;
@@ -2783,22 +2784,22 @@ function renderInstancesController(
       listBody =
         `        await using var conn = await _db.OpenConnectionAsync();\n` +
         `        var rows = (await conn${CS.Dapper}.QueryAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${table}"))).Select(${mapFn});\n` +
-        `        return Ok(rows.Select(x => new ${T}InstanceResponse(${proj("x")})));\n`;
+        `        return Ok(rows.Select(x => new ${SCHEMA_NAMES.instanceResponse(wf.name)}(${proj("x")})));\n`;
       byIdBody =
         `        await using var conn = await _db.OpenConnectionAsync();\n` +
         `        var __row = await conn${CS.Dapper}.QuerySingleOrDefaultAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${table} WHERE ${pkCol} = @id", new { id }));\n` +
         `        if (__row is null) ${dotnetNotFoundThrow(ns, T, "id")}\n` +
         `        var x = ${mapFn}(__row);\n` +
-        `        return Ok(new ${T}InstanceResponse(${proj("x")}));\n`;
+        `        return Ok(new ${SCHEMA_NAMES.instanceResponse(wf.name)}(${proj("x")}));\n`;
     } else {
       listBody =
         `        var rows = await _db.${dbSet}${CS.EfCore}.AsNoTracking().ToListAsync();\n` +
-        `        return Ok(rows.Select(x => new ${T}InstanceResponse(${proj("x")})));\n`;
+        `        return Ok(rows.Select(x => new ${SCHEMA_NAMES.instanceResponse(wf.name)}(${proj("x")})));\n`;
       byIdBody =
         `        var __key = new ${targetName}Id(id);\n` +
         `        var x = await _db.${dbSet}${CS.EfCore}.AsNoTracking().FirstOrDefaultAsync(r => r.${corrName} == __key);\n` +
         `        if (x is null) ${dotnetNotFoundThrow(ns, T, "id")}\n` +
-        `        return Ok(new ${T}InstanceResponse(${proj("x")}));\n`;
+        `        return Ok(new ${SCHEMA_NAMES.instanceResponse(wf.name)}(${proj("x")}));\n`;
     }
     // The reader form of the two bodies: the persistence handle is a
     // parameter, the list answers its rows, and a missing instance answers
@@ -2811,9 +2812,9 @@ function renderInstancesController(
         .replace(/return Ok\((rows\.Select\(.*\))\);\n$/, "return $1.ToList();\n")
         .replace(/return Ok\((new .*)\);\n$/, "return $1;\n");
     readerBlocks.push(
-      `    public static async Task<IReadOnlyList<${T}InstanceResponse>> ${instancesReadMethod(wf)}(${dbParam} db)\n` +
+      `    public static async Task<IReadOnlyList<${SCHEMA_NAMES.instanceResponse(wf.name)}>> ${instancesReadMethod(wf)}(${dbParam} db)\n` +
         `    {\n${asReader(listBody)}    }\n` +
-        `    public static async Task<${T}InstanceResponse?> ${instanceReadMethod(wf)}(${dbParam} db, ${corrClr} id)\n` +
+        `    public static async Task<${SCHEMA_NAMES.instanceResponse(wf.name)}?> ${instanceReadMethod(wf)}(${dbParam} db, ${corrClr} id)\n` +
         `    {\n${asReader(byIdBody)}    }\n`,
     );
     listBody = `        return Ok(await ${reads}.${instancesReadMethod(wf)}(_db));\n`;
@@ -2837,7 +2838,7 @@ function renderInstancesController(
     }
     const gateLines = gate
       ? (exprUsesCurrentUser(gate) ? `        var currentUser = _currentUser.User;\n` : "") +
-        `        if (!(${renderCsExpr(gate)})) throw new ForbiddenException(${JSON.stringify(
+        `        if (!(${renderCsExpr(gate)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
           `Forbidden: workflow ${wf.name} instances`,
         )});\n`
       : "";
@@ -2846,7 +2847,7 @@ function renderInstancesController(
       : "";
     blocks.push(
       `    [HttpGet("${slug}/instances")]\n` +
-        `    [ProducesResponseType(typeof(IEnumerable<${T}InstanceResponse>), 200)]\n` +
+        `    [ProducesResponseType(typeof(IEnumerable<${SCHEMA_NAMES.instanceResponse(wf.name)}>), 200)]\n` +
         forbiddenAttr +
         `    public async Task<IActionResult> ${DOMAIN_NAMES.csharp.type(camelId(opWorkflowInstances(wf.name)))}()\n` +
         `    {\n` +
@@ -2854,7 +2855,7 @@ function renderInstancesController(
         listBody +
         `    }\n` +
         `    [HttpGet("${slug}/instances/{id}")]\n` +
-        `    [ProducesResponseType(typeof(${T}InstanceResponse), 200)]\n` +
+        `    [ProducesResponseType(typeof(${SCHEMA_NAMES.instanceResponse(wf.name)}), 200)]\n` +
         forbiddenAttr +
         // The by-id read's declared set comes from the SHARED matrix, not a
         // hand-written 404.  This is the one instance-route arm that spelled

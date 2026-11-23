@@ -1,0 +1,1 @@
+python: an aggregate named like a Python keyword (Global → app/domain/global.py) breaks the module path

@@ -1,24 +1,33 @@
 // Auto-generated.  Do not edit by hand.
 import { z } from "zod";
+import { formNumber } from "../lib/form-text";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ifMatch, seg } from "./client";
 
 export const MoneySchema = z.object({
-  amount: z.number().refine((v: any) => v >= 0, { message: "Amount must be at least 0", params: { loomCode: "field.min", loomValues: {"min":0} } }),
-  currency: z.string().refine((v: any) => [...v].length === 3, { message: "Currency must be exactly 3 characters", params: { loomCode: "field.length", loomValues: {"length":3} } }),
-});
+  amount: formNumber("decimal"),
+  currency: z.string(),
+}).refine((data: any) => data.amount >= 0, { path: ["amount"], message: "Amount cannot be negative", params: { code: "Products.Money.rule.amountCannotBeNegative", reads: ["amount"], pointed: true } }).refine((data: any) => /^[A-Z]{3}$/.test(data.currency), { path: ["currency"], message: "Currency must be three uppercase letters", params: { code: "Products.Money.rule.currencyMustBeThreeUppercaseLetters", reads: ["currency"], pointed: true } });
 
 export const CreateProductRequest = z.object({
-  sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { loomCode: "field.min-length", loomValues: {"min":1} } }),
+  sku: z.string(),
   price: MoneySchema,
-});
+}).refine((data: any) => [...data.sku.trim()].length > 0, { path: ["sku"], message: "Sku is required", params: { code: "Products.Product.rule.skuIsRequired", reads: ["sku"], pointed: true } }).refine((data: any) => /^[A-Z0-9][A-Z0-9-]*$/.test(data.sku) && [...data.sku].length <= 40, { path: ["sku"], message: "Sku must be up to forty uppercase letters digits or dashes", params: { code: "Products.Product.rule.skuMustBeUpToFortyUppercaseLettersDigitsOrDashes", reads: ["sku"], pointed: true } });
 export type CreateProductRequest = z.infer<typeof CreateProductRequest>;
+/** Pre-parse form shape (z.input) — money fields are decimal strings. */
+export type CreateProductFormState = z.input<typeof CreateProductRequest>;
+/** Post-parse payload shape (z.output) — money fields are Decimal. */
+export type CreateProductPayload = z.output<typeof CreateProductRequest>;
 
 export const UpdateProductRequest = z.object({
-  sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { loomCode: "field.min-length", loomValues: {"min":1} } }),
+  sku: z.string(),
   price: MoneySchema,
-});
+}).refine((data: any) => [...data.sku.trim()].length > 0, { path: ["sku"], message: "Sku is required", params: { code: "Products.Product.rule.skuIsRequired", reads: ["sku"], pointed: true } }).refine((data: any) => /^[A-Z0-9][A-Z0-9-]*$/.test(data.sku) && [...data.sku].length <= 40, { path: ["sku"], message: "Sku must be up to forty uppercase letters digits or dashes", params: { code: "Products.Product.rule.skuMustBeUpToFortyUppercaseLettersDigitsOrDashes", reads: ["sku"], pointed: true } });
 export type UpdateProductRequest = z.infer<typeof UpdateProductRequest>;
+/** Pre-parse form shape (z.input) — money fields are decimal strings. */
+export type UpdateProductFormState = z.input<typeof UpdateProductRequest>;
+/** Post-parse payload shape (z.output) — money fields are Decimal. */
+export type UpdateProductPayload = z.output<typeof UpdateProductRequest>;
 
 export const AllQuery = z.object({
   page: z.coerce.number().int().min(1).max(1000000).default(1),

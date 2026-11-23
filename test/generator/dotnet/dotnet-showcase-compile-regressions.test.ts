@@ -16,6 +16,7 @@
 //      (`currentUser.role`) needs the ambient-principal local materialised
 //      (CS0103: `currentUser` did not exist in the static interceptor).
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import { wireToCommandArgument } from "../../../src/generator/dotnet/dto-mapping.js";
 import { renderAuditableInterceptor } from "../../../src/generator/dotnet/emit/auditable-interceptor.tpl.js";
 import type { AggregateIR, EnrichedBoundedContextIR } from "../../../src/ir/types/loom-ir.js";
@@ -169,7 +170,7 @@ describe(".NET AuditableInterceptor — principal-member stamp values", () => {
         },
       ],
     } as unknown as AggregateIR;
-    const out = renderAuditableInterceptor("Api", [agg], "Id");
+    const out = spellMarkers(renderAuditableInterceptor("Api", [agg], "Id"));
     // The claim reads straight off the ambient RequestContext — no arm-local:
     // an unused `var currentUser` is CS0219 under /warnaserror.
     expect(out).not.toContain("var currentUser");

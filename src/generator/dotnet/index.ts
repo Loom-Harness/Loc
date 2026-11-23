@@ -77,6 +77,7 @@ import { aggregateRouteTypes } from "../../ir/util/wire-policy.js";
 import { hatchStub } from "../../util/hatch.js";
 import { type BootRequiredSetting, bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
+import { DOTNET_RUNTIME } from "../_symbols/plan.js";
 
 /** True when some aggregate declares an `extern` operation or the context
  *  declares an `extern` command/query handler — the seams whose scaffold-once
@@ -100,7 +101,7 @@ import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { finalizeCsUnit } from "../_imports/dotnet.js";
 import { spellMarkers } from "../_imports/symbol.js";
-import { renderLoomJsonFormatter } from "../_obs/render-dotnet.js";
+import { renderJsonLineFormatter } from "../_obs/render-dotnet.js";
 import { unionMembers } from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
@@ -117,7 +118,12 @@ import {
 import { cqrsStyleAdapter } from "./adapters/cqrs-style.js";
 import { emitDotnetResourceFiles, resourceClassName } from "./adapters/resource-clients.js";
 import { emitAuthFiles } from "./auth-emit.js";
-import { clashFreeRootNamespace, layerClashAliases } from "./bcl-collision.js";
+import {
+  clashFreeRootNamespace,
+  declaredTypeNames,
+  dedupeUsings,
+  layerClashAliases,
+} from "./bcl-collision.js";
 import {
   emitBaseReaders,
   emitCommon,
@@ -324,9 +330,9 @@ export function generateDotnetForContexts(
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
-  const out = new DotnetOutputMap();
-  const emitTrace = !!options.emitTrace;
   const root = clashFreeRootNamespace(namespace, contexts);
+  const out = new DotnetOutputMap(undefined, { root, projectTypes: declaredTypeNames(contexts) });
+  const emitTrace = !!options.emitTrace;
   emitProjectFromContexts(
     contexts,
     root,
@@ -337,6 +343,7 @@ export function generateDotnetForContexts(
     options.sourceTexts,
   );
   for (const [path, src] of layerClashAliases(out, root, contexts)) rewrite(out, path, src);
+  for (const [path, src] of dedupeUsings(out)) rewrite(out, path, src);
   // LAST — Dapper cannot bind `DateOnly` on its own; the handler rides in
   // only when the finished project uses the `date` scalar.
   if (system.deployable.persistence === "dapper") wireDapperDateOnlyHandler(out, namespace);
@@ -1992,7 +1999,7 @@ function emitProject(
   // Prometheus HTTP metrics — catalog-driven, served at /metrics (Program.cs
   // MapMetrics), recorded from RequestLoggingMiddleware's request_end seam.
   out.set("Observability/HttpMetrics.cs", renderHttpMetrics(ns));
-  out.set("Observability/LoomJsonFormatter.cs", renderLoomJsonFormatter(ns));
+  out.set(`Observability/${DOTNET_RUNTIME.jsonLineFormatter}.cs`, renderJsonLineFormatter(ns));
   // Ambient execution context (docs/architecture/request-context.md) — the one
   // AsyncLocal carrier the principal slice (auth), the request-logger slice
   // (--trace), and the audit/provenance correlation stamps all ride.  ALWAYS

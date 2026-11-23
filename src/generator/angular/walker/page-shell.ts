@@ -50,7 +50,7 @@ import {
   listInputMethodLines,
   optionalGroupNames,
 } from "../form-fields.js";
-import { submitInputExpr } from "../form-prefill.js";
+import { formTextPlan, submitInputExpr } from "../form-prefill.js";
 import { ANGULAR_LOCALE_SWITCHER_CLASS } from "../locale-switcher.js";
 import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { storeClassName, storeFileSlug } from "../store-builder.js";
@@ -95,31 +95,41 @@ function formGroupBody(form: {
  *  reveals its inline error on a blocked submit (the field errors render only
  *  once `touched`); a validator-free form keeps the bare early-return so its
  *  handler stays byte-identical. */
-function invalidGuard(form: { formVar: string; controls: { validators?: string[] }[] }): string {
-  const hasValidators = form.controls.some((c) => c.validators && c.validators.length > 0);
+function invalidGuard(form: {
+  formVar: string;
+  controls: AngularFormControlSpec[];
+  fieldArrays?: AngularFieldArraySpec[];
+  fieldGroups?: AngularFieldGroupSpec[];
+}): string {
+  const hasValidators =
+    form.controls.some((c) => c.validators && c.validators.length > 0) ||
+    formTextPlan([], form.fieldGroups ?? [], form.fieldArrays ?? []) !== undefined;
+  const clear = `    this.${form.formVar}Failure.set(null);`;
   return hasValidators
-    ? `    if (this.${form.formVar}.invalid) { this.${form.formVar}.markAllAsTouched(); return; }`
-    : `    if (this.${form.formVar}.invalid) return;`;
+    ? `${clear}\n    if (this.${form.formVar}.invalid) { this.${form.formVar}.markAllAsTouched(); return; }`
+    : `${clear}\n    if (this.${form.formVar}.invalid) return;`;
 }
 
 /** A form submit's mutate-then-follow-up lines, wrapped so a rejection lands on
  *  the form: `placeServerErrors` (`src/lib/server-errors.ts`) puts each 422
- *  `errors[]` entry on the control its pointer names and rethrows whatever no
- *  control can show to the app-level error handler.  The follow-up (navigate /
- *  close) runs only on success. */
+ *  `errors[]` entry on the control its pointer names and answers the one
+ *  message everything else becomes, which the form's `<formVar>Failure` signal
+ *  holds and its markup renders.  Nothing is rethrown to the app-level error
+ *  handler.  The follow-up (navigate / close) runs only on success. */
 function submitBody(formVar: string, lines: readonly string[]): string[] {
   return [
     "    try {",
     ...lines.map((l) => `  ${l}`),
     "    } catch (e) {",
-    `      placeServerErrors(e, this.${formVar});`,
+    `      this.${formVar}Failure.set(placeServerErrors(e, this.${formVar}));`,
     "    }",
   ];
 }
 
-/** The getter + add/remove member lines a form's dynamic-row fields contribute,
- *  including the arrays nested in its value-object groups (empty when the form
- *  has none). */
+/** The member lines a form contributes besides its `FormGroup`: the signal
+ *  holding its failure message (`failureMarkup`) and the getter + add/remove
+ *  lines of its dynamic-row fields, including the arrays nested in its
+ *  value-object groups. */
 function formArrayMemberLines(
   formVar: string,
   form: {
@@ -128,6 +138,7 @@ function formArrayMemberLines(
   },
 ): string[] {
   return [
+    `  readonly ${formVar}Failure = signal<string | null>(null);`,
     ...(form.fieldArrays ?? []).flatMap((fa) => fieldArrayMembers(formVar, fa)),
     ...(form.fieldGroups ?? []).flatMap(groupArrayMembers),
   ];
@@ -644,6 +655,10 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   // register the core import before the import lines are built (the spec block
   // that consumes them runs further down).
   if (sink.modals.length > 0) coreSymbols.add("signal");
+  // Every form holds its failure message in a signal.
+  if (sink.forms.length + sink.workflowForms.length + sink.opForms.length > 0) {
+    coreSymbols.add("signal");
+  }
 
   const imports: string[] = [
     `import { ${[...coreSymbols].sort().join(", ")} } from "@angular/core";`,
@@ -932,7 +947,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         `  async ${form.submitMethod}(): Promise<void> {`,
         invalidGuard(form),
         ...submitBody(form.formVar, [
-          `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form), form.controls)});`,
+          `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, form.nullable, optionalGroupNames(form), form.controls, form)});`,
           `    this.router.navigateByUrl(\`/${form.redirectSlug}/\${out.id}\`);`,
         ]),
         "  }",
@@ -953,15 +968,15 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     members.push(
       [
         `  async ${form.submitMethod}(): Promise<void> {`,
-        `    if (this.${form.formVar}.invalid) return;`,
+        invalidGuard(form),
         ...submitBody(form.formVar, [
           ...(form.resultSegment
             ? [
-                `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form), form.controls)});`,
+                `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, form.nullable, optionalGroupNames(form), form.controls, form)});`,
                 `    this.router.navigateByUrl(\`/${form.resultSegment}/\${out}\`);`,
               ]
             : [
-                `    await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form), form.controls)});`,
+                `    await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, form.nullable, optionalGroupNames(form), form.controls, form)});`,
                 '    this.router.navigateByUrl("/workflows");',
               ]),
         ]),
@@ -1001,7 +1016,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
           `  async ${f.submitMethod}(): Promise<void> {`,
           invalidGuard(f),
           ...submitBody(f.formVar, [
-            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: ${submitInputExpr(f.formVar, f.nullable, optionalGroupNames(f), f.controls)} });`,
+            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: ${submitInputExpr(f.formVar, f.nullable, optionalGroupNames(f), f.controls, f)} });`,
           ]),
           "  }",
         ].join("\n"),
@@ -1115,7 +1130,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
           `  async ${m.submitMethod}(): Promise<void> {`,
           invalidGuard(m),
           ...submitBody(m.formVar, [
-            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: ${submitInputExpr(m.formVar, m.nullable, optionalGroupNames(m), m.controls)} });`,
+            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: ${submitInputExpr(m.formVar, m.nullable, optionalGroupNames(m), m.controls, m)} });`,
             `    this.${m.openSig}.set(false);`,
           ]),
           "  }",
@@ -1220,6 +1235,16 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       `        <section style="padding:24px"><h2>${forbidden.title}</h2><p>${forbidden.body}</p></section>`,
       "      }",
     ].join("\n");
+  }
+
+  // The form text-parse rule (`src/lib/form-text.ts`): the validators a parsed
+  // control carries and the submit's parse, imported as the class uses them.
+  const classText = `${members.join("\n")}\n${template}`;
+  const formText = ["formTextValidator", "parseFormValue"].filter((n) =>
+    classText.includes(`${n}(`),
+  );
+  if (formText.length > 0) {
+    imports.push(`import { ${formText.join(", ")} } from "../../lib/form-text";`);
   }
 
   return [

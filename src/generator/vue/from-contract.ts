@@ -37,7 +37,11 @@ import {
   e2ePackageJson,
   e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
-import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
+import {
+  ERROR_CODE_HELPERS_TS,
+  errorCodeTBinding,
+  submitFailureTs,
+} from "../_frontend/error-codes.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
@@ -48,6 +52,7 @@ import {
   externFunctionShimPath,
   externFunctionSignaturePath,
 } from "../_frontend/extern-shim.js";
+import { formTextModuleTs } from "../_frontend/form-text-runtime.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 // The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
 // default, values?)` over `./locales/en.json` with `{name}` substitution — so
@@ -95,6 +100,7 @@ import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { emitShellFiles, emitShellGlobs } from "../_packs/shell-emits.js";
+import { TS_RUNTIME } from "../_symbols/plan.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import {
   collectUiMessages,
@@ -655,7 +661,8 @@ export function generateVueFromContract(
     "src/lib/form.ts",
     renderShell(pack, "loom-form", {
       tBinding: errorCodeTBinding(i18nEnabled, "./locale"),
-      helpers: ERROR_CODE_HELPERS_TS,
+      helpers: `${ERROR_CODE_HELPERS_TS}\n${submitFailureTs(i18nEnabled)}`,
+      issueCodeKey: TS_RUNTIME.issueCode,
     }),
   );
 
@@ -840,6 +847,8 @@ export function generateVueFromContract(
   // scaffold's `ProvenanceInfo` "?" disclosure has a typed lineage to read
   // (mirrors the React generator).  The lib schema is framework-neutral zod.
   const usesProvenance = contractUsesProvenance(contract, contextNames);
+  // The form text-parse rule every form's request schema parses through.
+  out.set("src/lib/form-text.ts", formTextModuleTs("zod"));
   if (usesMoney || usesProvenance) {
     let schemas = usesMoney ? MONEY_SCHEMA_TS : "";
     if (usesProvenance) {

@@ -1,5 +1,6 @@
 import { isServerSourcedDefault } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
+import { spellMarkers } from "../../../generator/_imports/symbol.js";
 import { refType, tsImportSlot, tsNamed, tsNamespace } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
@@ -25,6 +26,15 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../../generator/_persistence/pg-sqlstate.js";
+import {
+  camelId,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opOperation,
+  SCHEMA_NAMES,
+} from "../../../generator/_symbols/plan.js";
 import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   historyMapperName,
@@ -42,7 +52,7 @@ import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/do
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
-import { T } from "../../../generator/typescript/ts-symbols.js";
+import { T, TT } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   tsErrorVariantExt,
@@ -146,14 +156,6 @@ import {
   operationGatesUseCurrentUser,
   type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
-import {
-  camelId,
-  opCreate,
-  opDestroy,
-  opFind,
-  opGetById,
-  opOperation,
-} from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import {
   collectReachableTypes,
@@ -315,25 +317,25 @@ function emitHistoryRoute(
   out.push(`    path: "/{id}/history",`);
   out.push(`    tags: ["${aggSlug}"],`);
   out.push(`    operationId: "${camelId(opFind(agg.name, "history"))}",`);
-  out.push(`    request: { params: z.object({ id: UuidString }) },`);
+  out.push(`    request: { params: z.object({ id: ${T.UuidString} }) },`);
   out.push(`    responses: {`);
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: z.array(AuditEntryResponse) } } },`,
   );
   if (find.requires) {
     out.push(
-      `      ${forbiddenStatus}: { description: ${JSON.stringify(reasonPhrase(forbiddenStatus))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+      `      ${forbiddenStatus}: { description: ${JSON.stringify(reasonPhrase(forbiddenStatus))}, content: { "application/problem+json": { schema: ${T.ProblemDetails} } } },`,
     );
   }
   out.push(
-    `      ${notFoundStatus}: { description: ${JSON.stringify(reasonPhrase(notFoundStatus))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${notFoundStatus}: { description: ${JSON.stringify(reasonPhrase(notFoundStatus))}, content: { "application/problem+json": { schema: ${T.ProblemDetails} } } },`,
   );
   // The `{id}` uuid parse — same wire-validation tier every other `{id}` route
   // declares.  Hand-rolled here (history is `apiSurfaceCoverage.notLifted`),
   // but the SET is `errorStatuses("getById")`, which is literally what the
   // .NET and python history routes render — so it moves with them.
   out.push(
-    `      ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ${T.ProblemDetails} } } },`,
   );
   out.push(`    },`);
   out.push(`  }),`);
@@ -349,7 +351,7 @@ function emitHistoryRoute(
     // the declared-find spelling `Forbidden: find <name>` — the same sentence
     // every backend answers for this refusal.
     out.push(
-      `    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
+      `    if (!(${renderTsExpr(find.requires)})) throw new ${T.ForbiddenError}(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
     );
   }
   // Fail-closed principal for the mask pass: unauthenticated → null → every
@@ -429,8 +431,8 @@ function problemResponseLines(
   return entry.errorStatuses.map((s) => {
     const arms = split?.errorStatuses.find((e) => e.status === s)?.arms ?? [];
     const schema = arms.length
-      ? `z.union([ProblemDetails, ${arms.map((a) => a.problemName).join(", ")}])`
-      : "ProblemDetails";
+      ? `z.union([${T.ProblemDetails}, ${arms.map((a) => a.problemName).join(", ")}])`
+      : T.ProblemDetails;
     return `${pad}${s}: { description: ${JSON.stringify(reasonPhrase(s))}, content: { "application/problem+json": { schema: ${schema} } } },`;
   });
 }
@@ -961,7 +963,7 @@ export function buildRoutesFile(
   }
   lines.push(...emitResponseDtoSchema(agg, ctx));
   lines.push(
-    `export const ${agg.name}ListResponse = z.array(${agg.name}Response).openapi("${agg.name}ListResponse");`,
+    `export const ${SCHEMA_NAMES.listResponse(agg.name)} = z.array(${agg.name}Response).openapi("${SCHEMA_NAMES.listResponse(agg.name)}");`,
   );
   // Paged response DTOs (P3b) — one per distinct `<carrier> paged` return on
   // this aggregate's repository finds.  `items` reuses the response-side zod
@@ -1029,7 +1031,7 @@ export function buildRoutesFile(
         problemSeen.add(arm.problemName);
         const body = arm.fields.map((f) => `${f.name}: ${fieldZod(f)}`).join(", ");
         lines.push(
-          `export const ${arm.problemName} = ProblemDetails.extend({ ${body} }).openapi("${arm.problemName}");`,
+          `export const ${arm.problemName} = ${T.ProblemDetails}.extend({ ${body} }).openapi("${arm.problemName}");`,
         );
       }
     }
@@ -1059,12 +1061,12 @@ export function buildRoutesFile(
   const dbType = needsTx
     ? usingMikro
       ? "EntityManager"
-      : "NodePgDatabase<typeof schema>"
+      : `${TT.NodePgDatabase}<typeof schema>`
     : usingMikro
       ? refType(tsNamed("@mikro-orm/postgresql", "EntityManager"))
       : `${refType(tsNamed("drizzle-orm/node-postgres", "NodePgDatabase"))}<typeof ${refType(tsNamespace("~/db/schema", "schema"))}>`;
   const eventsType = needsTx
-    ? "DomainEventDispatcher"
+    ? `${TT.DomainEventDispatcher}`
     : refType(tsNamed("~/domain/events", "DomainEventDispatcher"));
   if (historyFind) {
     lines.push(...emitHistoryReader(ctx.payloads, agg, usingMikro, dbType), "");
@@ -1073,7 +1075,7 @@ export function buildRoutesFile(
     needsTx || existsReads.length > 0
       ? `repo: ${agg.name}Repository, db: ${dbType}, events: ${eventsType}`
       : `repo: ${agg.name}Repository`;
-  lines.push(`export function ${lowerFirst(agg.name)}Routes(${routerParams}): OpenAPIHono {`);
+  lines.push(`export function ${lowerFirst(agg.name)}Routes(${routerParams}): ${T.OpenAPIHono} {`);
   // `newApp()` from `./problem-details` constructs OpenAPIHono with the
   // shared validation `defaultHook` pre-wired — Zod parse failures emit
   // 422 ProblemDetails with `errors[]` for the frontend ACL.
@@ -1234,7 +1236,7 @@ export function buildRoutesFile(
     lines.push(`      path: "${honoPath(derivedGetById)}",`);
     lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
     lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
-    lines.push(`      request: { params: z.object({ id: UuidString }) },`);
+    lines.push(`      request: { params: z.object({ id: ${T.UuidString} }) },`);
     lines.push(`      responses: {`);
     lines.push(
       `        200: { description: "OK", content: { "application/json": { schema: ${agg.name}Response } } },`,
@@ -1256,7 +1258,7 @@ export function buildRoutesFile(
         );
       }
       lines.push(
-        `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
+        `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ${T.ForbiddenError}(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
       );
     }
     if (cache) {
@@ -1344,7 +1346,7 @@ export function buildRoutesFile(
     lines.push(`      path: "${honoPath(derivedDestroy)}",`);
     lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
     lines.push(`      operationId: "${camelId(opDestroy(agg.name))}",`);
-    lines.push(`      request: { params: z.object({ id: UuidString }) },`);
+    lines.push(`      request: { params: z.object({ id: ${T.UuidString} }) },`);
     lines.push(`      responses: {`);
     lines.push(`        204: { description: "No Content" },`);
     lines.push(...problemResponseLines(derivedDestroy, "        "));
@@ -1574,7 +1576,7 @@ export function buildRoutesFile(
   lines.push(
     `    const problem = (status: ${problemStatusUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
-  lines.push(`    if (err instanceof ForbiddenError) {`);
+  lines.push(`    if (err instanceof ${T.ForbiddenError}) {`);
   lines.push(
     `      ${renderHonoLogCall("forbidden", `aggregate: "${agg.name}", message: err.message, status: ${forbiddenStatus}`)}`,
   );
@@ -1585,7 +1587,7 @@ export function buildRoutesFile(
     `      return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))});`,
   );
   lines.push(`    }`);
-  lines.push(`    if (err instanceof DisallowedError) {`);
+  lines.push(`    if (err instanceof ${T.DisallowedError}) {`);
   lines.push(
     `      ${renderHonoLogCall("disallowed", `aggregate: "${agg.name}", message: err.message, status: ${disallowedStatus}`)}`,
   );
@@ -1594,7 +1596,7 @@ export function buildRoutesFile(
     `      return problem(${disallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
   );
   lines.push(`    }`);
-  lines.push(`    if (err instanceof DomainError) {`);
+  lines.push(`    if (err instanceof ${T.DomainError}) {`);
   lines.push(
     `      ${renderHonoLogCall("domainError", `aggregate: "${agg.name}", message: err.message, status: ${domainStatus}`)}`,
   );
@@ -1603,7 +1605,7 @@ export function buildRoutesFile(
     `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode)`)};`,
   );
   lines.push(`    }`);
-  lines.push(`    if (err instanceof AggregateNotFoundError) {`);
+  lines.push(`    if (err instanceof ${T.AggregateNotFoundError}) {`);
   lines.push(
     `      ${renderHonoLogCall("notFound", `aggregate: "${agg.name}", status: ${notFoundStatus}`)}`,
   );
@@ -1674,7 +1676,7 @@ export function buildRoutesFile(
   // ConcurrencyError (the guarded write's stale-write rejection, or the
   // event-log append's `(stream_id, version)` 23505 collision).
   if (aggregateCanConflict(agg)) {
-    lines.push(`    if (err instanceof ConcurrencyError) {`);
+    lines.push(`    if (err instanceof ${T.ConcurrencyError}) {`);
     lines.push(
       `      ${renderHonoLogCall("conflict", `aggregate: "${agg.name}", message: err.message, status: ${concurrencyStatus}`)}`,
     );
@@ -1700,7 +1702,7 @@ export function buildRoutesFile(
     );
     lines.push(`    }`);
   }
-  lines.push(`    if (err instanceof ExternHandlerError) {`);
+  lines.push(`    if (err instanceof ${T.ExternHandlerError}) {`);
   lines.push(
     `      ${renderHonoLogCall("externHandlerThrew", "aggregate: err.aggName, op: err.opName, error: err.message")}`,
   );
@@ -1717,7 +1719,7 @@ export function buildRoutesFile(
   // 500 below, reporting a CLIENT fault as a server fault: java answers 400
   // for the same request.  Placed LAST among the typed arms so no domain
   // class it might subclass loses its own mapping.
-  lines.push(`    if (err instanceof HTTPException) {`);
+  lines.push(`    if (err instanceof ${T.HTTPException}) {`);
   lines.push(`      ${renderHonoLogCall("clientError", "error: err.message, status: err.status")}`);
   lines.push(
     `      return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
@@ -1742,7 +1744,7 @@ export function buildRoutesFile(
   const assembledSoFar = lines.join("\n");
   // The shared guid wire schema, only when a route actually declares one.
   // ASCII order puts it between the two `P`/`f` names above.
-  if (/\bUuidString\b/.test(assembledSoFar)) problemNamed.splice(1, 0, "UuidString");
+  if (/\bUuidString\b/.test(spellMarkers(assembledSoFar))) problemNamed.splice(1, 0, "UuidString");
   if (/\bparseIfMatch\(/.test(assembledSoFar)) problemNamed.push("parseIfMatch");
   if (/\brequireJsonContentType\(/.test(assembledSoFar))
     problemNamed.push("requireJsonContentType");
@@ -1848,7 +1850,7 @@ function requiresGateLines(
     // the masked key (an absent key keeps the stored value).
     const present = maskWritePresenceParam(op, g);
     const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
-    return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
+    return `${pad}if (${cond}) throw new ${T.ForbiddenError}(${JSON.stringify(
       `Forbidden: ${g.source}`,
     )});`;
   });
@@ -1890,7 +1892,7 @@ function lifecycleGateLine(
     ...(paramExpr ? { paramExpr } : {}),
   });
   return [
-    `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${g.source}`)});`,
+    `${pad}if (!(${pred})) throw new ${T.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)});`,
   ];
 }
 
@@ -1911,7 +1913,7 @@ function whenGateLine(agg: AggregateIR, op: OperationIR, pad: string): string[] 
   if (!op.when) return [];
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
   return [
-    `${pad}if (!(${pred})) throw new DisallowedError(${JSON.stringify(
+    `${pad}if (!(${pred})) throw new ${T.DisallowedError}(${JSON.stringify(
       disallowedDetail(op.name, agg.name),
     )});`,
   ];
@@ -1956,7 +1958,7 @@ function emitCanOpRoute(
   out.push(`    tags: ["${aggSlug}"],`);
   out.push(`    operationId: "${camelId(opOperation(agg.name, `can_${op.name}`))}",`);
   out.push(`    request: {`);
-  out.push(`      params: z.object({ id: UuidString }),`);
+  out.push(`      params: z.object({ id: ${T.UuidString} }),`);
   out.push(`    },`);
   out.push(`    responses: {`);
   out.push(
@@ -1970,7 +1972,7 @@ function emitCanOpRoute(
   if (needsUser) out.push(currentUserBindLine("    "));
   if (readFind?.requires) {
     out.push(
-      `    if (!(${renderTsExpr(readFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${readFind.name}`)});`,
+      `    if (!(${renderTsExpr(readFind.requires)})) throw new ${T.ForbiddenError}(${JSON.stringify(`Forbidden: find ${readFind.name}`)});`,
     );
   }
   for (const g of rowFree) {
@@ -2016,7 +2018,7 @@ function expectedVersionLines(check: VersionCheck, pad: string, loadedVar = "agg
 function destroyIfMatchLines(agg: AggregateIR, loadedVar: string, pad: string): string[] {
   return [
     ...expectedVersionLines(destroyVersionCheck(agg), pad, loadedVar),
-    `${pad}if (expectedVersion !== ${loadedVar}.${ROW_VERSION_FIELD}) throw new ConcurrencyError("${agg.name}", id);`,
+    `${pad}if (expectedVersion !== ${loadedVar}.${ROW_VERSION_FIELD}) throw new ${T.ConcurrencyError}("${agg.name}", id);`,
   ];
 }
 
@@ -2217,7 +2219,7 @@ function emitOperationRoute(
   out.push(`    tags: ["${aggSlug}"],`);
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
-  out.push(`      params: z.object({ id: UuidString }),`);
+  out.push(`      params: z.object({ id: ${T.UuidString} }),`);
   // RS-39 — a parameterless command's body is optional (an empty one reads as `{}`).
   out.push(
     `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
@@ -2369,7 +2371,7 @@ function emitReturningOperationRoute(
   out.push(`    tags: ["${aggSlug}"],`);
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
-  out.push(`      params: z.object({ id: UuidString }),`);
+  out.push(`      params: z.object({ id: ${T.UuidString} }),`);
   // RS-39 — a parameterless command's body is optional (an empty one reads as `{}`).
   out.push(
     `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
@@ -2528,7 +2530,7 @@ function emitFindRoute(
   const responseSchema = paged
     ? paged.name
     : isList
-      ? `${agg.name}ListResponse`
+      ? SCHEMA_NAMES.listResponse(agg.name)
       : `${agg.name}Response`;
   // A paged find always carries a query (page/pageSize), even with no
   // declared params.  THE SAME predicate the derivation declares 422 with
@@ -2591,7 +2593,7 @@ function emitFindRoute(
   // read gates the lone bare-`Forbidden` outlier across all five backends.
   if (find.requires) {
     out.push(
-      `    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
+      `    if (!(${renderTsExpr(find.requires)})) throw new ${T.ForbiddenError}(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
     );
   }
   const baseArgs = find.params.map((p) => wireToDomainExpr(`params.${p.name}`, p.type, ctx));
@@ -2620,7 +2622,7 @@ function emitFindRoute(
     // the stdlib defaults), carrying `resource: "<Agg>"` when declared.
     if (unionSpec.absent.kind === "none") {
       out.push(
-        `    if (result == null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+        `    if (result == null) throw new ${T.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
       );
     } else {
       const tag = unionSpec.absent.tag;
@@ -2649,7 +2651,7 @@ function emitFindRoute(
     );
   } else if (find.returnType.kind === "optional") {
     out.push(
-      `    if (result == null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+      `    if (result == null) throw new ${T.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
     );
     if (emitTrace) {
       out.push(`    const wire = ${wireResp(agg, "repo", "result")};`);
@@ -3012,7 +3014,7 @@ export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "b
       // `context` is deliberately ignored: the same rule holds for a body
       // field and for a `?owner=` query parameter (F3 is F2 through the query
       // string), and both funnel through this one arm.
-      return "UuidString";
+      return T.UuidString;
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;

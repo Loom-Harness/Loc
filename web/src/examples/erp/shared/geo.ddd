@@ -7,20 +7,20 @@ enum Country { US, GB, DE, FR, PL, JP }
 valueobject Address {
   line1: string
   line2: string?
-  city: string
+  city: string check cityIsRequired: city.trim().length > 0
   region: string
   postalCode: string
   country: Country
-  invariant line1.length > 0
-  invariant postalCode.length > 0
+  invariant addressLineIsRequired: line1.length > 0
+  invariant postalCodeIsRequired: postalCode.length > 0
   derived display: string = line1 + ", " + city + " " + postalCode
 }
 
 valueobject GeoPoint {
   lat: decimal
   lng: decimal
-  invariant lat >= -90
-  invariant lat <= 90
-  invariant lng >= -180
-  invariant lng <= 180
+  invariant latitudeCannotBeBelowMinusNinety: lat >= -90
+  invariant latitudeCannotExceedNinety: lat <= 90
+  invariant longitudeCannotBeBelowMinusOneHundredEighty: lng >= -180
+  invariant longitudeCannotExceedOneHundredEighty: lng <= 180
 }

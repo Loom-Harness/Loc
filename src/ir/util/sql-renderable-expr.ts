@@ -64,6 +64,11 @@ export function sqlRenderableExpr(e: ExprIR): true | { reason: string } {
       if (t !== true) return t;
       return sqlRenderableExpr(e.otherwise);
     }
+    case "coalesce": {
+      const l = sqlRenderableExpr(e.left);
+      if (l !== true) return l;
+      return sqlRenderableExpr(e.fallback);
+    }
     // The refused half, named.  A backfill runs as one SQL `UPDATE`, so
     // anything needing a host runtime — a call, a member walk, a ctor, a list,
     // a match, a conversion, an i18n hole, a duration, an authz sentinel, a

@@ -55,7 +55,9 @@ describe("feliz auth gate", () => {
     expect(app).toContain("type SessionState =\n  | Checking\n  | Authed\n  | Anon");
     expect(app).toContain("open Browser.Dom");
     expect(app).toContain('let! (status, _) = Http.get "/api/auth/me"');
-    expect(app).toContain('let signIn () : unit = window.location.href <- "/api/auth/login"');
+    // The sign-in carries the page it started from, for the callback to return to.
+    expect(app).toContain('"/api/auth/login?returnTo="');
+    expect(app).toContain("Fable.Core.JS.encodeURIComponent window.location.href");
     expect(app).toContain('let signOut () : unit = window.location.href <- "/api/auth/logout"');
   });
 

@@ -107,6 +107,7 @@ export const MIKRO_INTRINSIC_SQL: Record<string, (recv: string, args: string[]) 
   // `starts_with` has no pattern language, so no ESCAPE discipline is needed —
   // the twin of drizzle's `strpos(col, $p) = 1`.
   "string.startsWith": (r, a) => `starts_with(${r}, ${a[0]})`,
+  "string.contains": (r, a) => `strpos(${r}, ${a[0]}) > 0`,
   "int.abs": (r) => `abs(${r})`,
   "long.abs": (r) => `abs(${r})`,
   "decimal.abs": (r) => `abs(${r})`,
@@ -417,6 +418,7 @@ function filterValue(e: ExprIR, acc: string): string {
     case "authz-filter":
     case "unary":
     case "binary":
+    case "coalesce":
     case "ternary":
     case "convert":
     case "duration":
@@ -874,6 +876,7 @@ function rawPredicateSql(e: ExprIR, sc: ExistsSqlScope): string | null {
     case "list":
     case "lambda":
     case "action-ref":
+    case "coalesce":
     case "ternary":
     case "convert":
     case "duration":

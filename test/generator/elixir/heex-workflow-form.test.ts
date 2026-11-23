@@ -95,8 +95,11 @@ describe("HEEx `WorkflowForm` — the real field set (F61)", () => {
     const label = (f: string, english: string) =>
       `label={pgettext("Ordering.PlaceOrder.field.${f}", "${english}")}`;
     expect(live).toContain(`<.input field={@form[:ref]} type="text" ${label("ref", "Ref")}`);
-    expect(live).toContain(`<.input field={@form[:qty]} type="number" ${label("qty", "Qty")}`);
-    expect(live).toContain(`<.input field={@form[:unit_total]} type="number"`);
+    // A number is typed text, parsed by the form text rule on submit.
+    expect(live).toContain(
+      `<.input field={@form[:qty]} type="text" ${label("qty", "Qty")} inputmode="numeric"`,
+    );
+    expect(live).toContain(`<.input field={@form[:unit_total]} type="text"`);
     expect(live).toContain(`<.input field={@form[:rush]} type="checkbox" ${label("rush", "Rush")}`);
     // The defect.
     expect(live).not.toContain("_placeholder");
@@ -123,7 +126,7 @@ describe("HEEx `WorkflowForm` — the `run_<wf>` handler (F61)", () => {
     // The two spellings MUST agree — they disagreed by being absent before.
     expect(live).toContain(`phx-submit="run_place_order"`);
     expect(live).toContain(
-      `def handle_event("run_place_order", %{"place_order" => raw}, socket) do`,
+      `def handle_event("run_place_order", %{"place_order" => submitted}, socket) do`,
     );
     expect(live).toContain("case Api.Ordering.Workflows.PlaceOrder.run(params) do");
   });
@@ -134,22 +137,29 @@ describe("HEEx `WorkflowForm` — the `run_<wf>` handler (F61)", () => {
     expect(as, "mount does not namespace the workflow form").toBeDefined();
     // The `as:` IS the key the handler destructures — read the handler rather
     // than restating the literal, so the two cannot drift apart.
-    expect(live).toContain(`def handle_event("run_${as}", %{"${as}" => raw}, socket) do`);
+    expect(live).toContain(`def handle_event("run_${as}", %{"${as}" => submitted}, socket) do`);
+    expect(live).toContain(`to_form(submitted, as: "${as}", errors: errors, action: :validate)`);
   });
 
   it("rekeys the SNAKE form field to the DECLARED param name the workflow reads", async () => {
     const { live } = await emitted();
     // `unitTotal` is the whole point: the input is `unit_total`, the workflow
     // module destructures `%{"unitTotal" => …}`.
-    expect(live).toContain(`"unitTotal" => __wf_param(Map.get(raw, "unit_total"), :decimal)`);
+    expect(live).toContain(
+      `"unitTotal" => ApiWeb.FormText.value("decimal", Map.get(raw, "unit_total"))`,
+    );
   });
 
   it("narrows each submitted string to its declared kind", async () => {
     const { live } = await emitted();
-    expect(live).toContain(`"qty" => __wf_param(Map.get(raw, "qty"), :int)`);
+    // A number param is parsed by the form text rule before the workflow runs.
+    expect(live).toContain(
+      `ApiWeb.FormText.parse(submitted, %{"qty" => {"int", false}, "unit_total" => {"decimal", false}})`,
+    );
+    expect(live).toContain(`"qty" => ApiWeb.FormText.value("int", Map.get(raw, "qty"))`);
     expect(live).toContain(`"rush" => __wf_param(Map.get(raw, "rush"), :bool)`);
     expect(live).toContain(`"ref" => __wf_param(Map.get(raw, "ref"), :string)`);
-    expect(live).toContain("defp __wf_param(v, :int) when is_binary(v) do");
+    expect(live).not.toContain("defp __wf_param(v, :int)");
     expect(live).toContain("defp __wf_param(v, :bool) when is_binary(v)");
   });
 
@@ -163,7 +173,7 @@ describe("HEEx `WorkflowForm` — the `run_<wf>` handler (F61)", () => {
     expect(sweep).not.toContain("__wf_param");
   });
 
-  it("flashes a coded domain-floor denial's `detail`, not its `inspect`ed map (L1-E / E5)", async () => {
+  it("shows a coded domain-floor denial's `detail` in the form, not its `inspect`ed map (L1-E / E5)", async () => {
     const { live } = await emitted();
     // A named precondition in an operation the workflow runs denies with
     // `{:precondition_failed, %{detail: …, code: …, pointer: …}}`
@@ -171,7 +181,8 @@ describe("HEEx `WorkflowForm` — the `run_<wf>` handler (F61)", () => {
     // `Place order failed: {:precondition_failed, %{code: "msg.…", …}}`.
     const clause = live.indexOf("{:error, {_kind, %{detail: detail}}} when is_binary(detail) ->");
     expect(clause, "no clause for the coded domain-floor map").toBeGreaterThan(-1);
-    // It must sit BEFORE the inspect fallback, or it never matches.
-    expect(clause).toBeLessThan(live.indexOf("#{inspect(reason)}"));
+    // It must sit BEFORE the catch-all refusal, or it never matches.
+    expect(clause).toBeLessThan(live.indexOf("{:error, _reason} ->"));
+    expect(live).not.toContain("#{inspect(reason)}");
   });
 });

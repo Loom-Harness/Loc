@@ -18,7 +18,7 @@ import { NO_TRANSACTION_MARKER, renderPgStep, splitPgStatements } from "../../sq
 // own ledger (`drizzle.__drizzle_migrations`, the `when` watermark) and
 // applies consecutive pending files in one transaction exactly like
 // `drizzle-orm/node-postgres/migrator` — except a file marked
-// `-- loom:no-transaction` (a `CREATE INDEX CONCURRENTLY` unit), which it
+// `-- migrate:no-transaction` (a `CREATE INDEX CONCURRENTLY` unit), which it
 // applies outside any transaction.  `npm run db:migrate` runs the same
 // runner out of band through `db/migrate-cli.ts`.  `drizzle-kit migrate` is
 // not wired: it wraps every pending file in one transaction, so it cannot

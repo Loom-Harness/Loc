@@ -6,7 +6,9 @@
  *  i.e. the returned value is a plain `let`-ref bound to a TOP-LEVEL `repo-run`
  *  statement — over a criterion (`synthCriterion`: `Repo.all(<Criterion>)`)
  *  or a named `retrieval` (`Repo.all(<Retrieval>)`,
- *  whose `sort:` becomes the page's default order).  Shared by the enrich pass
+ *  whose `sort:` becomes the page's default order) — or to the whole
+ *  collection, `let r = Repo.all()`, which pages through the aggregate's own
+ *  list read (the one its `GET /<aggs>` runs) and so never loads the table.  Shared by the enrich pass
  *  (which synthesises the paged FIND for this shape), the phase-⑦ refusal
  *  `loom.paged-query-handler-shape` (which rejects every other body up front)
  *  and the five `explicit-handlers` emitters, so the gate, the synthesis and
@@ -16,21 +18,44 @@
 import { pagedSortDefault } from "../stdlib/generics.js";
 import {
   type BoundedContextIR,
+  type ExprIR,
   exprUsesCurrentUser,
   type QueryHandlerIR,
   type WorkflowStmtIR,
 } from "../types/loom-ir.js";
 
-export type PagedRunStmt = Extract<WorkflowStmtIR, { kind: "repo-run" }>;
+type RepoRun = Extract<WorkflowStmtIR, { kind: "repo-run" }>;
+type ListRead = Extract<WorkflowStmtIR, { kind: "repo-let" }> & { op: "select-many" };
 
-/** The `repo-run` statement a paged queryHandler's `return` names, when the body
- *  has the supported shape; `undefined` otherwise. */
+/** The statement a paged handler pages: a run of a criterion or retrieval, or
+ *  the whole-collection list read `Repo.all()`. */
+export type PagedRunStmt = RepoRun | ListRead;
+
+/** The statement a paged queryHandler's `return` names, when the body has the
+ *  supported shape; `undefined` otherwise. */
 export function pagedRunStmt(
   h: Pick<QueryHandlerIR, "statements" | "returnValue">,
 ): PagedRunStmt | undefined {
   const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
   if (retName === undefined) return undefined;
-  return h.statements.find((s): s is PagedRunStmt => s.kind === "repo-run" && s.name === retName);
+  return h.statements.find(
+    (s): s is PagedRunStmt =>
+      (s.kind === "repo-run" || (s.kind === "repo-let" && s.op === "select-many")) &&
+      s.name === retName,
+  );
+}
+
+/** True when the paged run is the whole collection (`Repo.all()`): it pages
+ *  through the aggregate's own list read rather than a synthesized find, so
+ *  each backend calls the repository method its `GET /<aggs>` calls. */
+export function pagedRunReadsList(run: PagedRunStmt): run is ListRead {
+  return run.kind === "repo-let";
+}
+
+/** The arguments a paged run passes before the page controls: the criterion
+ *  or retrieval arguments, none for the whole collection. */
+export function pagedRunArgs(run: PagedRunStmt): ExprIR[] {
+  return pagedRunReadsList(run) ? [] : run.retrievalArgs;
 }
 
 /** `pagedRunStmt` for an emitter, which runs after phase ⑦ refused every other
@@ -95,7 +120,8 @@ export function pagedRunGatesUseCurrentUser(h: Pick<QueryHandlerIR, "statements"
  *  synthesizes for it.  A criterion run already names it (`findAllBy<Criterion>`,
  *  shared with `Repo.all(<Criterion>)`); a retrieval run gets
  *  `page<Retrieval>`, beside the unpaged `run<Retrieval>` the retrieval itself
- *  emits. */
+ *  emits; the whole collection is the repository's own `all` list read. */
 export function pagedRunFindName(run: PagedRunStmt): string {
+  if (pagedRunReadsList(run)) return "all";
   return run.synthCriterion ? run.retrievalName : `page${run.retrievalName}`;
 }

@@ -47,11 +47,11 @@ export class Customer {
   _applyVersion(next: number): void { this._rowVersion = next; }
 
   private _assertInvariants(): void {
-    if (!(this._username !== this._email)) throw new DomainError("Business rule violated", "invariant");
-    if (!(/^[a-z][a-z0-9_]*$/.test(this._username))) throw new DomainError("Business rule violated", "invariant");
-    if (!([...this._username].length >= 3 && [...this._username].length <= 32)) throw new DomainError("Business rule violated", "invariant");
-    if (!(/^[^@]+@[^@]+\.[^@]+$/.test(this._email) && [...this._email].length <= 120)) throw new DomainError("Business rule violated", "invariant");
-    if (!(this._age >= 18 && this._age <= 150)) throw new DomainError("Business rule violated", "invariant");
+    if (!(this._username !== this._email)) throw new DomainError("Username must differ from email", "invariant", "Customers.Customer.rule.usernameMustDifferFromEmail", "", { "email": this._email, "username": this._username });
+    if (!(/^[a-z][a-z0-9_]*$/.test(this._username))) throw new DomainError("Username must be lowercase starting with letter", "invariant", "Customers.Customer.rule.usernameMustBeLowercaseStartingWithLetter", "/username", { "username": this._username });
+    if (!([...this._username].length >= 3 && [...this._username].length <= 32)) throw new DomainError("Username must be three to thirty two characters", "invariant", "Customers.Customer.rule.usernameMustBeThreeToThirtyTwoCharacters", "/username", { "username": this._username });
+    if (!(/^[^@]+@[^@]+\.[^@]+$/.test(this._email) && [...this._email].length <= 120)) throw new DomainError("Email must be valid", "invariant", "Customers.Customer.rule.emailMustBeValid", "", { "email": this._email });
+    if (!(this._age >= 18 && this._age <= 150)) throw new DomainError("Customer must be an adult of realistic age", "invariant", "Customers.Customer.rule.customerMustBeAnAdultOfRealisticAge", "/age", { "age": this._age });
   }
 
   static _create(state: { id: Ids.CustomerId; username: string; email: string; age: number; rowVersion: number }): Customer {

@@ -164,12 +164,12 @@ describe("generated stack survives a late database (#24)", async () => {
 
   it(".NET probes the connection with transient-only retry before EF Migrate", () => {
     const program = expectEmitted(files, "net_svc/Program.cs");
-    expect(program).toContain("static async Task LoomWaitForDbAsync(");
+    expect(program).toContain("static async Task WaitForDatabaseAsync(");
     expect(program).toContain(`const int maxAttempts = ${maxAttempts};`);
     expect(program).toContain("when (attempt < maxAttempts && IsTransientDbError(dbError))");
     expect(program).toContain("Npgsql.NpgsqlException { IsTransient: true }");
     expect(program).toContain('"db_connect_retry"');
-    const wait = program.indexOf("await LoomWaitForDbAsync(");
+    const wait = program.indexOf("await WaitForDatabaseAsync(");
     expect(wait).toBeGreaterThan(-1);
     expect(wait).toBeLessThan(program.indexOf("db.Database.Migrate();"));
   });

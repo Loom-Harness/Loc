@@ -3,7 +3,9 @@ import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/
 import type { ExprIR, LiteralKind } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import type { ExistsReadNode } from "../../ir/util/in-app-exists.js";
-import { coalesceParts } from "./coalesce.js";
+import { type GroupingPolicy, groupOperand, type OperandPosition } from "./grouping.js";
+
+const POSTFIX: OperandPosition = { parent: "postfix" };
 
 // ---------------------------------------------------------------------------
 // Shared ExprIR dispatch — the `ExprTarget` contract.
@@ -51,6 +53,7 @@ export type NewExpr = Extract<ExprIR, { kind: "new" }>;
 export type UnaryExpr = Extract<ExprIR, { kind: "unary" }>;
 export type BinaryExpr = Extract<ExprIR, { kind: "binary" }>;
 export type TernaryExpr = Extract<ExprIR, { kind: "ternary" }>;
+export type CoalesceExpr = Extract<ExprIR, { kind: "coalesce" }>;
 export type ConvertExpr = Extract<ExprIR, { kind: "convert" }>;
 export type DurationExpr = Extract<ExprIR, { kind: "duration" }>;
 
@@ -139,6 +142,10 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  children) while still sharing the structural arms with the other
    *  Elixir targets. */
   intercept?(e: ExprIR, ctx: Ctx): string | undefined;
+  /** How this host's operators group differently from Loom's (`grouping.ts`).
+   *  The dispatcher groups every operand from the tree's shape before a leaf
+   *  sees it; absent → Loom's own grouping is already the host's. */
+  grouping?: GroupingPolicy;
   /** Escape and quote a `.ddd`-authored string for this backend's own
    *  double-quoted string-literal syntax — the escape-funnel seam every site
    *  that splices author text into generated source is meant to reach
@@ -193,11 +200,11 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  narrowing of a branch (.NET unwraps a narrowed `Nullable<T>`); absent for
    *  the synthesized presence ternaries, which have no source node. */
   ternary(cond: string, then: string, otherwise: string, e?: TernaryExpr, ctx?: Ctx): string;
-  /** `left ?? fallback` — a ternary of the shape `coalesceParts` recognises.
+  /** `left ?? fallback` — a `coalesce` node.
    *  Both operands arrive rendered once; the leaf must evaluate `left` exactly
    *  once and `fallback` only when `left` is null (never eagerly: the fallback
    *  may be a call).  The condition is not rendered. */
-  coalesce(left: string, fallback: string, e: TernaryExpr, ctx: Ctx): string;
+  coalesce(left: string, fallback: string, e: CoalesceExpr, ctx: Ctx): string;
   /** `ctx` lets a leaf qualify a framework reference against its emission
    *  scope (.NET: `global::System` when a member named `System` shadows the
    *  namespace — see `CsRenderContext.memberScope`). */
@@ -301,6 +308,7 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
   const intercepted = t.intercept?.(e, ctx);
   if (intercepted !== undefined) return intercepted;
   const r = (x: ExprIR): string => renderExprWith(x, t, ctx);
+  const recv = (x: ExprIR): string => groupOperand(r(x), x, POSTFIX, t.grouping);
   switch (e.kind) {
     case "literal":
       return t.literal(e.lit, e.value, ctx);
@@ -311,9 +319,9 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
     case "ref":
       return t.ref(e, ctx);
     case "member":
-      return t.member(r(e.receiver), e, ctx);
+      return t.member(recv(e.receiver), e, ctx);
     case "method-call":
-      return t.methodCall(r(e.receiver), e.args.map(r), e, ctx);
+      return t.methodCall(recv(e.receiver), e.args.map(r), e, ctx);
     case "call":
       return t.call(e.args.map(r), e, ctx);
     case "lambda": {
@@ -332,14 +340,28 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
     case "paren":
       return `(${r(e.inner)})`;
     case "unary":
-      return t.unary(e.op, r(e.operand), e, ctx);
+      return t.unary(
+        e.op,
+        groupOperand(r(e.operand), e.operand, { parent: "unary", op: e.op }, t.grouping),
+        e,
+        ctx,
+      );
     case "binary":
-      return t.binary(r(e.left), r(e.right), e, ctx);
-    case "ternary": {
-      const co = coalesceParts(e);
-      if (co) return t.coalesce(r(co.left), r(co.fallback), e, ctx);
+      return t.binary(
+        groupOperand(r(e.left), e.left, { parent: "binary", op: e.op, side: "left" }, t.grouping),
+        groupOperand(
+          r(e.right),
+          e.right,
+          { parent: "binary", op: e.op, side: "right" },
+          t.grouping,
+        ),
+        e,
+        ctx,
+      );
+    case "ternary":
       return t.ternary(r(e.cond), r(e.then), r(e.otherwise), e, ctx);
-    }
+    case "coalesce":
+      return t.coalesce(r(e.left), r(e.fallback), e, ctx);
     case "convert":
       return t.convert(r(e.value), e, ctx);
     case "duration":
@@ -521,6 +543,7 @@ export const ALL_EXPR_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
   "unary",
   "binary",
   "ternary",
+  "coalesce",
   "convert",
   "duration",
   "i18nFormat",
@@ -602,6 +625,7 @@ const SQL_MIGRATION_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
   "unary",
   "binary",
   "ternary",
+  "coalesce",
 ]);
 
 /** dotnet `emit/dapper.ts`'s `whereToSql` switch. */
@@ -783,6 +807,12 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
   ctx: Ctx,
 ): MarkedText {
   const rm = (x: ExprIR): MarkedText => renderExprWithMarks(x, t, ctx);
+  // The marks twin groups exactly as `renderExprWith` does; a child's marks
+  // re-anchor into its grouped text by search, so the group needs no mark.
+  const grouped = (m: MarkedText, x: ExprIR, at: OperandPosition): MarkedText => ({
+    text: groupOperand(m.text, x, at, t.grouping),
+    marks: m.marks,
+  });
   // Compose this node's own result: anchor every child's marks into `text`
   // (in child order), then append this node's own whole-text mark.
   const compose = (text: string, children: readonly MarkedText[]): MarkedText => {
@@ -800,11 +830,11 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
     case "ref":
       return compose(t.ref(e, ctx), []);
     case "member": {
-      const recv = rm(e.receiver);
+      const recv = grouped(rm(e.receiver), e.receiver, POSTFIX);
       return compose(t.member(recv.text, e, ctx), [recv]);
     }
     case "method-call": {
-      const recv = rm(e.receiver);
+      const recv = grouped(rm(e.receiver), e.receiver, POSTFIX);
       const args = e.args.map(rm);
       return compose(
         t.methodCall(
@@ -855,21 +885,20 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
       return compose(`(${inner.text})`, [inner]);
     }
     case "unary": {
-      const operand = rm(e.operand);
+      const operand = grouped(rm(e.operand), e.operand, { parent: "unary", op: e.op });
       return compose(t.unary(e.op, operand.text, e, ctx), [operand]);
     }
     case "binary": {
-      const left = rm(e.left);
-      const right = rm(e.right);
+      const left = grouped(rm(e.left), e.left, { parent: "binary", op: e.op, side: "left" });
+      const right = grouped(rm(e.right), e.right, { parent: "binary", op: e.op, side: "right" });
       return compose(t.binary(left.text, right.text, e, ctx), [left, right]);
     }
+    case "coalesce": {
+      const left = rm(e.left);
+      const fallback = rm(e.fallback);
+      return compose(t.coalesce(left.text, fallback.text, e, ctx), [left, fallback]);
+    }
     case "ternary": {
-      const co = coalesceParts(e);
-      if (co) {
-        const left = rm(co.left);
-        const fallback = rm(co.fallback);
-        return compose(t.coalesce(left.text, fallback.text, e, ctx), [left, fallback]);
-      }
       const cond = rm(e.cond);
       const then = rm(e.then);
       const otherwise = rm(e.otherwise);

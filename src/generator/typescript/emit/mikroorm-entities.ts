@@ -466,6 +466,12 @@ function mikroPropertyLine(c: MikroColumn): string {
     parts.push(`columnType: "${c.columnType ?? mikroArrayColumnType(c.mikroType)}"`);
     parts.push(`customType: new ArrayType(${mikroArrayToJs(c.mikroType)})`);
   } else if (c.columnType) parts.push(`columnType: "${c.columnType}"`);
+  // A `long` is a JS number on the wire and in the domain; MikroORM's
+  // `bigint` type hydrates a JS `BigInt` unless the property's runtime type
+  // says otherwise, and a `BigInt` reaches `JSON.stringify` and throws.
+  if (!c.array && c.mikroType === "bigint" && c.tsType === "number") {
+    parts.push(`runtimeType: "number"`);
+  }
   if (c.nullable) parts.push("nullable: true");
   if (c.fieldName) parts.push(`fieldName: "${c.fieldName}"`);
   // The concurrency counter starts at 1, as the migration chain's `DEFAULT 1`
@@ -719,7 +725,7 @@ function timerClaimRowEntity(): { block: string; schemaName: string } {
 }
 
 /** Transactional outbox Row (`_outbox`) — the MikroORM edition of the
- *  drizzle `loomOutbox` pgTable (docs/channels.md).  The table
+ *  drizzle `outbox` pgTable (docs/channels.md).  The table
  *  comes from the shared migration chain; the mapping differs from drizzle's
  *  on two properties, because the capture site writes them:
  *    - `id` is a TEXT pk the capture site fills with `randomUUID()`, not a

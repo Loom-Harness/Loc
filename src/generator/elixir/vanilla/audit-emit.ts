@@ -30,8 +30,9 @@
 
 import type { AggregateIR, BoundedContextIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
+import { camelId, opCreate, opDestroy, ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import {
   contextsServeHistory,
   renderVanillaAuditHistoryModule,
@@ -85,7 +86,7 @@ function renderAuditModule(
   // projection `/auth/me` answers — read off the principal the Auth plug
   // stashes in the process dictionary.  No `user {}` ⇒ there is never one.
   const actorBody = sys?.user
-    ? `    case Process.get(:loom_current_user) do
+    ? `    case Process.get(:${RT.currentPrincipal}) do
       nil ->
         nil
 
@@ -323,10 +324,10 @@ export function wireSnapshot(recordExpr: string, isDoc = false, appModule?: stri
 
 /** The audited create's `operationId` / `action`. */
 export function createAuditMeta(agg: AggregateIR): { operationId: string; action: string } {
-  return { operationId: `create${upperFirst(agg.name)}`, action: "create" };
+  return { operationId: camelId(opCreate(agg.name)), action: "create" };
 }
 
 /** The audited destroy's `operationId` / `action`. */
 export function destroyAuditMeta(agg: AggregateIR): { operationId: string; action: string } {
-  return { operationId: `destroy${upperFirst(agg.name)}`, action: "destroy" };
+  return { operationId: camelId(opDestroy(agg.name)), action: "destroy" };
 }

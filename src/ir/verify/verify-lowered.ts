@@ -371,6 +371,7 @@ function verifyExpr(e: ExprIR, scope: BodyScope, b: Bindings, report: Report): v
     case "paren":
     case "unary":
     case "binary":
+    case "coalesce":
     case "ternary":
     case "convert":
     case "duration":

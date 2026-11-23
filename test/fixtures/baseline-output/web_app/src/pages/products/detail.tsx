@@ -1,12 +1,13 @@
 // Auto-generated.  Do not edit by hand.
 import { useParams, Link as RouterLink } from "react-router";
-import { ProductResponse, UpdateProductRequest, useUpdateProduct } from "../../api/product";
+import { ProductResponse, UpdateProductRequest, type UpdateProductFormState, useUpdateProduct } from "../../api/product";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
+import { FormFailure } from "../../lib/form-failure";
 import { KeyValueRow } from "../../lib/format";
 import { zodResolver } from "../../lib/zod-resolver";
-import { Alert, Anchor, Breadcrumbs, Button, Card, Fieldset, Group, NumberInput, Skeleton, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Anchor, Breadcrumbs, Button, Card, Fieldset, Group, Skeleton, Stack, Text, TextInput, Title } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
@@ -20,7 +21,7 @@ function openUpdateModal(mut: ReturnType<typeof useUpdateProduct>, record: Produ
 }
 
 function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdateProduct>; record: ProductResponse; onClose: () => void }) {
-  const { register, handleSubmit, setError, control, formState: { errors } } = useForm<UpdateProductRequest>({
+  const { register, handleSubmit, setError, control, formState: { errors } } = useForm<UpdateProductFormState, unknown, UpdateProductRequest>({
     resolver: zodResolver(UpdateProductRequest),
     defaultValues: { sku: record.sku, price: { ...record.price } },
   });
@@ -33,12 +34,7 @@ function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdate
           notifications.show({ color: "green", message: t("chrome.operationSucceeded.update", "Update succeeded") });
           onClose();
         } catch (e) {
-          const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-          if (outcome.kind === "global") {
-            notifications.show({ color: "red", message: outcome.title });
-          } else if (outcome.kind === "unhandled") {
-            notifications.show({ color: "red", message: (e as Error).message });
-          }
+          applyServerErrors({ error: e, setError, fieldMap: {} as const });
         }
       })}
     >
@@ -50,8 +46,8 @@ function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdate
             <Controller
           control={control}
           name="price.amount"
-          render={({ field, fieldState }) => (
-            <NumberInput label={ t("Products.Money.field.amount", "Amount") } data-testid="products-op-update-input-price-amount" decimalScale={2} fixedDecimalScale value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+          render={({ field }) => (
+            <TextInput label={ t("Products.Money.field.amount", "Amount") } data-testid="products-op-update-input-price-amount" inputMode="decimal" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.currentTarget.value)} onBlur={field.onBlur} error={fieldErrorText(errors.price?.amount)} />
           )}
         />
 
@@ -60,6 +56,7 @@ function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdate
           </Stack>
         </Fieldset>
 
+        <FormFailure error={errors.root?.submit} testid="products-op-update-error" />
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>
           <Button type="submit" loading={mut.isPending} data-testid="products-op-update-submit">{t("Products.Product.op.update", "Update")}</Button>

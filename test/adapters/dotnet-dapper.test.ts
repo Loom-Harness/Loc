@@ -589,7 +589,7 @@ system D {
     );
     // The root has no flat `Map` (reads reconstruct via HydrateAsync); children
     // hydrate through the part's own `_Create(State)` seam.
-    expect(repo).not.toContain("private static Order Map(Row r)");
+    expect(repo).not.toContain("private static Order Create(Row r)");
     expect(repo).toContain(
       "private static async Task<List<Order>> HydrateAsync(NpgsqlConnection conn, List<Row> rows, CancellationToken cancellationToken)",
     );
@@ -924,7 +924,7 @@ system D {
       "lines = System.Text.Json.JsonSerializer.Serialize(aggregate.Lines.Select(__x => __x.ToSnapshot()).ToList(), __json)",
     );
     // Reads still go through the flat Map (no HydrateAsync child-table load).
-    expect(repo).toContain("private static Cart Map(Row r)");
+    expect(repo).toContain("private static Cart Create(Row r)");
     expect(repo).not.toContain("HydrateAsync");
     // Snapshot DTOs emitted; no EF document/owned config on the Dapper path.
     expect(files.has("api/Domain/Carts/CartSnapshots.cs")).toBe(true);
@@ -1384,7 +1384,7 @@ system D {
     );
     // criterion `where: NameIs(n)` → inline SQL with this-prop → column.
     expect(repo).toContain(
-      'var sql = "SELECT id, name, active, row_version FROM customers WHERE (name = @n) ORDER BY name ASC, id ASC";',
+      'var sql = "SELECT id, name, active, row_version FROM customers WHERE (name = @n) ORDER BY name COLLATE \\"C\\" ASC, id ASC";',
     );
     expect(repo).toContain("var p = new DynamicParameters();");
     expect(repo).toContain('p.Add("n", n);');

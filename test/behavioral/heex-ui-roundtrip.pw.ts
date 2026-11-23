@@ -79,3 +79,58 @@ test("an operation form under a non-`data` QueryView binding submits and updates
 
   await expect(page.getByTestId("bump-rank")).toHaveText("8");
 });
+
+// The breadcrumb trail is a list the pack's CSS lays out in a row.  The
+// walker emits `breadcrumbs` / `breadcrumb-item` / `breadcrumb-sep` classes
+// that no Tailwind utility spells, so a pack that does not define them
+// renders the `<ol>` as a vertical stack: the first and last crumb then sit
+// on different rows.
+test("breadcrumbs render on a single row", async ({ page }) => {
+  const list = await new WidgetListPage(page).goto();
+  const form = await list.create();
+  await form.fill({ name: "Sprocket", rank: 3 });
+  const created = await form.submit();
+
+  await new WidgetDetailPage(page, created.id).goto();
+  const items = page.locator(".breadcrumbs .breadcrumb-item");
+  await expect(items.first()).toBeVisible();
+  expect(await items.count(), "the trail has a root and a current crumb").toBeGreaterThanOrEqual(2);
+
+  const first = await items.first().boundingBox();
+  const last = await items.last().boundingBox();
+  expect(first, "first crumb is laid out").not.toBeNull();
+  expect(last, "last crumb is laid out").not.toBeNull();
+  expect(
+    Math.abs((first?.y ?? 0) - (last?.y ?? 1000)),
+    "first and last breadcrumb share one row (a stacked list differs by a row height)",
+  ).toBeLessThan(6);
+});
+
+// Typed text through the form text rule: `12abc` / `abc` are refused in their
+// fields with the catalog text of the wire code the server answers for the
+// same values (the amount's naming the typed text), the form stays on screen
+// holding what was typed, and nothing is created; ` 42 ` / `120.50` are then
+// saved as typed.
+test("a create form refuses typed text the rule refuses and saves an accepted one as typed", async ({
+  page,
+}) => {
+  await page.goto("/meters/new");
+  const reading = page.getByTestId("meters-new-input-reading");
+  const fee = page.getByTestId("meters-new-input-fee");
+  await reading.fill("12abc");
+  await fee.fill("abc");
+  await page.getByTestId("meters-new-submit").click();
+  const form = page.getByTestId("meters-new");
+  await expect(form).toContainText("Invalid value");
+  await expect(form).toContainText("Invalid decimal abc");
+  await expect(page).toHaveURL(/\/meters\/new$/);
+  await expect(reading).toHaveValue("12abc");
+  await expect(fee).toHaveValue("abc");
+
+  await reading.fill(" 42 ");
+  await fee.fill("120.50");
+  await page.getByTestId("meters-new-submit").click();
+  await expect(page).toHaveURL(/\/meters\/[0-9a-f-]{8,}$/i);
+  await expect(page.getByTestId("meters-detail-reading")).toContainText("42");
+  await expect(page.getByTestId("meters-detail-fee")).toContainText("120.5");
+});

@@ -1055,8 +1055,8 @@ const child = Folder.create({ name: nm, path: loaded.path !== null ? loaded.path
 
 Both directions narrow: `x != null ? …` narrows the **then**-branch,
 `x == null ? … : …` narrows the **else**-branch, and the `null` literal may sit
-on either side of the comparison.  `x ?? y` is the same narrowing (it desugars to
-`x == null ? y : x`).
+on either side of the comparison.  `x ?? y` narrows the same way: its value is
+`x` when `x` is present and `y` otherwise.
 
 A nullable value into a non-optional slot — an assignment, a call argument, a
 record construction, an `emit` field or an `Agg.create(…)` argument — is an
@@ -1266,7 +1266,7 @@ Pragmatic core, similar to a subset of TypeScript / C# expressions.
 | `a + b`, `a - b`, `a * b`, `a / b`, `a % b` | Arithmetic. |
 | `a < b`, `a <= b`, `a > b`, `a >= b`, `a == b`, `a != b` | Comparison. |
 | `a && b`, `a \|\| b` | Logical. |
-| `a ?? b` | Nullish coalescing — `a` unless it is null, else `b`.  Binds LOOSER than `\|\|` and TIGHTER than `? :`, and is RIGHT-associative (`a ?? b ?? c` is `a ?? (b ?? c)`).  Pure sugar: it lowers to `a == null ? b : a`, so it works on every backend and every frontend the ternary does. The left operand is evaluated ONCE and the right only when the left is null on every backend (TS `(a ?? b)`, C# `(a ?? b)`, Java `Optional.ofNullable(a).orElseGet(() -> b)`, Python `[c if c is not None else b for c in (a,)][0]`, Elixir `case a do nil -> b; c -> c end`). |
+| `a ?? b` | Nullish coalescing — `a` unless it is null, else `b`.  Binds LOOSER than `\|\|` and TIGHTER than `? :`, and is RIGHT-associative (`a ?? b ?? c` is `a ?? (b ?? c)`).  It lowers to its own `coalesce` IR node and renders as each target's own coalesce, so it works on every backend and every frontend. The left operand is evaluated ONCE and the right only when the left is null on every backend (TS `(a ?? b)`, C# `(a ?? b)`, Java `Optional.ofNullable(a).orElseGet(() -> b)`, Python `[c if c is not None else b for c in (a,)][0]`, Elixir `case a do nil -> b; c -> c end`). |
 | `cond ? a : b` | Ternary (`loom.ternary-condition` / `loom.ternary-branches`). A direct null test on `cond` narrows the proven branch — see [Null narrowing](#null-narrowing). |
 | `match { cond => value, …, else => value }` | Predicate-arms expression — the first true arm wins; `else` is the fallthrough. |
 | `match subject { Variant [b] => value, …, else => value }` | Variant match over an `A or B` union or a `T?` scrutinee (a presence check), optionally binding the narrowed variant.  The subject must be a simple ref / member read, not a call — except `match await <call> { … }` in a page `action`, which awaits a remote command and matches its Result ([`actions.md`](actions.md)). |
@@ -1314,12 +1314,10 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   string catalog — see [`new-plan/archive/T1-done.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/T1-done.md) § M-T1.11.
   **Formats only render in a `ui` page slot** (on the JS/TS frontends through
   `Intl`; on LiveView through CLDR in the negotiated locale — `D-HEEX-I18N-FORMAT`).  In backend domain code (a
-  `derived`, `function` or `operation` body) every backend renders a formatted
-  hole as its bare value: `{qty, number, ::currency/USD}` loses its formatting,
-  and `{qty, plural, one {# item} other {# items}}` / `select` / `selectordinal`
-  lose their branch text entirely (`"3"`, not `"3 items"`) — which the warning
-  `loom.interp-format-dropped-in-domain` reports.  Spell the branches with
-  `match` or a ternary in domain code.
+  `derived`, `function`, `operation`, handler, workflow or listener body) a
+  format code is the error `loom.interp-format-in-domain`: write the text with
+  the plain methods instead — `padStart` / `padEnd`, `date.format("yyyyMMdd")`,
+  `decimal.format(2)` — and spell branch text with `match` or a ternary.
 - **Escaping** — a literal brace or backtick in the text is `\{` / `\}` / `` \` ``;
   `\n` / `\t` / `\\` behave as in a string literal.
 - **Not queryable** — an interpolated string desugars to `+`/`convert`, so (like any

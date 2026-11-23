@@ -1085,6 +1085,8 @@ function pageGateProblem(e: ExprIR): { kind: string; detail: string } | undefine
       return pageGateProblem(e.left) ?? pageGateProblem(e.right);
     case "ternary":
       return pageGateProblem(e.cond) ?? pageGateProblem(e.then) ?? pageGateProblem(e.otherwise);
+    case "coalesce":
+      return pageGateProblem(e.left) ?? pageGateProblem(e.fallback);
     default:
       return { kind: e.kind, detail: `uses a \`${e.kind}\` expression` };
   }

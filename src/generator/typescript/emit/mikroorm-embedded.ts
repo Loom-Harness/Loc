@@ -5,6 +5,7 @@
 // -------------------------------------------------------------------------
 
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -21,6 +22,7 @@ import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
@@ -57,6 +59,7 @@ import { mikroRetrievalMethod, valueCollFieldsOf } from "./mikroorm-relational.j
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import {
   maskUserImport,
+  mikroClientSortEntry,
   mikroClientSortTieBreak,
   mikroFindOneOptions,
   tsParamType,
@@ -184,7 +187,7 @@ export function renderMikroEmbeddedRepository(
     savedVersionOnInsert("      "),
     `    } else {`,
     `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, ${ROW_VERSION_FIELD}: expected }, ${updateSet}, { filters: false });`,
-    `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+    `      if (affected === 0) throw new ${T.ConcurrencyError}("${agg.name}", aggregate.id as string);`,
     savedVersionOnUpdate("      "),
     `    }`,
   ];
@@ -248,7 +251,7 @@ export function renderMikroEmbeddedRepository(
         `    const em = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : "id";`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = [{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" }, ${mikroClientSortTieBreak()}];`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = [${mikroClientSortEntry(L.sortField, sortableFields(agg), codePointSortFields(agg.fields))}, ${mikroClientSortTieBreak()}];`,
         `    const ${L.total} = await em.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,
@@ -283,7 +286,7 @@ export function renderMikroEmbeddedRepository(
       `    const row = await em.findOne(${row}, ${readArgs(filter, mikroFindOneOptions(f, ignoring))});`,
       optional
         ? `    if (row === null) return null;`
-        : `    if (row === null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+        : `    if (row === null) throw new ${T.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
       ...embeddedHydrateLocals(agg, "row", "    ", ctx),
       `    return ${hydrateRootExpr(agg, "row", ctx)};`,
       `  }`,
@@ -320,10 +323,10 @@ export function renderMikroEmbeddedRepository(
   const body = lines(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,
     `  private readonly em: EntityManager;`,
-    `  private readonly events: DomainEventDispatcher;`,
+    `  private readonly events: ${TT.DomainEventDispatcher};`,
     `  constructor(`,
     `    em: EntityManager,`,
-    `    events: DomainEventDispatcher,`,
+    `    events: ${TT.DomainEventDispatcher},`,
     `  ) {`,
     `    this.em = em;`,
     `    this.events = events;`,
@@ -429,7 +432,7 @@ export function renderMikroEmbeddedRepository(
       `import { ${[agg.name, ...agg.parts.map((p) => p.name)].join(", ")} } from "../../domain/${N.stem(agg.name)}";`,
       voImportLine,
       `import * as Ids from "../../domain/ids";`,
-      `import { AggregateNotFoundError${versioned ? ", ConcurrencyError" : ""} } from "../../domain/errors";`,
+      tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),
       `import type { DomainEventDispatcher } from "../../domain/events";`,
       `import { requestLog } from "../../obs/als";`,
       "",

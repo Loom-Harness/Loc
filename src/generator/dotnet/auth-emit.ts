@@ -11,6 +11,13 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import {
+  RETURN_ORIGINS_ENV,
+  RETURN_TO_COOKIE,
+  RETURN_TO_PARAM,
+  RETURN_TO_PATH_PATTERN,
+  RETURN_TO_URL_PATTERN,
+} from "../../util/return-to.js";
 import { RUNTIME_ENV, RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV, SECURE_TRANSPORT_OFF_VALUES } from "../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
@@ -26,6 +33,7 @@ import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import { registryAncestorsSql } from "../_persistence/registry-walk.js";
+import { CS_NAME } from "./cs-symbols.js";
 import { renderCsType } from "./render-expr.js";
 import { csCodeInit } from "./wire-policy-cs.js";
 
@@ -335,15 +343,15 @@ const CS_TYPED_CLAIM_HELPERS = `
         _ => null,
     };
 
-    private static DateTime? AsDateTime(JsonElement e)
+    private static ${CS_NAME.DateTime}? AsDateTime(JsonElement e)
     {
         if (e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out long seconds))
         {
             return DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime;
         }
         return e.ValueKind == JsonValueKind.String
-            && DateTime.TryParse(e.GetString(), System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out DateTime s)
+            && ${CS_NAME.DateTime}.TryParse(e.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out ${CS_NAME.DateTime} s)
             ? s
             : null;
     }
@@ -636,6 +644,35 @@ public static class AuthHandshake
         Environment.GetEnvironmentVariable("OIDC_REDIRECT_URI") ?? "http://localhost:8080${AUTH_BASE_PATH}/callback";
     private static readonly string PostLogin =
         Environment.GetEnvironmentVariable("OIDC_POST_LOGIN_REDIRECT") ?? "/";
+    // A returnTo is acceptable iff it is a same-origin path, or an absolute
+    // http(s) URL whose origin is, character for character, one of
+    // ${RETURN_ORIGINS_ENV}.  The origins are read once at startup; no prefix,
+    // case-insensitive or normalised matching.
+    private static readonly System.Text.RegularExpressions.Regex ReturnPath =
+        new(${JSON.stringify(RETURN_TO_PATH_PATTERN)}, System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    private static readonly System.Text.RegularExpressions.Regex ReturnUrl =
+        new(${JSON.stringify(RETURN_TO_URL_PATTERN)}, System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    private static readonly HashSet<string> ReturnOrigins = new(
+        (Environment.GetEnvironmentVariable(${JSON.stringify(RETURN_ORIGINS_ENV)}) ?? "")
+            .Split(',')
+            .Select(o => o.Trim())
+            .Where(o => o.Length > 0),
+        StringComparer.Ordinal);
+
+    private static bool Returnable(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return false;
+        }
+        if (ReturnPath.IsMatch(value))
+        {
+            return true;
+        }
+        System.Text.RegularExpressions.Match m = ReturnUrl.Match(value);
+        return m.Success && ReturnOrigins.Contains(m.Groups[1].Value);
+    }
+
     private static readonly ConfigurationManager<OpenIdConnectConfiguration> Configuration =
         new(
             Issuer + "/.well-known/openid-configuration",
@@ -690,6 +727,15 @@ public static class AuthHandshake
             string challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
             ctx.Response.Cookies.Append("oidc_state", state, SessionCookie());
             ctx.Response.Cookies.Append("oidc_verifier", verifier, SessionCookie());
+            string returnTo = ctx.Request.Query[${JSON.stringify(RETURN_TO_PARAM)}].ToString();
+            if (Returnable(returnTo))
+            {
+                ctx.Response.Cookies.Append(${JSON.stringify(RETURN_TO_COOKIE)}, returnTo, SessionCookie());
+            }
+            else
+            {
+                ctx.Response.Cookies.Delete(${JSON.stringify(RETURN_TO_COOKIE)});
+            }
             var query = new Dictionary<string, string?>
             {
                 ["response_type"] = "code",
@@ -745,7 +791,9 @@ public static class AuthHandshake
             }
             ctx.Response.Cookies.Delete("oidc_state");
             ctx.Response.Cookies.Delete("oidc_verifier");
-            return Results.Redirect(PostLogin);
+            string? returnedTo = ctx.Request.Cookies[${JSON.stringify(RETURN_TO_COOKIE)}];
+            ctx.Response.Cookies.Delete(${JSON.stringify(RETURN_TO_COOKIE)});
+            return Results.Redirect(Returnable(returnedTo) ? returnedTo! : PostLogin);
         }).ExcludeFromDescription();
 
         // Silent renewal — exchange the stored refresh token for a fresh access
@@ -907,14 +955,37 @@ public sealed class DevStubUserVerifier : IUserVerifier
 ${decodeHelper}}
 ${malformedException}`;
   }
+  // A JSON null is the claim ABSENT (src/util/dev-claims.ts): an optional
+  // claim becomes null; a required one leaves the header describing no
+  // principal, so the stub refuses it (→ 401, as OIDC answers a token that
+  // lacks it) instead of keeping the built-in value.
+  const optionalClaims = new Set(
+    devClaimFields(user.fields)
+      .filter((c) => c.optional)
+      .map((c) => c.field.name),
+  );
+  const requiredNames = stringFields
+    .filter((f) => !optionalClaims.has(f.name))
+    .map((f) => JSON.stringify(f.name));
+  const requiredNullCheck =
+    requiredNames.length > 0
+      ? `            if (prop.Value.ValueKind == JsonValueKind.Null && prop.Name is ${requiredNames.join(" or ")})
+            {
+                return Task.FromResult<User?>(null);
+            }
+`
+      : "";
   const arms = stringFields
-    .map((f) =>
-      claimKinds.get(f.name) === "stringList"
+    .map((f) => {
+      const nullArm = optionalClaims.has(f.name)
+        ? `prop.Value.ValueKind == JsonValueKind.Null ? user with { ${upperFirst(f.name)} = null } : `
+        : "";
+      return claimKinds.get(f.name) === "stringList"
         ? // Element-checked: a non-array, or an array holding a non-string,
           // leaves the field at its built-in value rather than half-filling it.
-          `                "${f.name}" => DevClaimStringList(prop.Value) is { } __${f.name} ? user with { ${upperFirst(f.name)} = __${f.name} } : user,`
-        : `                "${f.name}" => prop.Value.ValueKind == JsonValueKind.String ? user with { ${upperFirst(f.name)} = prop.Value.GetString()! } : user,`,
-    )
+          `                "${f.name}" => ${nullArm}DevClaimStringList(prop.Value) is { } __${f.name} ? user with { ${upperFirst(f.name)} = __${f.name} } : user,`
+        : `                "${f.name}" => ${nullArm}prop.Value.ValueKind == JsonValueKind.String ? user with { ${upperFirst(f.name)} = prop.Value.GetString()! } : user,`;
+    })
     .join("\n");
   const needsListHelper = [...claimKinds.values()].includes("stringList");
   const listHelper = needsListHelper
@@ -972,7 +1043,7 @@ public sealed class DevStubUserVerifier : IUserVerifier
         using var doc = DecodeDevClaims(injected);
         foreach (var prop in doc.RootElement.EnumerateObject())
         {
-            user = prop.Name switch
+${requiredNullCheck}            user = prop.Name switch
             {
 ${arms}
                 _ => user,
@@ -1094,7 +1165,7 @@ function renderSystemPrincipalMembers(
 
     /// <summary>The ambient frame's event origin — captured onto the outbox row
     /// and the channel envelope.  Null outside any principal (a timer tick).</summary>
-    public static EventOrigin? CurrentEventOrigin() => OriginOf(RequestContext.Current?.CurrentUser);
+    public static EventOrigin? CurrentEventOrigin() => OriginOf(${CS_NAME.RequestContext}.Current?.CurrentUser);
 
     /// <summary>The principal an event reactor runs as: no claims,
     /// <c>IsSystem</c>, the dispatching principal's tenant.  Gates are evaluated
@@ -1117,9 +1188,9 @@ function renderSystemPrincipalMembers(
     public static System.IDisposable EnterEventOrigin(EventOrigin? origin)
     {
         if (origin is null) return NoFrame.Instance;
-        var frame = RequestContext.OpenRoot(System.Guid.NewGuid().ToString(), "en", System.DateTimeOffset.UtcNow);
+        var frame = ${CS_NAME.RequestContext}.OpenRoot(System.Guid.NewGuid().ToString(), "en", System.DateTimeOffset.UtcNow);
         frame.CurrentUser = SystemPrincipalFor(origin);
-        return RequestContext.Enter(frame);
+        return ${CS_NAME.RequestContext}.Enter(frame);
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
@@ -1241,7 +1312,7 @@ function renderUserRecord(
     /// every org above it on the registry tree, resolved once per request by
     /// UserMiddleware.  Empty on the system principal.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public IReadOnlyList<${ancestorsOf}Id> OperatingAncestors { get; set; } = Array.Empty<${ancestorsOf}Id>();`
+    public IReadOnlyList<${ancestorsOf}Id> OperatingAncestors { get; set; } = ${CS_NAME.Array}.Empty<${ancestorsOf}Id>();`
         : ""
     }`
       : "";
@@ -1317,7 +1388,7 @@ public sealed class HttpContextCurrentUserAccessor : ICurrentUserAccessor
     {
         get
         {
-            var rc = RequestContext.Current
+            var rc = ${CS_NAME.RequestContext}.Current
                 ?? throw new InvalidOperationException(
                     "ICurrentUserAccessor requires an active RequestContext — " +
                     "verify RequestContextMiddleware is mounted first.");
@@ -1368,7 +1439,7 @@ function renderMiddleware(
     private static async Task MalformedDevClaimsAsync(HttpContext ctx, string detail)
     {
         ctx.Response.StatusCode = 400;
-        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        await ctx.Response.WriteAsJsonAsync(new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = "Bad Request",
@@ -1451,7 +1522,7 @@ function renderMiddleware(
       registry.usingDapper ? "NpgsqlDataSource db" : "AppDbContext db"
     }, string org, CancellationToken ct)
     {
-        if (!Guid.TryParse(org, out var raw)) return Array.Empty<${idClass}>();${
+        if (!Guid.TryParse(org, out var raw)) return ${CS_NAME.Array}.Empty<${idClass}>();${
           registry.usingDapper
             ? `
         await using var conn = await db.OpenConnectionAsync(ct);
@@ -1476,7 +1547,7 @@ function renderMiddleware(
     private static async Task OrgContextForbiddenAsync(HttpContext ctx)
     {
         ctx.Response.StatusCode = 403;
-        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        await ctx.Response.WriteAsJsonAsync(new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = "Forbidden",
@@ -1583,7 +1654,7 @@ ${malformedCatch}        catch
         // Attach the verified principal to the ambient frame opened by
         // RequestContextMiddleware — the single source of truth read by
         // ICurrentUserAccessor and every currentUser-aware handler.
-        if (RequestContext.Current is { } rc) rc.CurrentUser = user;${orgContextGate}
+        if (${CS_NAME.RequestContext}.Current is { } rc) rc.CurrentUser = user;${orgContextGate}
         await _next(ctx);
     }
 
@@ -1597,7 +1668,7 @@ ${malformedCatch}        catch
         var detail = $"no valid credentials for {ctx.Request.Method} {ctx.Request.Path}";
         ctx.Response.StatusCode = 401;
         ctx.Response.Headers.WWWAuthenticate = "Bearer realm=\\"api\\", error=\\"invalid_token\\"";
-        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        await ctx.Response.WriteAsJsonAsync(new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = "Unauthorized",

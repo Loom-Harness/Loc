@@ -4,8 +4,10 @@
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { parseFormatPattern, TIME_FIELDS } from "../../util/format-pattern.js";
 import { intrinsicMatcherSig, isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicMinArity, intrinsicsForReceiver } from "../../util/intrinsics.js";
+import { isBuiltinParseDecl, parseMethod } from "../../util/parse-methods.js";
 import { ORG_CONTEXT_ACCESSOR, ORG_CONTEXT_ORG } from "../../util/principal.js";
 import {
   isValueObjectEqualsIntrinsic,
@@ -51,6 +53,7 @@ import {
   isPreconditionStmt,
   isRequiresStmt,
   isReturnStmt,
+  isStringLit,
   isTenancyDecl,
   isTernaryExpr,
   isTestE2E,
@@ -572,6 +575,13 @@ function checkValueObjectEquals(
  *  receiver is `checkNullableReceivers`' site (`loom.nullable-receiver`, one
  *  rule for every member); its arity and arguments are not judged here too,
  *  so the site carries one diagnostic. */
+/** Is `node` inside the built-in parse service the macro layer spliced? */
+function insideBuiltinParse(node: AstNode): boolean {
+  for (let c: AstNode | undefined = node; c; c = c.$container)
+    if (isBuiltinParseDecl(c)) return true;
+  return false;
+}
+
 export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): void {
   for (const node of modelContents(model)) {
     if (!isPostfixChain(node)) continue;
@@ -598,6 +608,35 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
         // a real call that derefs its receiver exactly like one.
         const isStringMatches = bare.name === "string" && ms.member === "matches";
         if ((sig || isStringMatches) && nullableReceiver) break;
+        if (bare.name === "string" && parseMethod(ms.member)) {
+          if (nullableReceiver) break;
+          if (!ms.call || ms.args.length > 0) {
+            accept("error", diagMessage("loom.intrinsic-parse#call", { member: ms.member }), {
+              node: ms,
+              property: "member",
+              code: "loom.intrinsic-parse",
+            });
+          } else if (!AstUtils.getContainerOfType(ms, isBoundedContext)) {
+            accept(
+              "error",
+              diagMessage("loom.intrinsic-parse#outside-context", { member: ms.member }),
+              {
+                node: ms,
+                property: "member",
+                code: "loom.intrinsic-parse",
+              },
+            );
+          }
+          break;
+        }
+        if (sig?.internal && !insideBuiltinParse(ms)) {
+          accept("error", diagMessage("loom.intrinsic-parse#internal", { member: ms.member }), {
+            node: ms,
+            property: "member",
+            code: "loom.intrinsic-parse",
+          });
+          break;
+        }
         if (sig) {
           if (!ms.call) {
             accept(
@@ -653,6 +692,9 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
                 { node: argWrap, property: "value", code: "loom.intrinsic-arg-type" },
               );
             }
+          }
+          if (ms.member === "format" && (bare.name === "date" || bare.name === "datetime")) {
+            checkFormatPattern(ms, bare.name, accept);
           }
         } else if (ms.call && !isIntrinsicMatcher(ms.member) && !isStringMatches) {
           // Strict unknown-intrinsic gate: a CALL on a known primitive
@@ -1576,3 +1618,46 @@ function checkIfStmt(
 // Re-export Ty so consumers don't have to chase the type-system
 // import surface.
 export type { AstNode, Env, Ty };
+
+/** `date.format(pattern)` / `datetime.format(pattern)`: the pattern is a
+ *  string LITERAL in the fixed subset (`src/util/format-pattern.ts`), so every
+ *  target prints it the same way and a bad token fails here, not at runtime. */
+function checkFormatPattern(
+  ms: MemberSuffix,
+  receiver: "date" | "datetime",
+  accept: ValidationAcceptor,
+): void {
+  const arg = ms.args[0]?.value;
+  if (!arg) return;
+  const node = ms.args[0]!;
+  if (!isStringLit(arg)) {
+    accept("error", diagMessage("loom.intrinsic-format-pattern#not-literal"), {
+      node,
+      property: "value",
+      code: "loom.intrinsic-format-pattern",
+    });
+    return;
+  }
+  const parsed = parseFormatPattern(arg.value);
+  if (!parsed.ok) {
+    accept(
+      "error",
+      diagMessage("loom.intrinsic-format-pattern#invalid", {
+        pattern: arg.value,
+        problem: parsed.problem,
+      }),
+      { node, property: "value", code: "loom.intrinsic-format-pattern" },
+    );
+    return;
+  }
+  if (receiver === "date") {
+    const time = parsed.tokens.find((t) => t.kind === "field" && TIME_FIELDS.has(t.field));
+    if (time) {
+      accept(
+        "error",
+        diagMessage("loom.intrinsic-format-pattern#time-on-date", { pattern: arg.value }),
+        { node, property: "value", code: "loom.intrinsic-format-pattern" },
+      );
+    }
+  }
+}

@@ -1,4 +1,7 @@
 import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
+import { negatedFamily, numericOpPlan } from "../../ir/plan/numeric-op.js";
+import { sortKeyOf } from "../../ir/plan/sort-order.js";
+import { valueObjectEqualityPlan } from "../../ir/plan/value-object-equality.js";
 import type {
   AggregateIR,
   BinOp,
@@ -16,6 +19,7 @@ import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { wireFixedDetail } from "../../ir/util/wire-policy.js";
 import type { WriteScopeContext } from "../../ir/util/write-scope-guards.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
+import { formatTokens, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import {
   elixirLocal,
@@ -41,7 +45,6 @@ import {
   type ConvertExpr,
   type ExprCtxBase,
   type ExprTarget,
-  isIntDivWidenedToDecimal,
   type MemberExpr,
   type MethodCallExpr,
   type NewExpr,
@@ -53,7 +56,7 @@ import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { exPgInstantType } from "./vanilla/codec-spelling-ex.js";
 import { appModuleOf, guardErrorModule } from "./vanilla/denial.js";
 import { skipFiltersOption } from "./vanilla/read-scope-emit.js";
-import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
+import { renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Phoenix LiveView / Elixir backend.
@@ -248,24 +251,6 @@ const DEFAULT: RenderCtx = { thisName: "record", contextModule: "MyApp" };
  *  of truth shared by every renderer site so the two stay in lockstep. */
 const isDecimalStruct = (name: string | undefined): boolean =>
   name === "money" || name === "decimal";
-
-/** `""` for a `money`/`decimal` stamp, `"?"` for its nullable form, null for
- *  anything else. */
-function decimalStructOperand(t: TypeIR | undefined): "" | "?" | null {
-  if (t?.kind === "primitive" && isDecimalStruct(t.name)) return "";
-  if (t?.kind === "optional" && t.inner.kind === "primitive" && isDecimalStruct(t.inner.name)) {
-    return "?";
-  }
-  return null;
-}
-
-/** `""` for an `int`/`long` stamp, `"?"` for its nullable form, null for
- *  anything else. */
-function integralOperand(t: TypeIR | undefined): "" | "?" | null {
-  const inner = t?.kind === "optional" ? t.inner : t;
-  if (inner?.kind !== "primitive" || (inner.name !== "int" && inner.name !== "long")) return null;
-  return t?.kind === "optional" ? "?" : "";
-}
 
 /** `a ?? b` — `case` matches ONLY `nil` (`||` would also swallow `false`), binds
  *  the left once, and evaluates the fallback only on the `nil` clause.  The
@@ -905,6 +890,10 @@ function isRefIdsProjection(e: ExprIR, ctx: RenderCtx): boolean {
 // row has an Elixir arm in each table.
 export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> =
   {
+    "string.uncheckedInt": (recv) => `String.to_integer(${recv})`,
+    "string.uncheckedLong": (recv) => `String.to_integer(${recv})`,
+    "string.uncheckedDecimal": (recv) => `Decimal.new(${recv})`,
+    "string.uncheckedDate": (recv) => `Date.from_iso8601!(${recv})`,
     "string.trim": (recv) => `String.trim(${recv})`,
     "string.toUpper": (recv) => `String.upcase(${recv})`,
     "string.toLower": (recv) => `String.downcase(${recv})`,
@@ -975,6 +964,18 @@ export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: str
     "date.endOfMonth": (recv) => `Date.end_of_month(${recv})`,
     "date.monthsUntil": (recv, args) =>
       `(fn a, b -> m = (b.year - a.year) * 12 + b.month - a.month; c = min(a.day, Calendar.ISO.days_in_month(b.year, b.month)); cond do m > 0 and c > b.day -> m - 1; m < 0 and c < b.day -> m + 1; true -> m end end).(${recv}, ${args[0]})`,
+    // ---- duration — integer milliseconds; `div/2` truncates toward zero.
+    "duration.toDays": (recv) => `div(${recv}, 86_400_000)`,
+    "duration.toHours": (recv) => `div(${recv}, 3_600_000)`,
+    "duration.toMinutes": (recv) => `div(${recv}, 60_000)`,
+    // ---- formatting — invariant text (the catalogue contract).
+    "string.padStart": (recv, args) => `(${exPadFill(recv, args[0]!, args[1]!)} <> ${recv})`,
+    "string.padEnd": (recv, args) => `(${recv} <> ${exPadFill(recv, args[0]!, args[1]!)})`,
+    "date.format": (recv, args) => exDateFormat(recv, args[0]!),
+    "datetime.format": (recv, args) =>
+      exDateFormat(`DateTime.shift_zone!(${recv}, "Etc/UTC")`, args[0]!),
+    "decimal.format": (recv, args) => exFixed(recv, args[0]!),
+    "money.format": (recv, args) => exFixed(recv, args[0]!),
   };
 
 export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: string[]) => string> = {
@@ -986,6 +987,7 @@ export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: strin
   // matches literally — see `src/util/intrinsics.ts`.  Args arrive pre-rendered
   // (a value-side param already carries its `^` pin).
   "string.startsWith": (recv, args) => `fragment("strpos(?, ?) = 1", ${recv}, ${args[0]})`,
+  "string.contains": (recv, args) => `fragment("strpos(?, ?) > 0", ${recv}, ${args[0]})`,
   // ---- numerics (A3 math batch) — Postgres SQL fragments ------------------
   // Args arrive pre-rendered (value-side params already carry the `^` pin) —
   // never add pins here.  Two-value min/max are SQL least()/greatest().
@@ -1221,9 +1223,8 @@ export const ELIXIR_COLLECTION_RENDERERS: Record<
   // MODULE as the sorter routes through its `compare/2` instead.
   sortBy: (recv, args, e) => {
     const sorter = sortSorter(e);
-    return sorter
-      ? `Enum.sort_by(${recv}, ${args[0]}, ${sorter})`
-      : `Enum.sort_by(${recv}, ${args[0]})`;
+    const key = sortKeyFn(e, args[0]!);
+    return sorter ? `Enum.sort_by(${recv}, ${key}, ${sorter})` : `Enum.sort_by(${recv}, ${key})`;
   },
   distinct: (recv) => `Enum.uniq(${recv})`,
   take: (recv, args) => `Enum.take(${recv}, ${args[0]})`,
@@ -1277,7 +1278,9 @@ function sortSorter(e: Extract<ExprIR, { kind: "method-call" }> | undefined): st
   const desc = e ? isDescendingSort(e) : false;
   const lam = e?.args[0];
   const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
-  const name = bodyT?.kind === "primitive" ? bodyT.name : undefined;
+  const optional = sortKeyOf(bodyT).optional;
+  const inner = bodyT?.kind === "optional" ? bodyT.inner : bodyT;
+  const name = inner?.kind === "primitive" ? inner.name : undefined;
   const mod = isDecimalStruct(name)
     ? "Decimal"
     : name === "datetime"
@@ -1285,8 +1288,72 @@ function sortSorter(e: Extract<ExprIR, { kind: "method-call" }> | undefined): st
       : name === "date"
         ? "Date"
         : null;
+  // An absent key sorts last ascending (the one sort order): the key is
+  // wrapped as `{absent?, value}` (`sortKeyFn`), and `nil` never meets a
+  // struct's `compare/2`.
+  if (optional && mod) {
+    const le = desc
+      ? `fn {an, a}, {bn, b} -> cond do an != bn -> an; an -> true; true -> ${mod}.compare(a, b) != :lt end end`
+      : `fn {an, a}, {bn, b} -> cond do an != bn -> bn; an -> true; true -> ${mod}.compare(a, b) != :gt end end`;
+    return le;
+  }
   if (!mod) return desc ? ":desc" : null;
   return desc ? `{:desc, ${mod}}` : mod;
+}
+
+/** `list` sorted by the key `keyFn` picks at RUNTIME (a paged read's `?sort=`
+ *  key over whole aggregates), in `dirVar` ("desc" or anything else) — the one
+ *  sort order (`src/ir/plan/sort-order.ts`): an absent key last ascending and
+ *  first descending, a `Decimal` / `DateTime` / `Date` through its
+ *  `compare/2` (term order is structural for a struct), everything else by
+ *  term order (a binary by code point, an enum atom by name).  `Enum.sort/2`
+ *  with a `<=` function is stable. */
+export function elixirRuntimeKeySort(list: string, keyFn: string, dirVar: string): string {
+  const le = `fn x, y ->
+          cond do
+            is_nil(x) -> is_nil(y)
+            is_nil(y) -> true
+            is_struct(x, Decimal) -> Decimal.compare(x, y) != :gt
+            is_struct(x, DateTime) -> DateTime.compare(x, y) != :gt
+            is_struct(x, Date) -> Date.compare(x, y) != :gt
+            true -> x <= y
+          end
+        end`;
+  return `(fn items, key, le -> Enum.sort(items, fn a, b -> if ${dirVar} == "desc", do: le.(key.(b), key.(a)), else: le.(key.(a), key.(b)) end) end).(
+      ${list},
+      ${keyFn},
+      ${le}
+    )`;
+}
+
+/** A paged in-memory read's sort: the caller's whitelisted `sort` key
+ *  (`runtime`), or — when the key names none of `whitelist` — the read's
+ *  declared order (`declared`, field-reading key functions with their
+ *  direction), applied as stable passes from the last term.  `runtime` alone
+ *  when the read declares no order. */
+export function elixirPagedSort(
+  list: string,
+  runtime: string,
+  whitelist: readonly string[],
+  declared: readonly { key: string; desc: boolean }[],
+): string {
+  if (declared.length === 0) return runtime;
+  const byDeclared = [...declared]
+    .reverse()
+    .reduce((acc, t) => elixirRuntimeKeySort(acc, t.key, t.desc ? `"desc"` : `"asc"`), list);
+  return `if sort in [${whitelist.map((w) => JSON.stringify(w)).join(", ")}] do
+        ${runtime}
+      else
+        ${byDeclared}
+      end`;
+}
+
+/** The key function `Enum.sort_by` sorts with: the projection, or — for an
+ *  optional key — `{absent?, value}`, so a present key (`false`) sorts first. */
+function sortKeyFn(e: Extract<ExprIR, { kind: "method-call" }> | undefined, lam: string): string {
+  const arg = e?.args[0];
+  const bodyT = arg?.kind === "lambda" && arg.body ? bodyTypeOf(arg.body) : undefined;
+  return sortKeyOf(bodyT).optional ? `fn x -> k = (${lam}).(x); {is_nil(k), k} end` : lam;
 }
 
 function reductionSorter(
@@ -1527,63 +1594,8 @@ function renderUnary(op: "-" | "!", operand: string, e: UnaryExpr, inFilter = fa
   // which raises on a `Decimal` ("bad argument in arithmetic").  Use
   // `Decimal.negate/1` in native Elixir (op-bodies / emitted ExUnit tests);
   // inside an Ecto query filter money/decimal are data-layer-native, so plain `-`.
-  if (!inFilter && isDecimalOperand(e.operand)) return `Decimal.negate(${operand})`;
+  if (!inFilter && negatedFamily(e) !== undefined) return `Decimal.negate(${operand})`;
   return `-${operand}`;
-}
-
-/** Does this expression evaluate to a money/decimal `Decimal` struct? — used to
- *  route unary negation through `Decimal.negate/1`.  Covers the realistic
- *  operand shapes (negative literal, a typed ref/member, an arithmetic binary,
- *  a decimal cast, parens). */
-function isDecimalOperand(operand: ExprIR): boolean {
-  switch (operand.kind) {
-    case "literal":
-      return isDecimalStruct(operand.lit);
-    case "ref":
-      return operand.type?.kind === "primitive" && isDecimalStruct(operand.type.name);
-    case "member":
-      return operand.memberType.kind === "primitive" && isDecimalStruct(operand.memberType.name);
-    case "binary":
-      return (
-        (operand.resultType?.kind === "primitive" && isDecimalStruct(operand.resultType.name)) ||
-        (operand.leftType?.kind === "primitive" && isDecimalStruct(operand.leftType.name))
-      );
-    case "convert":
-      return isDecimalStruct(operand.target);
-    case "paren":
-      return isDecimalOperand(operand.inner);
-    case "unary":
-      return isDecimalOperand(operand.operand);
-    // Not PROVABLY a `%Decimal{}` from the node alone.  `false` is the
-    // conservative answer: it makes the caller render plain arithmetic rather
-    // than a `Decimal.*` call, which is what a node with no static decimal type
-    // needs.  (`method-call` is the documented example — `MethodCallExpr`
-    // carries a receiver type, not a result type.)  Named rather than left to a
-    // `default:` so a new `ExprIR` kind that DOES carry a result type is a
-    // `tsc` error here.
-    case "exists":
-    case "action-ref":
-    case "authz-filter":
-    case "call":
-    case "duration":
-    case "i18nFormat":
-    case "modelText":
-    case "id":
-    case "lambda":
-    case "list":
-    case "match":
-    case "method-call":
-    case "new":
-    case "object":
-    case "ternary":
-    case "this":
-      return false;
-    default: {
-      const _exhaustive: never = operand;
-      void _exhaustive;
-      return false;
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1727,43 +1739,54 @@ function renderBinary(
       return e.op === "==" ? `is_nil(${operand})` : `not is_nil(${operand})`;
     }
   }
-  // A `money?` / `decimal?` side in an in-memory comparison.  The arm below
-  // only fires on a bare `money`/`decimal` stamp, so a nullable LEFT fell to
-  // native `==` (struct equality: `10` ≠ `10.00`) / native `>` (Erlang term
-  // order over the struct maps), and a nullable RIGHT reached
-  // `Decimal.compare(x, nil)`, which raises.  Equality is nil-safe — both
-  // absent → equal, one absent → unequal, both present → `Decimal.equal?`;
-  // ordering dispatches through `Decimal.compare` and answers false when
-  // either side is absent (SQL's UNKNOWN, .NET's lifted operators).
+  // Which numeric operation this is was decided once (`numericOpPlan`); this
+  // backend only spells it.  `money` and `decimal` are both `%Decimal{}`
+  // structs in memory, so the native `+` / `*` / `>` cannot apply: arithmetic
+  // dispatches through `Decimal.add/2` / `mult/2` / `div/2` and comparisons
+  // through `Decimal.compare/2` (native `==` is struct equality — `10` ≠
+  // `10.00` — and native `>` is Erlang term order over the struct maps).  The
+  // `Decimal.*` functions coerce an integer operand on either side, so nothing
+  // is boxed.  Inside an Ecto query filter money/decimal lower to the data
+  // layer through the native operators instead, so only the in-memory path
+  // dispatches here.
   if (!inFilter) {
-    const lt = decimalStructOperand(e.leftType);
-    const rt = decimalStructOperand(e.rightType);
-    const isOrdering = e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=";
-    // A nullable INTEGRAL against a decimal struct (`qty > rate`, `qty: int?`)
-    // orders through `Decimal.compare` too — it coerces the integer — and the
-    // absent side must answer false, not Erlang term order (`nil < %Decimal{}`).
-    const li = lt ?? (rt !== null ? integralOperand(e.leftType) : null);
-    const ri = rt ?? (lt !== null ? integralOperand(e.rightType) : null);
-    if (isOrdering && li !== null && ri !== null && (li === "?" || ri === "?")) {
-      // Only the nullable side gets a `nil` clause (no statically unreachable
-      // clause for Elixir 1.18's type checker to warn about).
-      const nilClauses = [
-        ...(li === "?" ? ["{nil, _} -> false"] : []),
-        ...(ri === "?" ? ["{_, nil} -> false"] : []),
-      ];
-      return `(case {${l}, ${r}} do ${[...nilClauses, `{loom_l, loom_r} -> ${renderDecimalBinary(e.op, "loom_l", "loom_r")}`].join("; ")} end)`;
-    }
-    if (li !== null && ri !== null && (li === "?" || ri === "?")) {
-      if (e.op === "==" || e.op === "!=") {
-        // Only the nullable side gets a `nil` clause, so no clause is
-        // statically unreachable (Elixir 1.18's type checker would warn).
+    const plan = numericOpPlan(e);
+    switch (plan.kind) {
+      // An absent side: an ordering answers false and an equality is nil-safe
+      // (both absent → equal, one absent → unequal, both present →
+      // `Decimal.equal?`).  Only a nullable side gets a `nil` clause, so no
+      // clause is statically unreachable (Elixir 1.18's type checker would
+      // warn).
+      case "absent-ordering": {
         const nilClauses = [
-          ...(li === "?" && ri === "?" ? ["{nil, nil} -> true"] : []),
-          ...(li === "?" ? ["{nil, _} -> false"] : []),
-          ...(ri === "?" ? ["{_, nil} -> false"] : []),
+          ...(plan.left.optional ? ["{nil, _} -> false"] : []),
+          ...(plan.right.optional ? ["{_, nil} -> false"] : []),
+        ];
+        return `(case {${l}, ${r}} do ${[...nilClauses, `{loom_l, loom_r} -> ${renderDecimalBinary(e.op, "loom_l", "loom_r")}`].join("; ")} end)`;
+      }
+      case "absent-equality": {
+        const nilClauses = [
+          ...(plan.left.optional && plan.right.optional ? ["{nil, nil} -> true"] : []),
+          ...(plan.left.optional ? ["{nil, _} -> false"] : []),
+          ...(plan.right.optional ? ["{_, nil} -> false"] : []),
         ];
         const eq = `(case {${l}, ${r}} do ${[...nilClauses, "{loom_l, loom_r} -> Decimal.equal?(loom_l, loom_r)"].join("; ")} end)`;
         return e.op === "==" ? eq : `not ${eq}`;
+      }
+      // `int / int` widened to decimal: native `/` on integers yields a FLOAT,
+      // not the `Decimal` a decimal field maps to (Ecto `:decimal`).
+      case "decimal-arithmetic":
+        if (plan.intDivWidened) return `Decimal.div(${l}, ${r})`;
+        return renderDecimalBinary(e.op, l, r);
+      case "money":
+      case "decimal-comparison":
+        return renderDecimalBinary(e.op, l, r);
+      case "null-test":
+      case "native":
+        break;
+      default: {
+        const _exhaustive: never = plan;
+        return _exhaustive;
       }
     }
   }
@@ -1781,54 +1804,9 @@ function renderBinary(
   // no separate arm.  This is also where `<vo>.equals(other)` lands — the
   // lowerer turns it into this same `binary ==` node.  Inside an Ecto query a
   // function call is not a query expression, so the native operator stays.
-  if (
-    !inFilter &&
-    (e.op === "==" || e.op === "!=") &&
-    (isValueObjectType(e.leftType) || isValueObjectType(e.rightType))
-  ) {
+  if (!inFilter && (e.op === "==" || e.op === "!=") && valueObjectEqualityPlan(e) !== undefined) {
     const eq = renderValueObjectEquality(e.op, l, r);
     return e.op === "==" ? eq : `(${eq})`;
-  }
-  // money / decimal operands cannot use the native `+`/`*`/`>` operators in
-  // Elixir — both are `Decimal` structs.  Arithmetic dispatches through
-  // `Decimal.add/2` / `mult/2` / `div/2`; comparisons go through
-  // `Decimal.compare/2` (returns `:lt | :eq | :gt` — three tokens,
-  // not a single operator, so the result shape isn't `${l} ${op}
-  // ${r}` like the primitive path).  An integer operand on either side is
-  // accepted by the `Decimal.*` functions as-is (they coerce integers); a
-  // `decimal`/`money` literal is already wrapped in `Decimal.new(...)`, so
-  // no extra boxing is needed here.
-  // Inside an Ecto query filter money/decimal lower to the data layer via the
-  // native operators — `Decimal.compare`/`Decimal.add` are invalid there — so
-  // only the native op-body path dispatches through `Decimal.*`.
-  //
-  // The arm fires on EITHER stamped operand being a decimal struct (audit
-  // F7 / M-T6.44): the validator admits `int * money` commutatively, numeric
-  // widening admits `int + decimal` both orders, and `comparable` admits
-  // `int < decimal` — with only the left checked, all three fell to native
-  // operators on a `%Decimal{}`: arithmetic raised `ArithmeticError` at
-  // runtime, and a comparison silently used Erlang TERM ordering
-  // (number < map ⇒ always true).  `Decimal.*` coerces an integer operand on
-  // either side, so no boxing is needed; the integral-left guard on the
-  // mirror keeps string-concat `+` (and every non-numeric left) out.
-  const rightIsDecimalStruct =
-    e.rightType?.kind === "primitive" && isDecimalStruct(e.rightType.name);
-  const leftIsIntegral =
-    e.leftType?.kind === "primitive" && (e.leftType.name === "int" || e.leftType.name === "long");
-  if (
-    !inFilter &&
-    ((e.leftType?.kind === "primitive" && isDecimalStruct(e.leftType.name)) ||
-      (rightIsDecimalStruct && leftIsIntegral))
-  ) {
-    return renderDecimalBinary(e.op, l, r);
-  }
-  // Integer division widened to decimal (`int / int` → decimal): native Elixir
-  // `/` on integers yields a FLOAT, not the `Decimal` struct a decimal field
-  // maps to (Ecto `:decimal`).  `Decimal.div/2` coerces the integer operands
-  // and returns a `Decimal`.  In-memory op bodies only — inside an Ecto query
-  // the native path lowers to SQL division.
-  if (!inFilter && isIntDivWidenedToDecimal(e)) {
-    return `Decimal.div(${l}, ${r})`;
   }
   // A5 temporal — datetime ORDER comparisons dispatch through
   // `DateTime.compare/2` (mirroring the Decimal path above): native `<`/`>`
@@ -2201,4 +2179,30 @@ export function renderTypespec(t: TypeIR, contextModule: string, typesModule?: s
  *  month count, so floor division gives the year for a negative step too. */
 function exShiftMonths(d: string, months: string): string {
   return `(fn d, t -> y = Integer.floor_div(t, 12); m = Integer.mod(t, 12) + 1; Date.new!(y, m, min(d.day, Calendar.ISO.days_in_month(y, m))) end).(${d}, (${d}).year * 12 + (${d}).month - 1 + ${months})`;
+}
+
+/** The fill a pad needs: `fill` repeated and cut to the missing number of
+ *  code points (a charlist is code points; `String.length` would count
+ *  graphemes), none when the receiver is already long enough. */
+function exPadFill(s: string, n: string, fill: string): string {
+  const k = `max(0, (${n}) - ${elixirCodePointLength(s)})`;
+  return `(String.duplicate(${fill}, ${k}) |> String.to_charlist() |> Enum.take(${k}) |> List.to_string())`;
+}
+
+/** A pattern printed field by field, each zero-padded to its width — no host
+ *  locale in play. */
+function exDateFormat(value: string, pattern: string): string {
+  const tokens = formatTokens(patternFromRenderedLiteral(pattern));
+  const parts = tokens.map((t) =>
+    t.kind === "literal"
+      ? JSON.stringify(t.text)
+      : `String.pad_leading(Integer.to_string(t.${t.field}), ${t.width}, "0")`,
+  );
+  if (parts.length === 0) return `""`;
+  return `(fn t -> ${parts.join(" <> ")} end).(${value})`;
+}
+
+/** Fixed-point text: half-even, `:normal` notation, no negative zero. */
+function exFixed(x: string, places: string): string {
+  return `(fn d -> d = Decimal.round(d, max(0, ${places}), :half_even); Decimal.to_string((if Decimal.equal?(d, 0), do: Decimal.abs(d), else: d), :normal) end).(${x})`;
 }

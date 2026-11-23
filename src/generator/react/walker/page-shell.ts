@@ -41,6 +41,7 @@ import {
   rebaseIntoExternComponentDir,
 } from "../../_frontend/extern-shim.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
+import { FORM_ERROR_TESTID_SUFFIX } from "../../_frontend/submit-failure.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { ROUTER_PACKAGE } from "../../_packs/stack-runtime.js";
 import { chromeMessage, opDialogChrome, sentenceChromeName } from "../../_walker/i18n-chrome.js";
@@ -866,6 +867,7 @@ function renderFormOpWiring(
     modalTitleExpr:
       state.modalTitleExpr ?? state.opLabel?.expr ?? JSON.stringify(humanize(op.name)),
     slug: routeSegmentFor(agg.name),
+    errorTestid: `${routeSegmentFor(agg.name)}-op-${op.name}${FORM_ERROR_TESTID_SUFFIX}`,
     srcImportPrefix,
     fieldArrays,
     idTargets: idTargets.map((t) => ({
@@ -890,7 +892,8 @@ function renderFormOpWiring(
       // and the formState `errors` map fall out as unused locals.
       const formBody = fieldHtmls.join("\n");
       const usesRegister = /\bregister\(/.test(formBody);
-      const usesErrors = /\berrors\./.test(formBody);
+      // The form-level failure message reads `errors.root` whatever the fields do.
+      const usesErrors = true;
       const parts: string[] = [];
       if (usesRegister) parts.push("register");
       parts.push("handleSubmit");

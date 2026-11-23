@@ -204,9 +204,9 @@ describe("HEEx client table controls — the rows expression", () => {
 describe("HEEx client table controls — the handlers", () => {
   it("writes the assigns and does not refetch", async () => {
     const live = await one(CLIENT_SRC, "/order_list_live.ex");
-    expect(live).toContain('def handle_event("loom-sort", %{"key" => key}, socket) do');
-    expect(live).toContain('def handle_event("loom-page", %{"page" => page}, socket) do');
-    const clauses = live.slice(live.indexOf('"loom-sort"'));
+    expect(live).toContain('def handle_event("__sort", %{"key" => key}, socket) do');
+    expect(live).toContain('def handle_event("__page", %{"page" => page}, socket) do');
+    const clauses = live.slice(live.indexOf('"__sort"'));
     expect(clauses).toContain("|> assign(:sort_key, key)");
     expect(clauses).toContain("assign(socket, :page_num, page_num)");
     // No reload in either clause — the template re-derives the window.
@@ -287,7 +287,7 @@ describe("HEEx server table controls — untouched", () => {
     );
     expect(live).toContain("<.pager page={@page_num} total_pages={@items.totalPages} />");
     expect(live).not.toContain("LoomTable");
-    const sortClause = live.slice(live.indexOf('"loom-sort"'), live.indexOf('"loom-page"'));
+    const sortClause = live.slice(live.indexOf('"__sort"'), live.indexOf('"__page"'));
     expect(sortClause).toContain("list_crates(socket.assigns.page_num");
   });
 });

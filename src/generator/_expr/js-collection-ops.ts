@@ -20,7 +20,8 @@
 // catalogue op has a key — so a future op is a compile-time-caught omission
 // rather than a silent fall-through to a verbatim `.member(...)`.
 
-import type { ExprIR } from "../../ir/types/loom-ir.js";
+import { type SortKey, sortKeyOf } from "../../ir/plan/sort-order.js";
+import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 
@@ -75,20 +76,24 @@ export const JS_COLLECTION_RENDERERS: Record<
     `((__c) => { if (__c.length === 0) throw new Error("'.first' on an empty collection — use '.firstOrNull' for the total form"); return __c[0]; })(${recv})`,
   firstOrNull: (recv) => `(${recv}[0] ?? null)`,
   map: (recv, args) => `${recv}.map(${args[0]})`,
+  // The one sort order (`src/ir/plan/sort-order.ts`): `Array.prototype.sort`
+  // is stable; text and enum keys (strings here) compare by CODE POINT, not
+  // by UTF-16 unit; money keys are decimal.js `Decimal`s, whose `<` coerces
+  // through a string, so they compare with `.lt` / `.gt`; an absent key sorts
+  // last ascending.  Descending negates the comparison, so ties keep order.
   sortBy: (recv, args, e) => {
-    // Money keys are decimal.js `Decimal`s, whose `<`/`>` coerce via `valueOf()`
-    // (a string) → LEXICOGRAPHIC order (Decimal(10) < Decimal(9)).  Compare them
-    // with `.lt`/`.gt` instead, the same money special-case as min/max.
     const desc = e ? isDescendingSort(e) : false;
-    const money = projectionBodyIsMoney(e);
-    const cmp = money
-      ? desc
-        ? "kb.lt(ka) ? -1 : kb.gt(ka) ? 1 : 0"
-        : "ka.lt(kb) ? -1 : ka.gt(kb) ? 1 : 0"
-      : desc
-        ? "kb < ka ? -1 : kb > ka ? 1 : 0"
-        : "ka < kb ? -1 : ka > kb ? 1 : 0";
-    return `[...${recv}].sort((__a, __b) => { const ka = (${args[0]})(__a), kb = (${args[0]})(__b); return ${cmp}; })`;
+    const key = sortByKey(e);
+    const cmp =
+      key.cls === "money"
+        ? "ka.lt(kb) ? -1 : ka.gt(kb) ? 1 : 0"
+        : key.cls === "text" || key.cls === "enum"
+          ? JS_CODE_POINT_COMPARE
+          : "ka < kb ? -1 : ka > kb ? 1 : 0";
+    const ordered = key.optional
+      ? `ka == null || kb == null ? (ka == null ? (kb == null ? 0 : 1) : -1) : ${cmp}`
+      : cmp;
+    return `[...${recv}].sort((__a, __b) => { const ka = (${args[0]})(__a), kb = (${args[0]})(__b); const c = ${ordered}; return ${desc ? "-c" : "c"}; })`;
   },
   // `new Set` dedupes by SameValueZero — reference identity for objects — so a
   // `money[]` (decimal.js `Decimal` instances) or a value-object collection
@@ -119,10 +124,29 @@ export const JS_COLLECTION_RENDERERS: Record<
       : `(${recv}.length ? ${recv}.map(${args[0]}).reduce((__a, __b) => (__b > __a ? __b : __a)) : null)`,
 };
 
+/** Code-point comparison of two strings `ka` / `kb` — spreading iterates by
+ *  code point, so an astral character is one element.  Plain JS that also
+ *  type-checks under strict indexed access (the generated apps'
+ *  `noUncheckedIndexedAccess`), as it renders into TS, Vue and Svelte alike. */
+export const JS_CODE_POINT_COMPARE =
+  "(() => { const x = [...ka], y = [...kb]; for (let i = 0; i < x.length && i < y.length; i++) { const p = x[i]?.codePointAt(0) ?? 0, q = y[i]?.codePointAt(0) ?? 0; if (p !== q) return p - q; } return x.length - y.length; })()";
+
+/** How a `sortBy` call's projected key compares — the one sort order
+ *  (`src/ir/plan/sort-order.ts`) — for every frontend's `sortBy` arm. */
+export function sortByKey(e?: Extract<ExprIR, { kind: "method-call" }>): SortKey {
+  return sortKeyOf(projectionBodyType(e));
+}
+
+/** The type of a collection op's lambda body (its projected key). */
+function projectionBodyType(e?: Extract<ExprIR, { kind: "method-call" }>): TypeIR | undefined {
+  const lam = e?.args[0];
+  return lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
+}
+
 /** True iff a `min`/`max` reduction's lambda body types as `money` — its
  *  projected values are decimal.js `Decimal`s, which need `.lt`/`.gt` rather
  *  than the native `<`/`>` comparators. */
-export function projectionBodyIsMoney(e?: Extract<ExprIR, { kind: "method-call" }>): boolean {
+function projectionBodyIsMoney(e?: Extract<ExprIR, { kind: "method-call" }>): boolean {
   const lam = e?.args[0];
   const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
   return bodyT?.kind === "primitive" && bodyT.name === "money";

@@ -1,4 +1,5 @@
 import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
+import { codePointSortFields } from "../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -15,6 +16,8 @@ import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
 import { plural } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
+import { spellMarkers } from "../_imports/symbol.js";
+import { tsImportSlot } from "../_imports/ts.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
@@ -39,6 +42,7 @@ import {
 import {
   combinePredicate,
   contextFilterPredicate,
+  drizzleClientSortColumns,
   drizzleClientSortTieBreak,
   drizzleOrderBy,
   scopeImportLine,
@@ -227,10 +231,10 @@ export function buildEmbeddedRepositoryFile(
     // Explicit field declarations + constructor assignments, not
     // parameter properties — see emit/value-objects.ts's renderValueObject.
     `  private readonly db: Db;`,
-    `  private readonly events: DomainEventDispatcher;`,
+    `  private readonly events: ${TT.DomainEventDispatcher};`,
     `  constructor(`,
     `    db: Db,`,
-    `    events: DomainEventDispatcher,`,
+    `    events: ${TT.DomainEventDispatcher},`,
     `  ) {`,
     `    this.db = db;`,
     `    this.events = events;`,
@@ -279,7 +283,7 @@ export function buildEmbeddedRepositoryFile(
           savedVersionOnInsert("      "),
           `    } else {`,
           `      const updated = await this.db.update(schema.${tableName}).set(${rootRowUpdate}).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.${ROW_VERSION_FIELD}, expected))).returning({ id: schema.${tableName}.id });`,
-          `      if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+          `      if (updated.length === 0) throw new ${T.ConcurrencyError}("${agg.name}", aggregate.id as string);`,
           savedVersionOnUpdate("      "),
           `    }`,
           applySavedVersion("    "),
@@ -349,7 +353,8 @@ export function buildEmbeddedRepositoryFile(
     `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
     // The paged find's sort-column allowlist is typed `AnyPgColumn` (as on the
     // relational builder); absent from a repository with no paged find.
-    /\bAnyPgColumn\b/.test(bodyScan) && `import type { AnyPgColumn } from "drizzle-orm/pg-core";`,
+    /\bAnyPgColumn\b/.test(spellMarkers(bodyScan)) &&
+      `import type { AnyPgColumn } from "drizzle-orm/pg-core";`,
     drizzleImportLine(renderedBody),
     `import * as schema from "../schema";`,
     scopeImportLine(agg, bodyScan),
@@ -357,9 +362,7 @@ export function buildEmbeddedRepositoryFile(
     `import { ${domainImports} } from "../../domain/${N.stem(agg.name)}";`,
     voOrEnumImportLine,
     `import * as Ids from "../../domain/ids";`,
-    versioned
-      ? `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`
-      : `import { AggregateNotFoundError } from "../../domain/errors";`,
+    tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),
     `import type { DomainEventDispatcher } from "../../domain/events";`,
     // A principal-referencing WRITE scope binds the ambient accessor in the
     // `getById` pre-guard (a principal read filter lives in the scope helper), so
@@ -368,7 +371,7 @@ export function buildEmbeddedRepositoryFile(
       `import { requireCurrentUser } from "../../auth/middleware";`,
     `import { requestLog } from "../../obs/als";`,
     "",
-    `type Db = NodePgDatabase<typeof schema>;`,
+    `type Db = ${TT.NodePgDatabase}<typeof schema>;`,
     "",
     renderedBody,
     "",
@@ -416,9 +419,11 @@ function embeddedFindMethod(
   if (pagedReturn(find.returnType)) {
     const pagedParams = [...baseParams, ...PAGED_TAIL_PARAMS];
     const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(", ");
-    const sortCols = sortableFields(agg)
-      .map((f) => `${JSON.stringify(f)}: schema.${tableName}.${f}`)
-      .join(", ");
+    const sortCols = drizzleClientSortColumns(
+      tableName,
+      sortableFields(agg),
+      codePointSortFields(agg.fields),
+    );
     // The paged-only locals step aside for a same-named find param.
     const L = pagedLocalNames(
       [
@@ -436,7 +441,7 @@ function embeddedFindMethod(
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
       `    const ${L.offset} = (page - 1) * pageSize;`,
-      `    const ${L.sortColumns}: Record<string, AnyPgColumn> = { ${sortCols} };`,
+      `    const ${L.sortColumns}: ${sortCols.type} = { ${sortCols.entries} };`,
       // `Object.hasOwn`, never a bare index: `sort` is CALLER-supplied, and a
       // plain lookup reaches `Object.prototype` — `?sort=constructor` resolved
       // to a Function (bound as an ORDER BY parameter, silently destroying the

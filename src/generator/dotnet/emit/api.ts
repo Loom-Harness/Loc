@@ -9,15 +9,6 @@ import { canonicalDestroy, emitsRestCreate } from "../../../ir/util/canonical-li
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { errorStatuses, type OpErrorKind } from "../../../ir/util/openapi-errors.js";
 import {
-  camelId,
-  type OpIdTokens,
-  opCreate,
-  opDestroy,
-  opFind,
-  opGetById,
-  opOperation,
-} from "../../../ir/util/openapi-ids.js";
-import {
   fieldCode,
   INTEGER_RANGE_PARAMS,
   MISSING_FILE_PART_DETAIL,
@@ -35,8 +26,17 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../_persistence/pg-sqlstate.js";
+import {
+  camelId,
+  type OpIdTokens,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opOperation,
+} from "../../_symbols/plan.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
-import { sortedCsUsings } from "../cs-symbols.js";
+import { CS_NAME, sortedCsUsings } from "../cs-symbols.js";
 import { csLocalNamer } from "../local-names.js";
 import {
   csAggregateTypeParamsMembers,
@@ -288,7 +288,7 @@ function absentReturnLines(
   if (!ua.resource) {
     return [
       "        {",
-      `            var ${problem} = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
+      `            var ${problem} = new ${CS_NAME.ProblemDetails} { Status = ${ua.status}, Title = ${JSON.stringify(
         ua.title,
       )}, Type = ${JSON.stringify(ua.typeUri)}, Detail = ${detail}, Instance = HttpContext.Request.Path };`,
       `            ${problem}.Extensions["code"] = ${JSON.stringify(ua.code)};`,
@@ -301,7 +301,7 @@ function absentReturnLines(
     // `Instance` set explicitly — this arm builds the ProblemDetails by hand
     // (rather than via ControllerBase.Problem/ProblemDetailsFactory), so nothing
     // fills it in, and the other four backends all send the request path.
-    `            var ${problem} = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
+    `            var ${problem} = new ${CS_NAME.ProblemDetails} { Status = ${ua.status}, Title = ${JSON.stringify(
       ua.title,
     )}, Type = ${JSON.stringify(ua.typeUri)}, Detail = ${detail}, Instance = HttpContext.Request.Path };`,
     `            ${problem}.Extensions["resource"] = ${JSON.stringify(ua.resource)};`,
@@ -331,7 +331,7 @@ export function renderController(
   // so the HTTP status matches the remapped value the OpenAPI declaration
   // advertises (the `Conflict()` helper is hardwired to 409).
   const referencedInUseStatus = wireStatus("referenced-in-use", shape.structuralStatuses);
-  const fkProblem = `new ProblemDetails { Title = ${csTitle("referenced-in-use", shape.structuralStatuses)}, Status = ${referencedInUseStatus}, Detail = ${csLit(wireSentenceFor("referenced-in-use", agg.name))}, Type = "about:blank", Instance = HttpContext.Request.Path, ${csCodeInit("referenced-in-use", shape.typeKey)} }`;
+  const fkProblem = `new ${CS_NAME.ProblemDetails} { Title = ${csTitle("referenced-in-use", shape.structuralStatuses)}, Status = ${referencedInUseStatus}, Detail = ${csLit(wireSentenceFor("referenced-in-use", agg.name))}, Type = "about:blank", Instance = HttpContext.Request.Path, ${csCodeInit("referenced-in-use", shape.typeKey)} }`;
   const fkConflictReturn =
     referencedInUseStatus === wireStatus("referenced-in-use")
       ? `            return Conflict(${fkProblem});`
@@ -505,7 +505,7 @@ export function renderController(
               { name: "aggregate", valueExpr: `"${agg.name}"` },
               { name: "id", valueExpr: "id.Value" },
             ])}`,
-            `        HttpMetrics.RecordDomainOperation("${agg.name}", "create");`,
+            `        ${CS_NAME.HttpMetrics}.RecordDomainOperation("${agg.name}", "create");`,
             // Location points at the read; when an explicit route serves that
             // slot there is no derived action to name, so the path is spelled.
             shape.getByIdApiOp.claimedByExplicitRoute
@@ -650,7 +650,7 @@ export function renderOperationActionBlock(
     ? op.paramNames.length === 0
       ? [
           `        ${renderDotnetLogCall("wireIn", [
-            { name: "keys", valueExpr: "Array.Empty<string>()" },
+            { name: "keys", valueExpr: `${CS_NAME.Array}.Empty<string>()` },
           ])}`,
         ]
       : [
@@ -784,7 +784,7 @@ export function renderOperationActionBlock(
       { name: "op", valueExpr: `"${op.name}"` },
       { name: "id", valueExpr: "id" },
     ])}`,
-    `        HttpMetrics.RecordDomainOperation("${agg.name}", "${op.name}");`,
+    `        ${CS_NAME.HttpMetrics}.RecordDomainOperation("${agg.name}", "${op.name}");`,
     `        var cmd = new ${upperFirst(op.name)}Command(`,
     ...cmdBody,
     "        );",
@@ -979,7 +979,7 @@ export function renderExceptionFilter(
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
             context.HttpContext.Response.Headers["x-request-id"] = trace_id;
-            var ${problemVar} = new ProblemDetails
+            var ${problemVar} = new ${CS_NAME.ProblemDetails}
             {
                 Type = "about:blank",
                 Title = ${csTitle("domain-floor", overrides)},
@@ -1027,7 +1027,7 @@ export function renderExceptionFilter(
   // plain domain-floor arm below, unchanged.
   const domainFloorCodeArm = options?.domainFloorCodes
     ? domainFloorErrorsArm(
-        "context.Exception is DomainException dfe && dfe.RuleCode != null",
+        `context.Exception is ${CS_NAME.DomainException} dfe && dfe.RuleCode != null`,
         "dfe",
         "dfe.RuleCode",
         'dfe.RulePointer ?? ""',
@@ -1259,7 +1259,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         // downstream of the parse) nor a domain rule.  Same 422 + errors[]
         // envelope as both, so a price of "12,50" reads identically on .NET
         // and on Hono's zod moneySchema hook.
-        if (context.Exception is WireFormatException wfe)
+        if (context.Exception is ${CS_NAME.WireFormatException} wfe)
         {
             ${csFieldInvalidProblem("context.HttpContext.Request.Path", "            ", "wireProblem")}
             // Anonymous type rather than Dictionary<,>: this arm is emitted
@@ -1283,7 +1283,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
-        if (context.Exception is ForbiddenException fe)
+        if (context.Exception is ${CS_NAME.ForbiddenException} fe)
         {
             ${renderDotnetLogCall("forbidden", [
               { name: "message", valueExpr: "fe.Message" },
@@ -1294,7 +1294,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
-        if (context.Exception is DisallowedException dx)
+        if (context.Exception is ${CS_NAME.DisallowedException} dx)
         {
             ${renderDotnetLogCall("disallowed", [
               { name: "message", valueExpr: "dx.Message" },
@@ -1308,7 +1308,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         // A domain-floor rejection (precondition / invariant) is 422 —
         // the request is well-formed, the domain refuses it on semantic
         // grounds.  400 stays for a malformed request.
-        if (context.Exception is DomainException de)
+        if (context.Exception is ${CS_NAME.DomainException} de)
         {
             ${renderDotnetLogCall("domainError", [
               { name: "message", valueExpr: "de.Message" },
@@ -1331,7 +1331,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
-        if (context.Exception is AggregateNotFoundException nf)
+        if (context.Exception is ${CS_NAME.AggregateNotFoundException} nf)
         {
             ${renderDotnetLogCall("notFound", [{ name: "status", valueExpr: `${notFoundStatus}` }])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("not_found");
@@ -1378,7 +1378,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
     private static ObjectResult Problem(ExceptionContext context, int status, string title, string detail, string traceId, string code, object? @params = null)
     {
         context.HttpContext.Response.Headers["x-request-id"] = traceId;
-        var body = new ProblemDetails
+        var body = new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = title,
@@ -1424,7 +1424,7 @@ ${hasRouteTypes ? csAggregateTypeParamsMembers(routeTypes) : ""}
         ${renderDotnetLogCall("notFound", [{ name: "status", valueExpr: `${notFoundStatus}` }])}
         global::${ns}.Observability.HttpMetrics.RecordDomainFault("not_found");
         http.Response.Headers["x-request-id"] = trace_id;
-        return Microsoft.AspNetCore.Http.Results.Json(new ProblemDetails
+        return Microsoft.AspNetCore.Http.Results.Json(new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = ${csTitle("not-found", overrides)},
@@ -1448,7 +1448,7 @@ ${hasRouteTypes ? csAggregateTypeParamsMembers(routeTypes) : ""}
           { name: "status", valueExpr: `${wireStatus("malformed-body")}` },
         ])}
         http.Response.Headers["x-request-id"] = trace_id;
-        return Microsoft.AspNetCore.Http.Results.Json(new ProblemDetails
+        return Microsoft.AspNetCore.Http.Results.Json(new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = ${csTitle("malformed-body")},
@@ -1659,7 +1659,7 @@ public static class ValidationProblem
 
         var missingRequired = context.ModelState
             .SelectMany(entry => entry.Value is null
-                ? Array.Empty<ModelError>()
+                ? ${CS_NAME.Array}.Empty<ModelError>()
                 : entry.Value.Errors.Where(IsMissingRequired))
             .ToArray();
         if (missingRequired.Length > 0)
@@ -1763,7 +1763,7 @@ public static class ValidationProblem
             || entry.Value?.Errors.Any(error => error.Exception is JsonException) == true);
         if (malformed)
         {
-            return new ObjectResult(new ProblemDetails
+            return new ObjectResult(new ${CS_NAME.ProblemDetails}
             {
                 Type = "about:blank",
                 Title = ${csTitle("malformed-body")},
@@ -1780,7 +1780,7 @@ public static class ValidationProblem
         ${csFieldInvalidProblem("context.HttpContext.Request.Path", "        ", "problem")}
         problem.Extensions["errors"] = context.ModelState
             .SelectMany(entry => entry.Value is null
-                ? Array.Empty<Dictionary<string, object>>()
+                ? ${CS_NAME.Array}.Empty<Dictionary<string, object>>()
                 : entry.Value.Errors.Select(error =>
                 {
                     // The Guid binder's own sentence for a route / query uuid it
@@ -2013,7 +2013,7 @@ function csQueryMismatchMessageFn(): string {
     ["integer", ["int", "long"]],
     ["decimal", ["decimal", "double"]],
     ["bool", ["bool"]],
-    ["datetime", ["DateTime", "DateTimeOffset"]],
+    ["datetime", [CS_NAME.DateTime, "DateTimeOffset"]],
     ["date", ["DateOnly"]],
   ];
   const arms = kinds.flatMap(([kind, types]) =>

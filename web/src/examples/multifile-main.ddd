@@ -13,10 +13,10 @@ system MultiFileStore {
   subdomain Catalog {
     context Products {
       aggregate Product with crudish {
-        sku: string
+        sku: string check skuIsTooLong: sku.length <= 64
         price: Money
         currency: Currency
-        invariant sku.length > 0
+        invariant skuIsRequired: sku.trim().length > 0
         derived display: string = sku
       }
       repository Products for Product { }

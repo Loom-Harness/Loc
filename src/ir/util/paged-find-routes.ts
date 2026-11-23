@@ -12,7 +12,7 @@
 
 import { pagedReturn } from "../stdlib/generics.js";
 import type { DeployableIR, FindIR, RouteIR, SystemIR } from "../types/loom-ir.js";
-import { pagedRunFindName, pagedRunStmt } from "./paged-run.js";
+import { pagedRunFindName, pagedRunReadsList, pagedRunStmt } from "./paged-run.js";
 
 /** aggregate name → synthesized paged find name → the route serving it. */
 export type PagedFindRoutes = ReadonlyMap<string, ReadonlyMap<string, RouteIR>>;
@@ -38,7 +38,9 @@ export function pagedFindRoutes(
         ?.queryHandlers?.find((q) => q.name === route.target.handler);
       if (!h || h.extern || !pagedReturn(h.returnType)) continue;
       const run = pagedRunStmt(h);
-      if (!run) continue;
+      // A handler paging the whole collection reads the list the derived
+      // `GET /<aggs>` already serves; a frontend keeps calling that route.
+      if (!run || pagedRunReadsList(run)) continue;
       const byFind = out.get(run.aggName) ?? new Map<string, RouteIR>();
       const find = pagedRunFindName(run);
       if (!byFind.has(find)) byFind.set(find, route);

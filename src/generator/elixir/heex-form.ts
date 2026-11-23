@@ -25,6 +25,7 @@ import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { workflowRunEntry } from "../_walker/model-text-sites.js";
 import type { InputControl } from "../_walker/target.js";
 import { walkerModelOf } from "../_walker/walker-model-enriched.js";
+import { exFormTextKind } from "./form-text.js";
 import {
   heexChrome,
   heexChromeAttr,
@@ -192,11 +193,19 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   return [
     `<.simple_form for={@form} phx-submit="${submitEvent}"${testidAttr}>`,
     ...inputs,
+    formErrorMarkup("form_error", testidNs),
     `  <:actions>`,
     `    <.button type="submit"${submitTestid}>${submitText}</.button>`,
     `  </:actions>`,
     `</.simple_form>`,
   ].join("\n");
+}
+
+/** The slot a form shows its non-changeset refusal in: one alert inside the
+ *  form, addressed `<ns>-error`, empty until a submit is refused. */
+export function formErrorMarkup(assign: string, testidNs: string | undefined): string {
+  const tid = testidNs ? ` data-testid="${escapeHeexAttr(`${testidNs}-error`)}"` : "";
+  return `  <p :if={@${assign}} role="alert"${tid} class="text-sm font-semibold text-red-600"><%= @${assign} %></p>`;
 }
 
 /** A call's LITERAL `testid:` value, or `undefined` when absent or dynamic.
@@ -330,17 +339,7 @@ export function renderFieldInputForField(
     }
   }
   const inputType = htmlInputTypeForIRType(f.type);
-  const isDecimal = f.type.kind === "primitive" && f.type.name === "decimal";
-  const isMoney = f.type.kind === "primitive" && f.type.name === "money";
-  // money fields render as text inputs with a decimal-format pattern
-  // — number inputs can carry "1e10" notation that's lossy on parse;
-  // text + pattern preserves the precise string the wire expects.
-  const extraAttrs = isDecimal
-    ? ` step="0.01"`
-    : isMoney
-      ? ` pattern="^-?\\d+(\\.\\d+)?$" inputmode="decimal"`
-      : "";
-  return `<.input field={${assignPrefix}${formAssign}[:${fieldName}]} type="${inputType}" label=${labelAttr}${extraAttrs}${tid} />`;
+  return `<.input field={${assignPrefix}${formAssign}[:${fieldName}]} type="${inputType}" label=${labelAttr}${inputModeAttr(f.type)}${tid} />`;
 }
 
 /** The leaf inputs of a value-object field, recursing through nested VOs.
@@ -405,11 +404,16 @@ function renderVoLeafInputs(
         }
       }
       const inputType = htmlInputTypeForIRType(sub.type);
-      const isDecimal = subInner.kind === "primitive" && subInner.name === "decimal";
-      const step = isDecimal ? ` step="0.01"` : "";
-      return `<.input name=${name} id=${id} value=${value} type="${inputType}" label=${labelAttr}${step}${tid} />`;
+      return `<.input name=${name} id=${id} value=${value} type="${inputType}" label=${labelAttr}${inputModeAttr(sub.type)}${tid} />`;
     })
     .join(" ");
+}
+
+/** The on-screen keyboard a parsed number or amount input asks for. */
+function inputModeAttr(t: TypeIR): string {
+  const k = exFormTextKind(t);
+  if (!k) return "";
+  return ` inputmode="${k[0] === "int" || k[0] === "long" ? "numeric" : "decimal"}"`;
 }
 
 /** Map a TypeIR to the HTML `<input type="…">` attribute the form
@@ -421,10 +425,12 @@ function htmlInputTypeForIRType(t: TypeIR): string {
   if (t.kind === "optional") return htmlInputTypeForIRType(t.inner);
   if (t.kind !== "primitive") return "text";
   switch (t.name) {
+    // A number or amount is typed text, parsed by the form text rule on submit
+    // (`FormText.parse/2`): a `number` input would hand a non-number over as
+    // blank and accept `1e3`.
     case "int":
     case "long":
     case "decimal":
-      return "number";
     case "money":
       return "text";
     case "bool":

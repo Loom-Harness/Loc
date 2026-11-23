@@ -5,6 +5,7 @@ import { claimEnumNames, claimsReferenceIds } from "../../../generator/_auth/cla
 import {
   DEV_AUTH_ENV,
   DEV_CLAIMS_HEADER,
+  devClaimFields,
   MALFORMED_DEV_CLAIMS_DETAIL,
 } from "../../../generator/_auth/dev-claims.js";
 import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
@@ -23,6 +24,13 @@ import { wireCode } from "../../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
+import {
+  RETURN_ORIGINS_ENV,
+  RETURN_TO_COOKIE,
+  RETURN_TO_PARAM,
+  RETURN_TO_PATH_PATTERN,
+  RETURN_TO_URL_PATTERN,
+} from "../../../util/return-to.js";
 import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   SECURE_TRANSPORT_ENV,
@@ -96,6 +104,22 @@ export function emitAuthFiles(
  *  identity filling every field the `user { … }` block declares, with an
  *  optional base64-JSON `x-dev-claims` override merged over it. */
 function renderDevStubVerifier(user: UserIR, oidc: boolean): string {
+  // A JSON null is the claim ABSENT (src/util/dev-claims.ts).  The spread
+  // below already makes an optional claim null; a REQUIRED one set to null
+  // leaves the header describing no principal, so the stub refuses it (401,
+  // as the OIDC verifier answers a token that lacks the claim) instead of
+  // handing a null to a non-null field.
+  const requiredClaims = devClaimFields(user.fields)
+    .filter((c) => !c.optional)
+    .map((c) => JSON.stringify(c.field.name));
+  const requiredNullCheck =
+    requiredClaims.length > 0
+      ? `
+    const lacking = [${requiredClaims.join(", ")}].some(
+      (k) => k in decoded && (decoded as Record<string, unknown>)[k] === null,
+    );
+    if (lacking) return null;`
+      : "";
   const usage = oidc
     ? ` *  PREVIEW-ONLY under this system's \`auth { oidc }\` block: \`bootApp\` registers
  *  the OIDC verifier and calls this only under \`verifier: "dev-stub"\`, which
@@ -141,7 +165,7 @@ export function registerDevStubVerifier(enabled: boolean): void {
     // run as this one instead.
     if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
       throw new MalformedDevClaimsError();
-    }
+    }${requiredNullCheck}
     return { ...base, ...decoded };
   });
 }
@@ -1176,6 +1200,24 @@ const CLIENT_ID = ${clientIdExpr};
 ${clientSecretConst}const SCOPES = ${JSON.stringify(finalScopes)};
 const REDIRECT_URI = process.env.OIDC_REDIRECT_URI ?? "http://localhost:3000${AUTH_BASE_PATH}/callback";
 const POST_LOGIN = process.env.OIDC_POST_LOGIN_REDIRECT ?? "/";
+// Where a sign-in may return to: a same-origin relative path (never
+// \`//host\`), or an absolute URL whose origin is exactly one of
+// ${RETURN_ORIGINS_ENV} (src/util/return-to.ts).  Anything else returns to
+// POST_LOGIN.
+const RETURN_TO_PATH = new RegExp(${JSON.stringify(RETURN_TO_PATH_PATTERN)});
+const RETURN_TO_URL = new RegExp(${JSON.stringify(RETURN_TO_URL_PATTERN)});
+const RETURN_ORIGINS = new Set(
+  (process.env.${RETURN_ORIGINS_ENV} ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o !== ""),
+);
+function returnable(value: string | undefined): value is string {
+  if (value === undefined) return false;
+  if (RETURN_TO_PATH.test(value)) return true;
+  const m = RETURN_TO_URL.exec(value);
+  return m !== null && RETURN_ORIGINS.has(m[1] as string);
+}
 
 // HttpOnly cookie options shared by the session + refresh + transient PKCE
 // cookies.  SameSite=Lax so the IdP's cross-site redirect back to /callback
@@ -1244,6 +1286,13 @@ export function authRoutes(): Hono {
     const challenge = base64url(createHash("sha256").update(verifier).digest());
     setCookie(c, "oidc_state", state, COOKIE);
     setCookie(c, "oidc_verifier", verifier, COOKIE);
+    // Remember where the user was, when it is a path this origin may return to.
+    const returnTo = c.req.query(${JSON.stringify(RETURN_TO_PARAM)});
+    if (returnable(returnTo)) {
+      setCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)}, returnTo, COOKIE);
+    } else {
+      deleteCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)}, { path: "/" });
+    }
     const url = new URL(authorization_endpoint);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", CLIENT_ID);
@@ -1284,7 +1333,9 @@ export function authRoutes(): Hono {
     storeTokens(c, tokens);
     deleteCookie(c, "oidc_state", { path: "/" });
     deleteCookie(c, "oidc_verifier", { path: "/" });
-    return c.redirect(POST_LOGIN);
+    const returnTo = getCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)});
+    deleteCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)}, { path: "/" });
+    return c.redirect(returnable(returnTo) ? returnTo : POST_LOGIN);
   });
 
   // Silent renewal — exchange the stored refresh token for a fresh access
