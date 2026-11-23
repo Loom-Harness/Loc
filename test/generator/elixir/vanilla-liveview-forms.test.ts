@@ -73,7 +73,11 @@ describe("vanilla LiveView forms — create form (2-B)", () => {
 
   it("emits a save_<agg> submit handler over create_<agg> with changeset-error re-assign", async () => {
     const live = get(await files(), "/live/customer_new_live.ex");
-    expect(live).toContain('def handle_event("save_customer", %{"customer" => params}, socket) do');
+    // The submitted map is parsed by the form text rule before the create.
+    expect(live).toContain(
+      'def handle_event("save_customer", %{"customer" => submitted}, socket) do',
+    );
+    expect(live).toContain("case PhoenixAppWeb.FormText.parse(submitted, ");
     expect(live).toContain("case PhoenixApp.Sales.create_customer(params) do");
     // Success lands on the CREATED RECORD, matching the React/Vue/Svelte/
     // Angular scaffolds and the contract the emitted Playwright page objects
@@ -84,8 +88,8 @@ describe("vanilla LiveView forms — create form (2-B)", () => {
     // (`test/behavioral/run-heex-ui.mjs`) executing one for the first time.
     expect(live).toContain("{:ok, record} ->");
     expect(live).toContain('|> push_navigate(to: ~p"/customers/#{record.id}")');
-    expect(live).toContain(
-      "{:error, %Ecto.Changeset{} = changeset} ->\n        {:noreply, assign(socket, :form, to_form(changeset))}",
+    expect(live).toMatch(
+      /\{:error, %Ecto\.Changeset\{\} = changeset\} ->\n\s+\{:noreply, assign\(socket, :form, to_form\(changeset\)\)\}/,
     );
   });
 });

@@ -13,6 +13,24 @@ body {
 :root {
   --app-primary: {{brandShades.[6]}};
   --app-accent: {{accentShades.[6]}};
+  /* Material components take their typeface from these typography tokens,
+     not from body: each names the theme's font, so lists, buttons and
+     headings render in it rather than in a font no page loads. */
+  --mat-sys-display-large-font: {{{fontFamily}}};
+  --mat-sys-display-medium-font: {{{fontFamily}}};
+  --mat-sys-display-small-font: {{{fontFamily}}};
+  --mat-sys-headline-large-font: {{{fontFamily}}};
+  --mat-sys-headline-medium-font: {{{fontFamily}}};
+  --mat-sys-headline-small-font: {{{fontFamily}}};
+  --mat-sys-title-large-font: {{{fontFamily}}};
+  --mat-sys-title-medium-font: {{{fontFamily}}};
+  --mat-sys-title-small-font: {{{fontFamily}}};
+  --mat-sys-body-large-font: {{{fontFamily}}};
+  --mat-sys-body-medium-font: {{{fontFamily}}};
+  --mat-sys-body-small-font: {{{fontFamily}}};
+  --mat-sys-label-large-font: {{{fontFamily}}};
+  --mat-sys-label-medium-font: {{{fontFamily}}};
+  --mat-sys-label-small-font: {{{fontFamily}}};
 }
 mat-card {
   padding: 16px;

@@ -1565,6 +1565,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'http-routes'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
 
+  "src/platform/hono/shared/explicit-handlers-builder.ts#contextDispatchBlocks": {
+    invariant:
+      "`dispatchedHandlers` keeps exactly the handlers `emitRouteHandler` splices a dispatch entry out of (a non-extern, non-paged, non-expected-failure catcher of its record), so the entry is always emitted; a handler without one would be a bus entry the bus cannot call, which this check turns into a build failure instead of a silent gap.",
+  },
   "src/platform/hono/shared/projection-query-routes-builder.ts#buildQueryProjectionsFile": {
     invariant:
       "A projection row `where` Drizzle cannot lower. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",

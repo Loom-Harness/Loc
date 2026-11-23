@@ -79,3 +79,32 @@ test("an operation form under a non-`data` QueryView binding submits and updates
 
   await expect(page.getByTestId("bump-rank")).toHaveText("8");
 });
+
+// Typed text through the form text rule: `12abc` / `abc` are refused in their
+// fields with the catalog text of the wire code the server answers for the
+// same values (the amount's naming the typed text), the form stays on screen
+// holding what was typed, and nothing is created; ` 42 ` / `120.50` are then
+// saved as typed.
+test("a create form refuses typed text the rule refuses and saves an accepted one as typed", async ({
+  page,
+}) => {
+  await page.goto("/meters/new");
+  const reading = page.getByTestId("meters-new-input-reading");
+  const fee = page.getByTestId("meters-new-input-fee");
+  await reading.fill("12abc");
+  await fee.fill("abc");
+  await page.getByTestId("meters-new-submit").click();
+  const form = page.getByTestId("meters-new");
+  await expect(form).toContainText("Invalid value");
+  await expect(form).toContainText("Invalid decimal abc");
+  await expect(page).toHaveURL(/\/meters\/new$/);
+  await expect(reading).toHaveValue("12abc");
+  await expect(fee).toHaveValue("abc");
+
+  await reading.fill(" 42 ");
+  await fee.fill("120.50");
+  await page.getByTestId("meters-new-submit").click();
+  await expect(page).toHaveURL(/\/meters\/[0-9a-f-]{8,}$/i);
+  await expect(page.getByTestId("meters-detail-reading")).toContainText("42");
+  await expect(page.getByTestId("meters-detail-fee")).toContainText("120.5");
+});

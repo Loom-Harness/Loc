@@ -65,7 +65,7 @@ import { aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
 import { declaredResponseFor } from "../util/declared-response.js";
 import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
 import { nullSafeFilter } from "../util/null-safe-filter.js";
-import { pagedRunFindName, pagedRunStmt } from "../util/paged-run.js";
+import { pagedRunFindName, pagedRunReadsList, pagedRunStmt } from "../util/paged-run.js";
 import { responseWireFor } from "../util/response-wire.js";
 import {
   buildDenyFilter,
@@ -1173,7 +1173,8 @@ function synthesizePagedQueryHandlerFinds(
     // un-synthesized: phase ⑦ refuses it (`loom.paged-query-handler-shape`)
     // before any emitter runs.
     const run = pagedRunStmt(h);
-    if (!run) continue;
+    // The whole collection pages through the repository's own list read.
+    if (!run || pagedRunReadsList(run)) continue;
     const repo = out.find((r) => r.aggregateName === run.aggName);
     if (!repo) continue;
     if (repo.finds.some((f) => f.name === pagedRunFindName(run))) continue;
