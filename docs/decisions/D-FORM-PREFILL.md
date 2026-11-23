@@ -29,13 +29,16 @@ value that was stored. What does the form show, and what does it send?
   blank and an optional blank is sent absent, so the server fills it as before.
 - **Managed fields** are never in the form and never sent.
 
-The fact is decided once, in the shared form model (`FormFieldSpec.prefill`,
-a `{ from: "client" }` variant derived from `isServerSourcedDefault` over the
-create request), and each target renders it through its `FormFieldArms` table;
-no target re-derives which fields qualify.
+The fact is decided once: `clientPrefillDefault`
+(`src/generator/_frontend/client-prefill.ts`) applies `isServerSourcedDefault`
+to a create-request field only, and the shared form model records it as
+`FormFieldSpec.prefill = { from: "client"; expr }`.  Each target seeds the
+field from that decision where its create form builds its initial values, and
+renders a `currentUser` expression through its own walker's claims seam; no
+target re-derives which fields qualify.
 
 **Not covered.** Defaults the server cannot evaluate per request (sequences,
 cross-aggregate reads) keep their current behaviour. Update and operation forms
 are unchanged: they prefill from the record or from a client-evaluable default.
 
-**Enforced by:** none, tracked by #6208 — the rule is ruled and not yet built; the form-model census, a stored-equals-shown wire golden per frontend and LiveView, and a planted-leak proof per target land with it.
+**Enforced by:** `test/generator/_frontend/form-prefill-census.test.ts`, `test/generator/_frontend/form-spec-rederive-census.test.ts`, `test/behavioral/heex-ui-roundtrip.pw.ts`

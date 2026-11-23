@@ -46,7 +46,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import { chromiumLaunchOptions } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
@@ -54,6 +54,10 @@ import {
   FORM_FAILURE_MESSAGES,
   judgeBlankRuleRefused,
   judgeNothingPosted,
+  judgePrefill,
+  PREFILL_PRINCIPAL,
+  prefillClaimsHeader,
+  storedTally,
   judgeUntouchedTally,
   listRows,
 } from "./form-spec-ui.mjs";
@@ -219,6 +223,48 @@ const SORT_ORDER_PROBES = [
  *  field's zero, and a `Claim` create form with its required reference unpicked
  *  sends nothing. */
 const FORM_SPEC_PROBES = [
+  {
+    // D-FORM-PREFILL: opened as the dev-stub principal the header names, the
+    // tallies create form shows `countedAt` (the clock, the picker's DateTime)
+    // and `countedIn` (the session's region); submitted untouched it sends both
+    // as shown and no stamped key, and the server stores what was shown.
+    name: "a create form pre-filled from the clock and the session stores what it showed",
+    route: "#/tallies/new",
+    headers: prefillClaimsHeader(),
+    expect: [],
+    api: "",
+    async drive(page, origin) {
+      const bodies = [];
+      page.on("request", (r) => {
+        if (r.method() === "POST" && new URL(r.url()).pathname === "/api/tallies") {
+          bodies.push(r.postData() ?? "");
+        }
+      });
+      const before = new Set((await listRows(origin, "tallies")).map((o) => o.id));
+      // What the form shows.  The picker's text (the DateTime it holds) is in
+      // the accessibility tree; a text field's value is not — Flutter fills
+      // its semantics input only while the field has focus, so each input is
+      // focused and read in turn.
+      let countedAt;
+      for (let i = 0; i < 60 && !countedAt; i++) {
+        countedAt = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?/.exec(await accessibleText(page))?.[0];
+        if (!countedAt) await page.waitForTimeout(250);
+      }
+      const values = [];
+      for (const input of await page.$$("input, textarea")) {
+        await input.click({ force: true, timeout: 2000 }).catch(() => {});
+        await page.waitForTimeout(300);
+        values.push(await page.evaluate(() => document.activeElement?.value ?? ""));
+      }
+      const region = PREFILL_PRINCIPAL.region;
+      const shown = { countedAt, countedIn: values.includes(region) ? region : values.join("|") };
+      await clickSemantic(page, "Create");
+      const row = await storedTally(origin, before, (ms) => page.waitForTimeout(ms));
+      const body = bodies[0] ? JSON.parse(bodies[0]) : undefined;
+      const why = judgePrefill(shown, body, row);
+      if (why.length) throw new Error(why.join("; "));
+    },
+  },
   {
     name: 'an untouched create form submits each required field\'s zero ({ label: "", count: 0, amount: "0" })',
     route: "#/tallies/new",
@@ -501,6 +547,12 @@ async function runCase(c) {
     });
     const flutterDir = findFlutterDeployable(genDir);
     const deplDir = findNodeDeployable(genDir);
+    // Mutation-proof seam, as in run-ui.mjs: a module named by LOOM_UI_MUTATE
+    // receives the GENERATED tree before anything is built.  Never set in CI.
+    if (process.env.LOOM_UI_MUTATE) {
+      const mutate = await import(pathToFileURL(resolve(process.env.LOOM_UI_MUTATE)).href);
+      await mutate.default({ genDir, frontendDir: flutterDir, caseName: c.name });
+    }
 
     // 1. Build the generated Flutter app with the SDK.  This is also the
     //    compile gate: non-parsing / non-type-checking Dart fails right here.
@@ -514,7 +566,9 @@ async function runCase(c) {
     // 2. ONE origin: the built Flutter bundle + the generated Hono backend on
     //    PGlite at /api.  No proxy, no CORS — the same invariant run-ui.mjs
     //    relies on, from the same shared module.
-    const { startServer } = await buildServerModule(deplDir, workDir);
+    // A `devStub` case boots its `auth: required` backend on the generated dev
+    // stub, so the browser's `x-dev-claims` picks the session principal.
+    const { startServer } = await buildServerModule(deplDir, workDir, { devStub: !!c.devStub });
     server = await startServer({ distDir });
     const origin = `http://127.0.0.1:${server.port}`;
     process.stdout.write(`    stack on :${server.port}\n`);
@@ -546,6 +600,15 @@ async function runCase(c) {
     });
     for (const probe of probes) {
       const page = await browser.newPage();
+      // A probe that runs as a named principal sends its `x-dev-claims` to the
+      // app's own origin only: on a cross-origin fetch (the engine's fonts) the
+      // header fails the CORS preflight.
+      if (probe.headers) {
+        await page.route(
+          (url) => url.origin === origin,
+          (route) => route.continue({ headers: { ...route.request().headers(), ...probe.headers } }),
+        );
+      }
       const api = [];
       const errors = [];
       /** Cross-origin request failures — reported, never fatal (see the

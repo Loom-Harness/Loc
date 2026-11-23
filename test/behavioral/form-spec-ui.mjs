@@ -28,6 +28,11 @@
 //                    nothing.
 //   blank rule       a rule on a required field judges its blank: the create
 //                    form sends nothing and shows the rule's message.
+//   prefill          (D-FORM-PREFILL) a `Tally` create form opened as a
+//                    dev-stub principal shows `countedAt` (the clock) and
+//                    `countedIn` (the session's region); submitted untouched it
+//                    sends both as shown and no stamped key, and the server
+//                    stores what was shown.
 //   typed text       (P-UI-5, P-UI-6) a `Meter` create form typed `12abc` /
 //                    `abc` sends nothing, keeps the text and shows a message;
 //                    retyped `42` / `120.50` it sends those values, and its
@@ -656,4 +661,102 @@ export async function judgeTransportFailure(page, origin) {
   );
   if (why.length === 0) await attempt((r) => r.abort("failed"), FORM_FAILURE_MESSAGES.unreachable, "network failure");
   return why;
+}
+
+/** The principal the pre-fill probe opens the `Tally` create form as: the
+ *  dev-stub session it names through `x-dev-claims` (D-FORM-PREFILL). */
+export const PREFILL_PRINCIPAL = { id: "u-prefill", region: "north" };
+
+/** The `x-dev-claims` header naming {@link PREFILL_PRINCIPAL}. */
+export function prefillClaimsHeader() {
+  return { "x-dev-claims": Buffer.from(JSON.stringify(PREFILL_PRINCIPAL)).toString("base64") };
+}
+
+/** Keys the server stamps (`auditable`) or owns: never in a create request. */
+export const STAMPED_KEYS = ["id", "createdAt", "updatedAt", "createdBy", "updatedBy"];
+
+/** Judge an `Tally` create form opened, read and submitted untouched.  `shown`
+ *  is what its inputs held when the form opened (`countedAt` the clock as the
+ *  input holds it, `countedIn` the session's region), `body` the create request
+ *  it sent, `row` the tally the server stored.  What the user saw is what is
+ *  stored, and no stamped key rides the request. */
+export function judgePrefill(shown, body, row) {
+  const why = [];
+  const at = Date.parse(shown.countedAt ?? "");
+  if (Number.isNaN(at) || Math.abs(at - Date.now()) > 10 * 60_000) {
+    why.push(`prefill: the create form opened with countedAt ${JSON.stringify(shown.countedAt)}, not the time it opened`);
+  }
+  if (shown.countedIn !== PREFILL_PRINCIPAL.region) {
+    why.push(`prefill: the create form opened with countedIn ${JSON.stringify(shown.countedIn)}, not the session's region ${JSON.stringify(PREFILL_PRINCIPAL.region)}`);
+  }
+  if (!body) {
+    why.push("prefill: the untouched create form sent no create request");
+    return why;
+  }
+  for (const k of STAMPED_KEYS) {
+    if (k in body) why.push(`prefill: the create request carried the stamped key ${k} (${JSON.stringify(body)})`);
+  }
+  if (body.countedAt !== shown.countedAt) {
+    why.push(`prefill: the create request sent countedAt ${JSON.stringify(body.countedAt)}, the form showed ${JSON.stringify(shown.countedAt)}`);
+  }
+  if (body.countedIn !== shown.countedIn) {
+    why.push(`prefill: the create request sent countedIn ${JSON.stringify(body.countedIn)}, the form showed ${JSON.stringify(shown.countedIn)}`);
+  }
+  if (!row) {
+    why.push("prefill: the untouched create form stored no tally");
+    return why;
+  }
+  if (Date.parse(row.countedAt) !== at) {
+    why.push(`prefill: the server stored countedAt ${JSON.stringify(row.countedAt)}, the form showed ${JSON.stringify(shown.countedAt)}`);
+  }
+  if (row.countedIn !== shown.countedIn) {
+    why.push(`prefill: the server stored countedIn ${JSON.stringify(row.countedIn)}, the form showed ${JSON.stringify(shown.countedIn)}`);
+  }
+  if (row.createdBy !== PREFILL_PRINCIPAL.id) {
+    why.push(`prefill: the server stamped createdBy ${JSON.stringify(row.createdBy)}, not the session principal ${PREFILL_PRINCIPAL.id}`);
+  }
+  return why;
+}
+
+/** Wait for the new tally an untouched submit stored (`before`: the ids that
+ *  existed). */
+export async function storedTally(origin, before, wait) {
+  for (let i = 0; i < 40; i++) {
+    const row = (await listRows(origin, "tallies")).find((o) => !before.has(o.id));
+    if (row) return row;
+    await wait(500);
+  }
+  return undefined;
+}
+
+/** Open the `Tally` create form as {@link PREFILL_PRINCIPAL}, read what its
+ *  pre-filled inputs show, submit it untouched, and judge the request and the
+ *  stored row against what was shown. */
+export async function judgeCreatePrefill(browser, origin) {
+  const context = await browser.newContext({ extraHTTPHeaders: prefillClaimsHeader() });
+  const page = await context.newPage();
+  const bodies = [];
+  page.on("request", (r) => {
+    if (r.method() === "POST" && new URL(r.url()).pathname === "/api/tallies") {
+      bodies.push(r.postData() ?? "");
+    }
+  });
+  try {
+    const before = new Set((await listRows(origin, "tallies")).map((o) => o.id));
+    await page.goto(`${origin}/tallies/new`);
+    const countedAt = await inputOf(page, "tallies-new-input-countedAt");
+    const countedIn = await inputOf(page, "tallies-new-input-countedIn");
+    let shown = {};
+    for (let i = 0; i < 40; i++) {
+      shown = { countedAt: await countedAt.inputValue(), countedIn: await countedIn.inputValue() };
+      if (shown.countedAt && shown.countedIn) break;
+      await page.waitForTimeout(250);
+    }
+    await page.locator('[data-testid="tallies-new-submit"]').first().click({ timeout: 10000 });
+    const row = await storedTally(origin, before, (ms) => page.waitForTimeout(ms));
+    const body = bodies[0] ? JSON.parse(bodies[0]) : undefined;
+    return judgePrefill(shown, body, row);
+  } finally {
+    await context.close().catch(() => {});
+  }
 }

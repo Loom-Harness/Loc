@@ -1592,9 +1592,11 @@ function renderMount(
         break;
       }
       // A blank Ecto changeset off the schema struct via the `change_<agg>`
-      // context facade.
+      // context facade.  A field the form computes when it opens (the clock,
+      // the session's claims; D-FORM-PREFILL) starts on that value.
+      const opened = (fb.prefill ?? []).map((p) => `${p.field}: ${p.value}`).join(", ");
       assigns.push(
-        `      |> assign(:form, ${ctxModule}.change_${snake(fb.name)}(%${ctxModule}.${upperFirst(fb.name)}{}) |> to_form())`,
+        `      |> assign(:form, ${ctxModule}.change_${snake(fb.name)}(%${ctxModule}.${upperFirst(fb.name)}{${opened}}) |> to_form())`,
         "      |> assign(:form_error, nil)",
       );
       break; // single @form per page
