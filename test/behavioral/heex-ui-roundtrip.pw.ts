@@ -114,45 +114,44 @@ test("a create form refuses typed text the rule refuses and saves an accepted on
 });
 
 // A create form opens pre-filled with the defaults the server would otherwise
-// fill (D-FORM-PREFILL): `placedAt` the server's clock at mount, `placedAs`
+// fill (D-FORM-PREFILL): `readAt` the server's clock at mount, `readBy`
 // the session principal's role (the dev stub's built-in "admin").  Submitted
-// untouched, the form event carries both as shown and no stamped key, and the
-// stored order holds what the form showed.
+// with those two untouched, the form event carries both as shown and no
+// stamped key, and the stored meter holds what the form showed.
 test("a create form opens pre-filled from the clock and the session and stores what it showed", async ({
   page,
 }) => {
   const frames: string[] = [];
   page.on("websocket", (ws) => ws.on("framesent", (f) => frames.push(String(f.payload))));
-  await page.goto("/orders/new");
-  const placedAt = page.getByTestId("orders-new-input-placedAt");
-  const placedAs = page.getByTestId("orders-new-input-placedAs");
-  await expect(placedAt).toHaveValue(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
-  await expect(placedAs).toHaveValue("admin");
-  const shownAt = await placedAt.inputValue();
-  const shownAs = await placedAs.inputValue();
+  await page.goto("/meters/new");
+  const readAt = page.getByTestId("meters-new-input-readAt");
+  const readBy = page.getByTestId("meters-new-input-readBy");
+  await expect(readAt).toHaveValue(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+  await expect(readBy).toHaveValue("admin");
+  const shownAt = await readAt.inputValue();
+  const shownAs = await readBy.inputValue();
   const opened = Date.parse(`${shownAt}:00Z`);
-  expect(Math.abs(opened - Date.now()), "placedAt is the time the form opened").toBeLessThan(
+  // The meter's own required inputs; the pre-filled ones stay untouched.
+  await page.getByTestId("meters-new-input-reading").fill("3");
+  await page.getByTestId("meters-new-input-fee").fill("4");
+  expect(Math.abs(opened - Date.now()), "readAt is the time the form opened").toBeLessThan(
     10 * 60_000,
   );
 
-  await page.getByTestId("orders-new-submit").click();
-  await expect(page).toHaveURL(/\/orders\/[0-9a-f-]{8,}$/i);
+  await page.getByTestId("meters-new-submit").click();
+  await expect(page).toHaveURL(/\/meters\/[0-9a-f-]{8,}$/i);
   const id = new URL(page.url()).pathname.split("/").pop();
 
-  const submit = decodeURIComponent(frames.find((f) => f.includes('"save_order"')) ?? "");
-  expect(submit, "the form event names the shown placedAt").toContain(
-    `order[placed_at]=${shownAt}`,
-  );
-  expect(submit, "the form event names the shown placedAs").toContain(
-    `order[placed_as]=${shownAs}`,
-  );
+  const submit = decodeURIComponent(frames.find((f) => f.includes('"save_meter"')) ?? "");
+  expect(submit, "the form event names the shown readAt").toContain(`meter[read_at]=${shownAt}`);
+  expect(submit, "the form event names the shown readBy").toContain(`meter[read_by]=${shownAs}`);
   expect(submit, "no stamped key rides the form event").not.toMatch(
     /(?:created|updated)_(?:at|by)/,
   );
 
-  const res = await page.request.get(`/api/orders/${id}`);
+  const res = await page.request.get(`/api/meters/${id}`);
   expect(res.status()).toBe(200);
   const row = await res.json();
-  expect(Date.parse(row.placedAt), "the stored placedAt is the shown one").toBe(opened);
-  expect(row.placedAs, "the stored placedAs is the shown one").toBe(shownAs);
+  expect(Date.parse(row.readAt), "the stored readAt is the shown one").toBe(opened);
+  expect(row.readBy, "the stored readBy is the shown one").toBe(shownAs);
 });

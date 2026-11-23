@@ -10,11 +10,11 @@
 // is sent as typed, and a blank optional number or amount is sent absent.
 // `Tally`, `Claim` and `Badge` are submitted untouched: a blank required scalar
 // is a value the server receives, a blank required reference holds the submit,
-// and a rule on a required field judges its blank.  `Order` opens pre-filled
-// with the defaults the server would otherwise fill — `now()` from the clock,
-// `currentUser.region` from the session — and an untouched submit stores what
-// the form showed; its `auditable` stamps are never in the form or the request
-// (D-FORM-PREFILL).  The session is the backend's dev-stub principal, which the
+// and a rule on a required field judges its blank.  `Tally` also opens
+// pre-filled with the defaults the server would otherwise fill — `now()` from
+// the clock, `currentUser.region` from the session — and an untouched submit
+// stores what the form showed; its `auditable` stamps are never in the form or
+// the request (D-FORM-PREFILL).  The session is the backend's dev-stub principal, which the
 // UI runners pick with `x-dev-claims`.
 //
 // `test/generator/_frontend/form-spec-census.test.ts` generates this system on
@@ -100,11 +100,15 @@ system FormSpecUi {
       repository Policies for Policy { }
 
       // Submitted untouched, a required field is a value: the form posts
-      // `{ label: "", count: 0, amount: "0" }` and the server decides.
-      aggregate Tally with crudish {
+      // `{ label: "", count: 0, amount: "0" }` and the server decides.  The
+      // form opens with `countedAt` and `countedIn` pre-filled and editable,
+      // and sends both as shown.
+      aggregate Tally with auditable, crudish {
         label: string
         count: int
         amount: money
+        countedAt: datetime = now()
+        countedIn: string = currentUser.region
       }
       repository Tallies for Tally { }
 
@@ -135,15 +139,6 @@ system FormSpecUi {
         invariant code.length >= 2
       }
       repository Badges for Badge { }
-
-      // Opened, the create form shows `placedAt` and `placedIn` pre-filled and
-      // editable; submitted untouched, it sends both as shown.
-      aggregate Order with auditable, crudish {
-        ref: string
-        placedAt: datetime = now()
-        placedIn: string = currentUser.region
-      }
-      repository Orders for Order { }
 
       // An event-sourced aggregate's create request is its `create` action's
       // params: the create form asks for `owner` alone, never the folded

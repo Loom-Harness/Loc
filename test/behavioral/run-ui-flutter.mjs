@@ -55,8 +55,9 @@ import {
   judgeBlankRuleRefused,
   judgeNothingPosted,
   judgePrefill,
+  PREFILL_PRINCIPAL,
   prefillClaimsHeader,
-  storedOrder,
+  storedTally,
   judgeUntouchedTally,
   listRows,
 } from "./form-spec-ui.mjs";
@@ -224,22 +225,22 @@ const SORT_ORDER_PROBES = [
 const FORM_SPEC_PROBES = [
   {
     // D-FORM-PREFILL: opened as the dev-stub principal the header names, the
-    // orders create form shows `placedAt` (the clock, the picker's DateTime)
-    // and `placedIn` (the session's region); submitted untouched it sends both
+    // tallies create form shows `countedAt` (the clock, the picker's DateTime)
+    // and `countedIn` (the session's region); submitted untouched it sends both
     // as shown and no stamped key, and the server stores what was shown.
     name: "a create form pre-filled from the clock and the session stores what it showed",
-    route: "#/orders/new",
+    route: "#/tallies/new",
     headers: prefillClaimsHeader(),
     expect: [],
     api: "",
     async drive(page, origin) {
       const bodies = [];
       page.on("request", (r) => {
-        if (r.method() === "POST" && new URL(r.url()).pathname === "/api/orders") {
+        if (r.method() === "POST" && new URL(r.url()).pathname === "/api/tallies") {
           bodies.push(r.postData() ?? "");
         }
       });
-      const before = new Set((await listRows(origin, "orders")).map((o) => o.id));
+      const before = new Set((await listRows(origin, "tallies")).map((o) => o.id));
       // What the form shows: the picker's text (the DateTime it holds) and the
       // text fields' values, read off the accessibility tree and its inputs.
       let shown = {};
@@ -249,12 +250,16 @@ const FORM_SPEC_PROBES = [
           [...document.querySelectorAll("input, textarea")].map((e) => e.value),
         );
         const at = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?/.exec(text)?.[0];
-        shown = { placedAt: at, placedIn: values.find((v) => v !== "") ?? (/\bnorth\b/.test(text) ? "north" : undefined) };
-        if (shown.placedAt && shown.placedIn) break;
+        // The region is read where Flutter puts it: an input's value, or the
+        // field's text in the accessibility tree.
+        const region = PREFILL_PRINCIPAL.region;
+        const inRegion = values.includes(region) || text.split(/\s+/).includes(region);
+        shown = { countedAt: at, countedIn: inRegion ? region : values.join("|") };
+        if (shown.countedAt && shown.countedIn) break;
         await page.waitForTimeout(250);
       }
       await clickSemantic(page, "Create");
-      const row = await storedOrder(origin, before, (ms) => page.waitForTimeout(ms));
+      const row = await storedTally(origin, before, (ms) => page.waitForTimeout(ms));
       const body = bodies[0] ? JSON.parse(bodies[0]) : undefined;
       const why = judgePrefill(shown, body, row);
       if (why.length) throw new Error(why.join("; "));

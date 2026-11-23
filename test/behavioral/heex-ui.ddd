@@ -58,25 +58,19 @@ system HeexUiSystem {
 
       // Typed text through the form text rule (heex-ui-roundtrip.pw.ts): a
       // number or amount the rule refuses is refused in its field and nothing
-      // is sent; an accepted one is saved as typed.
-      aggregate Meter with crudish {
+      // is sent; an accepted one is saved as typed.  The form opens with the
+      // defaults the server would otherwise fill pre-filled and editable —
+      // `readAt` the server's clock at mount, `readBy` the session principal's
+      // role — and stores what it showed; the `auditable` stamps are never
+      // inputs (D-FORM-PREFILL).
+      aggregate Meter with auditable, crudish {
         reading: int
         fee: money
         spare: int?
+        readAt: datetime = now()
+        readBy: string = currentUser.role
       }
       repository Meters for Meter { }
-
-      // Opened, the create form shows the defaults the server would otherwise
-      // fill pre-filled and editable — `placedAt` the server's clock at mount,
-      // `placedAs` the session principal's role — and an untouched submit
-      // stores what it showed; the `auditable` stamps are never inputs
-      // (heex-ui-roundtrip.pw.ts, D-FORM-PREFILL).
-      aggregate Order with auditable, crudish {
-        ref: string
-        placedAt: datetime = now()
-        placedAs: string = currentUser.role
-      }
-      repository Orders for Order { }
 
       // ── The authorization legs (heex-ui-auth.pw.ts) ────────────────────
       // A LiveView detail page must dispatch each operation form to the NAMED
