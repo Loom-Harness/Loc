@@ -23,7 +23,9 @@ async function createTicket(page: import("@playwright/test").Page): Promise<stri
   return (await res.json()).id as string;
 }
 
-test("an operation with a permission query is disabled while its gate refuses", async ({ page }) => {
+test("an operation with a permission query is disabled while its gate refuses", async ({
+  page,
+}) => {
   const id = await createTicket(page);
   await page.goto(`/tickets/${id}`);
   const close = page.getByTestId("tickets-op-close");

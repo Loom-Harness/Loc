@@ -45,25 +45,25 @@ system CanScaffold {
   }
 
   test e2e "a scaffolded permission query answers what the operation would" against d {
-    api.tickets.create({ title: "Printer", owner: "ann" })
+    api.support.createTicket({ title: "Printer", owner: "ann" })
     let t = api.tickets.all().items.first()
-    expect(api.support.canCloseTicket(t.id).allowed).toBe(true)
+    expect(api.support.canCloseTicket(t).allowed).toBe(true)
 
     // No permission query for `reassign`: its gate reads `to`, so the submit
     // answers for itself — 403 on the `requires`, 204 when it passes.
-    expect(api.tickets.reassign(t, { to: "ann" })).toThrow(403)
-    api.tickets.reassign(t, { to: "bob" })
-    expect(api.tickets.getById(t).owner).toBe("bob")
+    expect(api.support.reassignTicket(t, { to: "ann" })).toThrow(403)
+    api.support.reassignTicket(t, { to: "bob" })
+    expect(api.support.getTicketById(t).owner).toBe("bob")
 
-    api.tickets.close(t, { note: "replaced toner" })
-    expect(api.support.canCloseTicket(t.id).allowed).toBe(false)
+    api.support.closeTicket(t, { note: "replaced toner" })
+    expect(api.support.canCloseTicket(t).allowed).toBe(false)
     // Once closed, the `when` refuses both operations with 409.
-    expect(api.tickets.close(t, { note: "again" })).toThrow(409)
-    expect(api.tickets.reassign(t, { to: "cy" })).toThrow(409)
+    expect(api.support.closeTicket(t, { note: "again" })).toThrow(409)
+    expect(api.support.reassignTicket(t, { to: "cy" })).toThrow(409)
 
-    api.tickets.update(t, { title: "Scanner" })
-    expect(api.tickets.getById(t).title).toBe("Scanner")
-    expect(api.tickets.getById(t).resolution).toBe("replaced toner")
+    api.support.updateTicket(t, { title: "Scanner" })
+    expect(api.support.getTicketById(t).title).toBe("Scanner")
+    expect(api.support.getTicketById(t).resolution).toBe("replaced toner")
     expect(api.tickets.all().items.length).toBe(1)
   }
 }

@@ -17,7 +17,9 @@ import type {
   Aggregate,
   AggregateMember,
   AssignOrCallStmt,
+  BuilderCall,
   CallArg,
+  CanExpr,
   CommandHandler,
   ContextMember,
   Create,
@@ -1184,7 +1186,7 @@ export function objectLit(fields: { name: string; value: Expression }[]): Object
 export function builderCall(
   type: string,
   fields: { name: string; value: Expression }[],
-): Expression {
+): BuilderCall {
   const origin = currentOrigin();
   const entries = fields.map((f) => {
     const node = tag(
@@ -1198,11 +1200,11 @@ export function builderCall(
   entries.forEach((e, i) => {
     setContainer(e, call, "entries", i);
   });
-  return call as unknown as Expression;
+  return call;
 }
 
 /** A permission query `can <receiver>.<op>(args)` (grammar `CanExpr`). */
-export function canExpr(receiver: string, op: string, args: Expression[] = []): Expression {
+export function canExpr(receiver: string, op: string, args: Expression[] = []): CanExpr {
   const origin = currentOrigin();
   const recv = nameRef(receiver);
   const node = tag(mkCanExpr({ $type: "CanExpr", receiver: recv, op, args }), origin);
@@ -1210,7 +1212,7 @@ export function canExpr(receiver: string, op: string, args: Expression[] = []): 
   args.forEach((a, i) => {
     setContainer(a, node, "args", i);
   });
-  return node as unknown as Expression;
+  return node;
 }
 
 /** A `Context.Handler` handler reference — the target of a `route`.  The

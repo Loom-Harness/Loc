@@ -1,5 +1,9 @@
 {
   "title": "`scaffoldHandlers` serves a permission query for every operation whose gates read no parameter",
   "doc": "scaffold-macros",
-  "backends": "ALL"
+  "backends": "ALL",
+  "authzGate": {
+    "//": "`reassign(to)`'s `requires to != owner` reads the argument and the row, not the caller: the fixture's `test e2e` drives its 403 and its 204.",
+    "operation POST /api/tickets/{id}/reassign": "rowDataGate"
+  }
 }
