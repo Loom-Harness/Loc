@@ -328,7 +328,7 @@ def stage(self) -> str:
 
 ## Null coalescing — `??`
 
-`a ?? b` is `a` unless it is null, else `b`. It is pure sugar: lowering rewrites it to `a == null ? b : a`, so it works wherever the ternary does, evaluates `a` once and `b` only when `a` is null, and narrows exactly as a null-test ternary does. It binds looser than `||` and tighter than `? :`, and is right-associative.
+`a ?? b` is `a` unless it is null, else `b`. It works wherever the ternary does, evaluates `a` once and `b` only when `a` is null, and narrows exactly as a null-test ternary does. It binds looser than `||` and tighter than `? :`, and is right-associative.
 
 ```ddd
 aggregate Task {
@@ -704,6 +704,44 @@ def summary(self) -> str:
 ```
 ::: end
 
+## Parsing text
+
+`s.toInt()`, `s.toLong()`, `s.toDecimal()` and `s.toDate()` turn a `string` into a value in domain code. A parse never throws: it answers `T or ParseError`, and the caller `match`es it:
+
+```ddd
+operation read(raw: string) {
+  let q = raw.toInt()
+  match q {
+    int v => { qty := v }
+    ParseError e => { problem := string(e.expected) + ":" + string(e.reason) }
+  }
+}
+```
+
+```ts
+// node — the call goes to the context's built-in TextParser service
+const q = TextParser.toInt(raw);
+switch (q.type) { case "int": … case "ParseError": … }
+```
+
+`ParseError`, its two enums and the `TextParser` service are built in: the context that parses gets them, and declaring any of those names yourself is `loom.intrinsic-parse`.
+
+```ddd
+error ParseError { input: string  expected: ParseTarget  reason: ParseFailure }
+enum ParseTarget { Int, Long, Decimal, Date }
+enum ParseFailure { Empty, Malformed, OutOfRange }
+```
+
+The rules are one set, written once as the service's Loom operations, so every backend accepts the same text:
+
+| text | reason |
+| --- | --- |
+| `""` | `Empty` |
+| anything but the exact form — surrounding space, `+`, grouping (`1,5`), an exponent (`1e3`), `.5`, `5.`, a date not `yyyy-MM-dd` | `Malformed` |
+| int outside −2147483648…2147483647; long outside ±9007199254740991 (the largest integer every backend holds exactly); a decimal with more than 28 significant digits; a date that is no calendar day (`2026-02-29`, `2026-04-31`) or before year 1 | `OutOfRange` |
+
+Leading zeros are allowed and do not count toward a limit (`"007"` is 7), and `"-0"` is 0. A parse method on a nullable receiver needs the usual guard (`loom.nullable-receiver`); called with arguments, or outside a context (a page, an e2e body), it is `loom.intrinsic-parse`.
+
 ## Conversions
 
 The explicit, infallible widening/projection vocabulary — `string(x)`, `long(x)`, `decimal(x)`, `money(x)` (`PrimitiveConversion`). Admitted pairs: `string ← {int,long,decimal,money,bool,guid,datetime}`, `long ← int`, `decimal ← {int,long,money}`, `money ← {int,long,decimal}`. Fallible parses (`int("42")`, `datetime("…")`) are deliberately **not** in the vocabulary, and `json` / `File` are not stringifiable — neither has a canonical scalar form. `guid` and `datetime` do (UUID text, ISO-8601), so `string(…)` on either is infallible; the ISO form is the same text on every backend, not the host's default `toString` (which on node would be `"Mon Sep 22 2026 07:00:00 GMT+0000"` and on elixir a space-separated `"2026-01-01 00:00:00Z"`).
@@ -773,6 +811,36 @@ derived floor: money = money("2.50")     // literal
 derived scaled: money = money(taxRate)   // conversion
 derived bad: money = money("USD 2.50")   // loom.money-literal-malformed
 ```
+
+## `can` — the permission query
+
+`can o.op(args)` asks whether operation `op` would pass its own gates on the bound aggregate `o` for the current caller, without running it. It answers a `bool`. The gates are the operation's own — its signature `requires`, each `requires` its body starts with, and its `when` — checked in the order its route checks them: the `requires` gates that read no row, then the ones that read the row, then `when`. A later gate may therefore rely on an earlier one. An ungated operation answers `true`.
+
+```ddd
+aggregate Order {
+  code: string
+  carrier: string = ""
+  shipped: bool = false
+  operation ship(c: string) requires c != code when !shipped {
+    carrier := c
+    shipped := true
+  }
+}
+query CanShipOrder { id: Order id  carrier: string }
+queryHandler CanShipOrderHandler(q: CanShipOrder): bool {
+  let o = Orders.get(q.id)
+  return can o.ship(q.carrier)
+}
+```
+
+It is the operation's gate expression itself, with `this` rebound to `o` and the parameters to the arguments, so every backend renders it as an ordinary boolean:
+
+```ts
+// node
+return httpCtx.json(((q.carrier !== o.code) && (!o.shipped)) as unknown, 200);
+```
+
+Because the arguments are passed, a gate that reads a parameter is decided too. The arguments are a leading prefix of the operation's parameters: a trailing parameter no gate reads may be left out, so `can o.ship("DHL")` is enough when only `c` is read. Leaving out a parameter a gate reads is `loom.can-args`, naming it. There are no gaps and no named arguments, so when a gate reads a later parameter the earlier ones are passed too, even if no gate reads them. The receiver must be a bound aggregate (`loom.can-receiver`) and the operation must be one it declares (`loom.can-operation`). `can` is a soft keyword: it starts a permission query only when a name, a `.` and an operation call follow.
 
 ## `await`
 

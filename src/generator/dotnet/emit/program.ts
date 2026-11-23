@@ -34,7 +34,7 @@ import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_ob
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../../_obs/tracing.js";
 import { DOTNET_RUNTIME } from "../../_symbols/plan.js";
 import { csInstantWire } from "../codec-spelling.js";
-import { CS } from "../cs-symbols.js";
+import { CS, CS_NAME } from "../cs-symbols.js";
 import type { SchemaIdOverride } from "../schema-ids.js";
 import { csFixedDetail, csSentence } from "../wire-policy-cs.js";
 import { emitsBaseReader } from "./base-reader.js";
@@ -92,7 +92,7 @@ ${rows}
     {
         Console.Out.WriteLine(System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
         {
-            ["ts"] = ${csInstantWire("DateTime.UtcNow")},
+            ["ts"] = ${csInstantWire(`${CS_NAME.DateTime}.UtcNow`)},
             ["level"] = "error",
             ["event"] = "config_missing",
             ["setting"] = setting,
@@ -1475,7 +1475,7 @@ app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
         { name: "status", valueExpr: "status" },
       ]),
     )}
-    await http.Response.WriteAsJsonAsync(new ProblemDetails
+    await http.Response.WriteAsJsonAsync(new ${CS_NAME.ProblemDetails}
     {
         Type = "about:blank",
         Title = title,

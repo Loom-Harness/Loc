@@ -33,9 +33,9 @@ system MultiFrontend {
   subdomain Catalog {
     context Catalog {
       aggregate Product with crudish {
-        sku: string
-        name: string
-        invariant sku.length > 0
+        sku: string check skuIsTooLong: sku.length <= 64
+        name: string check nameIsRequired: name.trim().length > 0
+        invariant skuIsRequired: sku.trim().length > 0
       }
     }
   }

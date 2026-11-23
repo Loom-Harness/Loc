@@ -25,12 +25,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
                     toaster.create({ type: "success", title: {{{successMessage}}} });
                     onClose();
                   } catch (e) {
-                    const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-                    if (outcome.kind === "global") {
-                      toaster.create({ type: "error", title: outcome.title });
-                    } else if (outcome.kind === "unhandled") {
-                      toaster.create({ type: "error", title: (e as Error).message });
-                    }
+                    applyServerErrors({ error: e, setError, fieldMap: {} as const });
                   }
                 })}
               >
@@ -38,7 +33,8 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
                   <VStack align="stretch" gap={4}>
                     {{#if hasParams}}{{#each fieldHtmls}}{{{this}}}
                     {{/each}}{{else}}<Text color="fg.muted">{{{chrome "noParameters"}}}</Text>
-                    {{/if}}</VStack>
+                    {{/if}}<FormFailure error={errors.root?.submit} testid="{{errorTestid}}" />
+                  </VStack>
                 </Dialog.Body>
                 <Dialog.Footer>
                   <Button type="button" variant="ghost" onClick={onClose}>{{{cancelLabel}}}</Button>

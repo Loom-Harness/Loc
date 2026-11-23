@@ -22,13 +22,13 @@ import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeJavaIdent, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { coerceTestValue, type TestValueTarget } from "../../_test/arg-coercion.js";
 import { type AssertionTarget, renderAssertion } from "../../_test/assertion-target.js";
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
 import { JAVA_REJECTION_CLASSES, javaThrowKind, rejectionClasses } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
-import { J } from "../java-symbols.js";
+import { J, javaIdRef } from "../java-symbols.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "../render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ export function javaPrincipal(basePkg: string): PrincipalTarget {
   return {
     text: (v) => JSON.stringify(v),
     guid: uuid,
-    id: (targetName, v) => `new ${targetName}Id(${uuid(v)})`,
+    id: (targetName, v) => `new ${javaIdRef(targetName)}(${uuid(v)})`,
     int: "0",
     decimal: () => `${J.BigDecimal}.ZERO`,
     bool: "false",
@@ -318,11 +318,11 @@ export function testBodyRenderContext(
  *  emitted `UUID` / `Instant` brings its import with it. */
 export function javaTestLiteral(): TestValueTarget {
   return {
-    id: (rendered, targetName) => `new ${targetName}Id(${J.UUID}.fromString(${rendered}))`,
+    id: (rendered, targetName) => `new ${javaIdRef(targetName)}(${J.UUID}.fromString(${rendered}))`,
     datetime: (rendered) => `${J.Instant}.parse(${rendered})`,
     date: (rendered) => `${J.LocalDate}.parse(${rendered})`,
     money: (digits) => renderJavaExpr({ kind: "literal", lit: "money", value: digits }, TEST_CTX),
-    valueObject: (name, args) => `new ${name}(${args.join(", ")})`,
+    valueObject: (name, args) => `new ${javaProjectRef(name, "valueobject")}(${args.join(", ")})`,
     omitted: "null",
   };
 }
@@ -412,7 +412,7 @@ export function renderCreateCall(
     }
     return "null";
   });
-  return `${agg.name}.create(${args.join(", ")})`;
+  return `${javaProjectRef(agg.name)}.create(${args.join(", ")})`;
 }
 
 /** Java's operator for each relation. */

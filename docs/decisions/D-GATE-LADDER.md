@@ -10,8 +10,9 @@ preconditions and invariants (409 / 422). `src/ir/plan/gate-ladder.ts` encodes
 it; every backend renders the checks it lists in that order.
 `GET /{id}/can_<op>` runs the same ladder without a body: the by-id read gate
 refuses (403) and a row outside the read scope is 404, as `GET /{id}` answers;
-the operation's own `requires` and `when` answer `{ "allowed": false }`, and a
-gate that reads an operation parameter answers `false`.
+the operation's own `requires` and `when` answer `{ "allowed": false }`. An
+operation with a gate that reads a parameter has no `can_<op>`: the ladder
+cannot run without the body, so the operation's own submit answers.
 
 Two shapes place a gate by what it reads, not by where it is written. On a
 merge-patch `update` (RS-47) a gate that reads a parameter reads the merged

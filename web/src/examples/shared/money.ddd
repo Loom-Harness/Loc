@@ -5,6 +5,6 @@
 valueobject Money {
   amount: decimal
   currency: string
-  invariant amount >= 0
-  invariant currency.length == 3
+  invariant amountCannotBeNegative: amount >= 0
+  invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
 }

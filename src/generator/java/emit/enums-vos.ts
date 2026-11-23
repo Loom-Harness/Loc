@@ -7,7 +7,7 @@
 import type { EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
-import { JAVA_IMPORTS, javaRef } from "../../_imports/java.js";
+import { JAVA_IMPORTS, javaProjectRef, javaRef } from "../../_imports/java.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { isMangled } from "../java-ident.js";
 import {
@@ -81,16 +81,16 @@ function enumWireCodec(e: EnumIR): string[] {
     `    /** Persists the .ddd spelling rather than the mangled name(), so the`,
     `     *  column value matches every other backend and this project's seed SQL. */`,
     `    @jakarta.persistence.Converter`,
-    `    public static class Codec implements jakarta.persistence.AttributeConverter<${e.name}, String> {`,
+    `    public static class Codec implements jakarta.persistence.AttributeConverter<${javaProjectRef(e.name, "enum")}, String> {`,
     `        @Override`,
-    `        public String convertToDatabaseColumn(${e.name} value) {`,
+    `        public String convertToDatabaseColumn(${javaProjectRef(e.name, "enum")} value) {`,
     `            return value == null ? null : __WIRE[value.ordinal()];`,
     `        }`,
     ``,
     `        @Override`,
-    `        public ${e.name} convertToEntityAttribute(String column) {`,
+    `        public ${javaProjectRef(e.name, "enum")} convertToEntityAttribute(String column) {`,
     `            if (column == null) return null;`,
-    `            for (${e.name} value : values()) {`,
+    `            for (${javaProjectRef(e.name, "enum")} value : values()) {`,
     `                if (__WIRE[value.ordinal()].equals(column)) return value;`,
     `            }`,
     `            throw new IllegalArgumentException("unknown ${e.name}: " + column);`,
@@ -118,7 +118,7 @@ function enumColumnAnnotation(type: TypeIR, mangledEnums: ReadonlySet<string>): 
   }
   if (t.kind !== "enum") return "";
   return mangledEnums.has(t.name)
-    ? `@Convert(converter = ${t.name}.Codec.class) `
+    ? `@Convert(converter = ${javaProjectRef(t.name, "enum")}.Codec.class) `
     : "@Enumerated(EnumType.STRING) ";
 }
 

@@ -1854,6 +1854,9 @@ export interface WalkerTarget {
   exprUnary(op: string, operand: string): string;
   /** Ternary — `(c ? t : e)` on JS, `(if c then t else e)` on F#. */
   exprTernary(cond: string, then: string, otherwise: string): string;
+  /** `left ?? fallback` — `left` evaluated once, `fallback` only when `left`
+   *  is absent: `(l ?? f)` on JS and Dart. */
+  exprCoalesce(left: string, fallback: string): string;
   /** `convert` cast — `String(x)` on JS vs `string x` / `int x` on F#. */
   exprConvert(value: string, target: string, from: string | undefined): string;
   /** List literal — `[a, b]` on JS vs `[ a; b ]` on F#. */

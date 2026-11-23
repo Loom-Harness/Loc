@@ -19,6 +19,7 @@
 import { admittedReferences, type ScopedReference } from "../../../ir/plan/ref-scope.js";
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
 import { wireFixedDetail } from "../../../ir/util/wire-policy.js";
+import { javaProjectRef } from "../../_imports/java.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import { jid } from "../java-ident.js";
 
@@ -44,7 +45,7 @@ export function refAdmissionMethod(agg: AggregateIR, ctx: RefAdmissionCtx): stri
   const out: string[] = [
     `    /** Refuses a reference outside the target's read scope exactly as one to a row`,
     `     *  that does not exist: the foreign-key violation the integrity advice answers. */`,
-    `    private void ${ADMIT_METHOD}(${agg.name} aggregate) {`,
+    `    private void ${ADMIT_METHOD}(${javaProjectRef(agg.name)} aggregate) {`,
     `        if (${ctx.basePkg}.auth.CurrentUserAccessor.currentOrNull() == null) return;`,
   ];
   refs.forEach((r, i) => {

@@ -39,6 +39,7 @@ import {
   checkBypassPlacement,
   checkCallableBodies,
   checkCallableSites,
+  checkCanExprs,
   checkChannels,
   checkComponent,
   checkComponentPropTypes,
@@ -84,6 +85,7 @@ import {
   checkRecordTypeCalls,
   checkRepoKeyLookups,
   checkRepoVerbs,
+  checkReservedTypeNames,
   checkSeeds,
   checkSelfType,
   checkSlotMemberAccess,
@@ -316,6 +318,10 @@ export class DddValidator {
     // create / destroy param names; enum values.  Without it a duplicate
     // silently replaces / retypes the first.
     guard("duplicate-names", model, () => checkDuplicateNames(model, accept));
+    // A domain type named like a name the generated code binds (`Page`,
+    // `Promise`, FastAPI's `Request`, …) is refused on every target
+    // (`loom.reserved-type-name`, src/util/reserved-type-names.ts).
+    guard("reserved-type-names", model, () => checkReservedTypeNames(model, accept));
     // Ambiguous entity-part `X id` link: two aggregates declaring an
     // `entity <Name>` make a bare `Name id` resolve to an arbitrary one via
     // the global scope — report the ambiguity at the reference site.
@@ -421,6 +427,8 @@ export class DddValidator {
     // Every callable's `return`s against its declared result type, and the
     // expression checks for the bodies the aggregate statement walk never visits.
     guard("callable-bodies", model, () => checkCallableBodies(model, accept));
+    // `can o.op(args)` names a bound aggregate, its operation and its arguments.
+    guard("can-exprs", model, () => checkCanExprs(model, accept));
     // An `A or E` result dropped by a call statement or an unread `let`
     // (loom.unhandled-result).
     guard("unhandled-results", model, () => checkUnhandledResults(model, accept));

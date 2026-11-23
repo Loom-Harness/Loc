@@ -27,6 +27,7 @@ import {
   opList,
   opOperation,
 } from "../../util/openapi-ids.js";
+import { PARSE_SERVICE, parseMethod } from "../../util/parse-methods.js";
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ANCESTORS,
@@ -88,6 +89,7 @@ import {
   isBoundedContext,
   isBuilderCall,
   isCallSuffix,
+  isCanExpr,
   isCommandHandler,
   isComponent,
   isContainment,
@@ -748,6 +750,15 @@ export class Elaborator {
       return acc ?? Ty.unknown("no-rule");
     }
     if (isLambda(e)) return this.synthLambda(e, scope, scope.frame.rowElem).self;
+    if (isCanExpr(e)) {
+      // `can o.op(args)` — the receiver and the arguments are ordinary
+      // expressions in the caller's scope; the answer is a bool.  Whether
+      // `o` is an aggregate with that operation, and the arguments fit its
+      // parameters, is `checkCanExpr`'s (validators/can-expr.ts).
+      this.synth(e.receiver, scope);
+      for (const a of e.args) this.synth(a, scope);
+      return Ty.prim("bool");
+    }
     if (isExistsExpr(e)) {
       // `exists <Agg> as s where p` — `s` is one row of `<Agg>`; the enclosing
       // row stays `this`, so the frame (owner, candidate alias) is unchanged.
@@ -1958,6 +1969,17 @@ export class Elaborator {
         const ref = p === "File" && !ms.call ? FILE_REF_MEMBERS.get(name) : undefined;
         if (ref && (scope.frame.ui || scope.frame.e2e || inFrontendDecl(ms))) return Ty.prim(ref);
         if (p === "string" && name === "matches" && ms.call) return Ty.prim("bool");
+        // `s.toInt()` answers with its built-in parse operation's declared
+        // `T or ParseError` (`parse-methods.ts`); unknown where no context
+        // splices the parse service (`loom.parse-outside-context`).
+        if (p === "string" && ms.call && parseMethod(name)) {
+          const op = this.index
+            .find("service", PARSE_SERVICE, ms)
+            ?.operations.find((o) => o.name === name);
+          return op?.returnType
+            ? this.resolveType(op.returnType, scope)
+            : Ty.unknown("unresolved-member");
+        }
         const sig = intrinsicFor(p, name);
         if (sig) {
           const ret = intrinsicReturnType(sig, p);

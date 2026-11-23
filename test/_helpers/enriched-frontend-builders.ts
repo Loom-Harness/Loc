@@ -26,7 +26,7 @@ import {
 } from "../../src/ir/types/loom-ir.js";
 import { emitsRestCreate } from "../../src/ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../src/ir/util/containment-parent.js";
-import { operationFormParams } from "../../src/ir/util/op-gates.js";
+import { isPermissionQueryOp, operationFormParams } from "../../src/ir/util/op-gates.js";
 import type { PageNameCtx } from "../../src/ir/util/page-kind.js";
 import { valueObjectPool } from "../../src/ir/util/reachable-types.js";
 import { requestNamesForContexts } from "../../src/ir/util/request-names.js";
@@ -71,7 +71,7 @@ export function frontendAggregateOf(
         return {
           name: o.name,
           segment: snake(o.routeSlug ?? o.name),
-          gated: !!o.when,
+          gated: isPermissionQueryOp(o),
           ...(u ? { union: u.variants } : {}),
           paramCount: o.params.length,
           formParams: operationFormParams(o).map((p) => ({ name: p.name, type: p.type })),

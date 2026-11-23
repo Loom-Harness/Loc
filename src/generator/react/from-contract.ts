@@ -45,6 +45,7 @@ import { emitPageObjectsForUi } from "../_frontend/page-objects-emit.js";
 import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { jsxChromeText as shellChromeText } from "../_frontend/shell-chrome.js";
+import { prepareThemeFonts, withFontImports } from "../_frontend/theme-preparer.js";
 import { contractUsesMoney, contractUsesProvenance } from "../_frontend/usage-flags.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import { workflowPageObjectsOfContract } from "../_frontend/workflow-page-object.js";
@@ -62,6 +63,7 @@ import { renderAppsModule } from "./apps.js";
 import {
   E2E_TSCONFIG_JSON,
   e2ePackageJson,
+  REACT_LIB_FORM_FAILURE_TSX,
   REACT_LIB_SCHEMAS_MONEY_TS,
   REACT_LIB_STRICT_FIELD_MAP_TS,
   REACT_LIB_ZOD_RESOLVER_TS,
@@ -435,6 +437,7 @@ export function generateReactFromContract(
   // See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/frontend-acl.md.
   out.set("src/lib/strict-field-map.ts", REACT_LIB_STRICT_FIELD_MAP_TS);
   out.set("src/lib/apply-server-errors.ts", reactLibApplyServerErrorsTs(i18nEnabled));
+  out.set("src/lib/form-failure.tsx", REACT_LIB_FORM_FAILURE_TSX);
   out.set("src/lib/field-error.ts", reactLibFieldErrorTs(i18nEnabled));
   out.set("src/lib/zod-resolver.ts", REACT_LIB_ZOD_RESOLVER_TS);
   // Theme — every generated app gets a tasteful baseline (indigo
@@ -449,7 +452,10 @@ export function generateReactFromContract(
   // type-check.  Required since TypeScript 6 (TS2882: side-effect imports of
   // non-code modules need a declaration); harmless on earlier versions.
   out.set("src/vite-env.d.ts", '/// <reference types="vite/client" />\n');
-  out.set("src/main.tsx", renderMain(pack, routerBasename, authUi));
+  // A web font the theme names is bundled: its Fontsource package is a
+  // dependency and the entry loads its stylesheets.
+  const themeFonts = prepareThemeFonts(host.theme, pack.manifest.name);
+  out.set("src/main.tsx", withFontImports(renderMain(pack, routerBasename, authUi), themeFonts));
   // Explicit pages with non-conventional names need
   // to register their import + route in App.tsx so React Router
   // can mount them.  Pages that override a scaffolded shape at the
@@ -626,6 +632,7 @@ export function generateReactFromContract(
         usesMoney,
         usesChart,
         usesCodeBlock,
+        fontPackages: themeFonts.fontPackages,
       },
       pack,
     ),

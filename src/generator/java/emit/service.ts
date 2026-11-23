@@ -35,6 +35,7 @@ import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import {
   callerGates,
+  isPermissionQueryOp,
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
   maskWritePresenceParam,
@@ -47,7 +48,7 @@ import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { javaLocals, localOf } from "../java-ident.js";
@@ -144,7 +145,7 @@ export function renderJavaService(
   ctx: ServiceCtx,
 ): string {
   const imports = new Set<string>(["java.util.List"]);
-  const idClass = ctx.idClass ?? `${agg.name}Id`;
+  const idClass = ctx.idClass ?? javaProjectRef(`${agg.name}Id`);
   // When the context has channel-routed subscriptions, drained domain events
   // are published to the in-process bus (Spring ApplicationEventPublisher →
   // the `<Ctx>Dispatcher`'s @EventListener handlers) instead of just logged.
@@ -312,7 +313,7 @@ export function renderJavaService(
         ...(createGateReadsParams
           ? [...createLets, ...lifecycleGateLines(createGates, undefined, createLocals)]
           : [...lifecycleGateLines(createGates, undefined, createLocals), ...createLets]),
-        `        var aggregate = ${agg.name}.create(${createArgs});`,
+        `        var aggregate = ${javaProjectRef(agg.name)}.create(${createArgs});`,
         // A DOCUMENT root is a plain POJO with no JPA persistence context, so
         // its claim stamps (`tenantOwned`'s tenantId) cannot ride an
         // @PrePersist hook — entity.ts emits them as a plain `_stampOnCreate()`
@@ -563,7 +564,7 @@ export function renderJavaService(
     readsIfMatch(operationVersionCheck(agg, op)) ? ", Integer ifMatch" : "";
   const ifMatchGuardFor = (op: OperationIR): string | null =>
     readsIfMatch(operationVersionCheck(agg, op))
-      ? `        if (ifMatch != null && aggregate.${ROW_VERSION_FIELD}() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`
+      ? `        if (ifMatch != null && aggregate.${ROW_VERSION_FIELD}() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${javaProjectRef(agg.name)}.class, id.value());`
       : null;
   const unionReturnNames = new Set<string>();
   const opLines = agg.operations
@@ -771,7 +772,7 @@ export function renderJavaService(
           // tag raises the exception the repository's guarded save raises (409).
           ...(destroyReadsIfMatch
             ? [
-                `        if (ifMatch != null && aggregate.${ROW_VERSION_FIELD}() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`,
+                `        if (ifMatch != null && aggregate.${ROW_VERSION_FIELD}() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${javaProjectRef(agg.name)}.class, id.value());`,
               ]
             : []),
           ...(auditDestroy
@@ -820,8 +821,8 @@ export function renderJavaService(
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports, ctx.basePkg);
     return [
-      `    private static ${vo} to${vo}(${vo}Request request, String at) {`,
-      `        return new ${vo}(${args});`,
+      `    private static ${javaProjectRef(vo, "valueobject")} to${vo}(${vo}Request request, String at) {`,
+      `        return new ${javaProjectRef(vo, "valueobject")}(${args});`,
       `    }`,
       ``,
     ];
@@ -837,7 +838,7 @@ export function renderJavaService(
   // A gate that reads an operation parameter cannot be decided without a body:
   // the probe answers `false` for it, after the load so a missing row is still
   // 404.
-  const canLines = gatedOps.flatMap((op) => {
+  const canLines = gatedOps.filter(isPermissionQueryOp).flatMap((op) => {
     const ladder = canOpLadder(op);
     const undecidable = probeUndecided(ladder);
     const gateLines = (which: "row-free" | "row-reading"): string[] =>
@@ -962,7 +963,7 @@ export function renderJavaService(
           // principal, so when the raising principal's tenant is not the row's
           // (a write share) the publish runs in the row tenant's event-origin
           // frame.  Same tenant: the request's own.
-          `    private void publishEvents(${agg.name} aggregate) {`,
+          `    private void publishEvents(${javaProjectRef(agg.name)} aggregate) {`,
           `        var __origin = User.currentEventOrigin();`,
           `        var __tenant = java.util.Objects.toString(aggregate.tenantId(), null);`,
           `        if (java.util.Objects.equals(__origin == null ? null : __origin.tenant(), __tenant)) {`,
@@ -974,9 +975,9 @@ export function renderJavaService(
           `        }`,
           `    }`,
           ``,
-          `    private void publishAll(${agg.name} aggregate) {`,
+          `    private void publishAll(${javaProjectRef(agg.name)} aggregate) {`,
         ]
-      : [`    private void publishEvents(${agg.name} aggregate) {`]),
+      : [`    private void publishEvents(${javaProjectRef(agg.name)} aggregate) {`]),
     `        for (var event : aggregate.pullEvents()) {`,
     // The domain-event narrative line fires at the dispatch seam regardless of
     // whether the event has in-process subscribers — when it does, the in-VM

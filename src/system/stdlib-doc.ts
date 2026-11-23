@@ -50,7 +50,7 @@ const PRELUDE_BLURBS: Readonly<Record<string, string>> = {
 };
 
 function intrinsicTable(receiver: IntrinsicReceiver): string {
-  const rows = INTRINSIC_SIGNATURES.filter((s) => s.receiver === receiver);
+  const rows = INTRINSIC_SIGNATURES.filter((s) => s.receiver === receiver && !s.internal);
   if (rows.length === 0) return "";
   const lines = [
     `#### \`${receiver}\``,

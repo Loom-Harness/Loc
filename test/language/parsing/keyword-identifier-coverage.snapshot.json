@@ -228,6 +228,16 @@
     "paramName",
     "stateField"
   ],
+  "can": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "canonical": [
     "fieldName",
     "fieldNameAfterField",

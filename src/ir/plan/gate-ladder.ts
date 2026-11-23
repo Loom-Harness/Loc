@@ -35,12 +35,18 @@ import type {
 } from "../types/loom-ir.js";
 import { isMergePatchUpdate } from "../util/merge-patch.js";
 import {
+  gateReadsParam,
+  gateReadsRow,
+  gateRungs,
   lifecycleGates,
   operationGates,
   type RequiresStmtIR,
   splitLeadingGates,
 } from "../util/op-gates.js";
 import { mapExprChildren, walkExprDeep } from "../util/walk.js";
+
+export { gateReadsParam, gateReadsRow } from "../util/op-gates.js";
+
 import { type PolymorphicReadGate, polymorphicReadGates } from "./repo-polymorphic.js";
 
 /** One rung of the ladder. */
@@ -78,6 +84,18 @@ export type GateCheck =
   | { step: "version" }
   | { step: "when" };
 
+/** An operation's gates on their rungs around the load (`gateRungs`). */
+function rungsOf(
+  gates: readonly RequiresStmtIR[],
+): ({ step: "requires" | "row-requires"; gate: RequiresStmtIR } | { step: "load" })[] {
+  const { preLoad, postLoad } = gateRungs(gates);
+  return [
+    ...preLoad.map((gate) => ({ step: "requires" as const, gate })),
+    { step: "load" as const },
+    ...postLoad.map((gate) => ({ step: "row-requires" as const, gate })),
+  ];
+}
+
 /** The ordered checks a route renders around an operation on a loaded row:
  *  the row-independent `requires` gates, the load, the row-reading gates,
  *  the version check (when the route reads `If-Match`), then `when`.  A
@@ -87,15 +105,7 @@ export type GateCheck =
 export function operationLadder(op: OperationIR, opts: { readsIfMatch: boolean }): GateCheck[] {
   const gates = operationGates(op);
   return [
-    ...(isMergePatchUpdate(op)
-      ? mergePatchUpdateLadder(gates)
-      : [
-          ...gates
-            .filter((g) => !gateReadsRow(g))
-            .map((gate) => ({ step: "requires" as const, gate })),
-          { step: "load" as const },
-          ...gates.filter(gateReadsRow).map((gate) => ({ step: "row-requires" as const, gate })),
-        ]),
+    ...(isMergePatchUpdate(op) ? mergePatchUpdateLadder(gates) : [...rungsOf(gates)]),
     ...(opts.readsIfMatch ? [{ step: "version" as const }] : []),
     ...(op.when ? [{ step: "when" as const }] : []),
   ];
@@ -121,9 +131,7 @@ export function canOpLadder(op: OperationIR): CanCheck[] {
   const decided = gates.filter((g) => !gateReadsParam(g));
   const undecided = decided.length < gates.length;
   return [
-    ...decided.filter((g) => !gateReadsRow(g)).map((gate) => ({ step: "requires" as const, gate })),
-    { step: "load" },
-    ...decided.filter(gateReadsRow).map((gate) => ({ step: "row-requires" as const, gate })),
+    ...rungsOf(decided),
     ...(undecided ? [{ step: "undecided" as const }] : op.when ? [{ step: "when" as const }] : []),
   ];
 }
@@ -150,12 +158,7 @@ export function destroyLadder(
   opts: { readsIfMatch: boolean },
 ): GateCheck[] {
   const gates = lifecycleGates(destroy);
-  return [
-    ...gates.filter((g) => !gateReadsRow(g)).map((gate) => ({ step: "requires" as const, gate })),
-    { step: "load" },
-    ...gates.filter(gateReadsRow).map((gate) => ({ step: "row-requires" as const, gate })),
-    ...(opts.readsIfMatch ? [{ step: "version" as const }] : []),
-  ];
+  return [...rungsOf(gates), ...(opts.readsIfMatch ? [{ step: "version" as const }] : [])];
 }
 
 /** The ordered checks the generic merge-patch `update` seam renders around
@@ -172,38 +175,6 @@ export function mergePatchUpdateLadder(gates: readonly RequiresStmtIR[]): GateCh
     { step: "load" },
     ...gates.filter((g) => !preLoad(g)).map((gate) => ({ step: "row-requires" as const, gate })),
   ];
-}
-
-/** True when a `requires` gate reads the addressed row — a field, a value
- *  object member of one, a derived, or a call to one of the aggregate's own
- *  functions / operations (every backend renders it on the loaded instance,
- *  whatever the callee's body reads) — so it can only run after the load. */
-export function gateReadsRow(g: RequiresStmtIR): boolean {
-  let reads = false;
-  walkExprDeep(g.expr, (e) => {
-    if (
-      e.kind === "this" ||
-      (e.kind === "ref" &&
-        (e.refKind === "this-prop" ||
-          e.refKind === "this-vo-prop" ||
-          e.refKind === "this-derived")) ||
-      (e.kind === "call" && (e.callKind === "function" || e.callKind === "private-operation"))
-    ) {
-      reads = true;
-    }
-  });
-  return reads;
-}
-
-/** True when a `requires` gate reads an operation parameter.  A
- *  `can_<op>` probe carries no body, so such a gate cannot be decided there:
- *  the probe answers `{ allowed: false }` for it. */
-export function gateReadsParam(g: RequiresStmtIR): boolean {
-  let reads = false;
-  walkExprDeep(g.expr, (e) => {
-    if (e.kind === "ref" && e.refKind === "param") reads = true;
-  });
-  return reads;
 }
 
 /** One check the polymorphic base read (`GET /api/<bases>`, TPH `/{id}`)

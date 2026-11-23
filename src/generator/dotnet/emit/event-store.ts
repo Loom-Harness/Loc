@@ -26,6 +26,7 @@ import type { AggPool } from "../../../ir/util/inheritance.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { csJsonSqlType } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { AMBIENT_CURRENT_USER, renderCsExpr } from "../render-expr.js";
 
 /** A read's `ignoring` clause (`ignoring <Cap>` / `ignoring *`). */
@@ -207,7 +208,7 @@ export function renderEventRecordPoco(
       "    public int Version { get; set; }",
       "    public string Type { get; set; } = default!;",
       '    public string Data { get; set; } = "{}";',
-      "    public DateTime OccurredAt { get; set; }",
+      `    public ${CS_NAME.DateTime} OccurredAt { get; set; }`,
       // Stream tenant metadata (`stream-tenancy.ts`) — null on every other
       // stream's rows.
       ...(carriesTenant

@@ -40,6 +40,8 @@ export function storeInitNonConstant(e: ExprIR): ExprIR | undefined {
       return first(e.left, e.right);
     case "ternary":
       return first(e.cond, e.then, e.otherwise);
+    case "coalesce":
+      return first(e.left, e.fallback);
     case "ref":
       return e.refKind === "enum-value" ? undefined : e;
     case "convert":

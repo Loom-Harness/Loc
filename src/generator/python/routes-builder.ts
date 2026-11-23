@@ -239,9 +239,6 @@ export function buildPyRoutesFile(
   // → invariants) is a real method now, so `found.<op>(…)` drives the whole
   // framework flow — no separate registry dispatch.
   const publicOps = agg.operations.filter((o) => o.visibility === "public");
-  // `when`-gated ops (criterion.md, use site 2) each expose a
-  // side-effect-free `GET /{id}/can_<op>` → `{ allowed }` companion.
-  const whenGatedOps = publicOps.filter((o) => o.when);
 
   // One <Name>Paged response model per distinct paged carrier — the explicit
   // paged finds plus (M-T2.6) the implicit paged findAll (`all`, excluded from
@@ -289,8 +286,8 @@ export function buildPyRoutesFile(
     "",
     "",
     // The `can_<op>` companion's response body — `{ allowed }` (one per
-    // routes file when any op is `when`-gated).
-    whenGatedOps.length > 0
+    // routes file when any operation has a probe).
+    probeEntries.length > 0
       ? lines(`class CanResponse(${H.BaseModel}):`, "    allowed: bool", "", "")
       : null,
     ...pagedModels,

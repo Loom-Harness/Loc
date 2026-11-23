@@ -79,7 +79,7 @@ describe.each([
       const submit = live.slice(live.indexOf('def handle_event("submit_complete"'));
       expect(submit).toContain("case App.Projects.complete_task(socket.assigns.data, params) do");
       expect(submit).toContain(
-        '{:error, reason} ->\n        {:noreply, put_flash(socket, :error, "Complete failed:',
+        "{:error, _reason} ->\n        {:noreply, assign(socket, :complete_form_error,",
       );
       // The CRUD update can flip `done` too, so its success re-probes the gate.
       const update = live.slice(live.indexOf('def handle_event("submit_update"'));

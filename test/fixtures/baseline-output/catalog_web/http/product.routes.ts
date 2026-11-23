@@ -10,20 +10,20 @@ import { DomainError, AggregateNotFoundError, DisallowedError, ForbiddenError, E
 import { Money } from "../domain/value-objects";
 
 const MoneySchema = z.object({
-  amount: z.number().refine((v: any) => v >= 0, { message: "Amount must be at least 0", params: { code: "field.min", values: {"min":0} } }).openapi({ minimum: 0 }),
-  currency: z.string().refine((v: any) => [...v].length === 3, { message: "Currency must be exactly 3 characters", params: { code: "field.length", values: {"length":3} } }).openapi({ minLength: 3, maxLength: 3 }).refine((s: string) => !s.includes("\u0000")),
-}).openapi("Money");
+  amount: z.number(),
+  currency: z.string().refine((s: string) => !s.includes("\u0000")),
+}).openapi("Money").refine((data: any) => data.amount >= 0, { path: ["amount"], message: "Amount cannot be negative", params: { code: "Products.Money.rule.amountCannotBeNegative", reads: ["amount"], pointed: true } }).refine((data: any) => /^[A-Z]{3}$/.test(data.currency), { path: ["currency"], message: "Currency must be three uppercase letters", params: { code: "Products.Money.rule.currencyMustBeThreeUppercaseLetters", reads: ["currency"], pointed: true } });
 
 const CreateProductRequest = z.object({
-  sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { code: "field.min-length", values: {"min":1} } }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")),
+  sku: z.string().refine((s: string) => !s.includes("\u0000")),
   price: MoneySchema,
-}).openapi("CreateProductRequest");
+}).openapi("CreateProductRequest").refine((data: any) => [...data.sku.trim()].length > 0, { path: ["sku"], message: "Sku is required", params: { code: "Products.Product.rule.skuIsRequired", reads: ["sku"], pointed: true } }).refine((data: any) => /^[A-Z0-9][A-Z0-9-]*$/.test(data.sku) && [...data.sku].length <= 40, { path: ["sku"], message: "Sku must be up to forty uppercase letters digits or dashes", params: { code: "Products.Product.rule.skuMustBeUpToFortyUppercaseLettersDigitsOrDashes", reads: ["sku"], pointed: true } });
 const CreateProductResponse = z.object({ id: z.string() }).openapi("CreateProductResponse");
 
 const UpdateProductRequest = z.object({
-  sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { code: "field.min-length", values: {"min":1} } }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")).optional(),
+  sku: z.string().refine((s: string) => !s.includes("\u0000")).optional(),
   price: MoneySchema.optional(),
-}).openapi("UpdateProductRequest");
+}).openapi("UpdateProductRequest").refine((data: any) => data.sku === undefined || ([...data.sku.trim()].length > 0), { path: ["sku"], message: "Sku is required", params: { code: "Products.Product.rule.skuIsRequired", reads: ["sku"], pointed: true } }).refine((data: any) => data.sku === undefined || (/^[A-Z0-9][A-Z0-9-]*$/.test(data.sku) && [...data.sku].length <= 40), { path: ["sku"], message: "Sku must be up to forty uppercase letters digits or dashes", params: { code: "Products.Product.rule.skuMustBeUpToFortyUppercaseLettersDigitsOrDashes", reads: ["sku"], pointed: true } });
 
 const AllQuery = z.object({
   page: z.coerce.number().int().min(1).max(1000000).default(1),

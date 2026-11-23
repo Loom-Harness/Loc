@@ -35,6 +35,7 @@
     "test:java-corpus": "LOOM_JAVA_BUILD=1 vitest run test/e2e/corpus-java-build.test.ts",
     "test:python-corpus": "LOOM_PYTHON_BUILD=1 vitest run test/e2e/corpus-python-build.test.ts",
     "test:dotnet-corpus": "LOOM_DOTNET_BUILD=1 vitest run test/e2e/corpus-dotnet-build.test.ts",
+    "test:reserved-names-proof": "LOOM_RESERVED_NAMES_PROOF=1 vitest run test/e2e/reserved-type-names-proof.test.ts",
     "test:dapper-corpus": "LOOM_DOTNET_BUILD=1 vitest run test/e2e/corpus-dotnet-dapper-build.test.ts",
     "test:elixir-corpus": "LOOM_ELIXIR_BUILD=1 vitest run test/e2e/corpus-elixir-build.test.ts",
     "test:tsc-react": "LOOM_REACT_BUILD=1 vitest run test/e2e/generated-react-build.test.ts",

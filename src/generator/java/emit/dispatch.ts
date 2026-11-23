@@ -34,6 +34,7 @@ import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
 import { javaJsonSqlType } from "../codec-spelling.js";
 import { javaLocals, localOf } from "../java-ident.js";
+import { javaEventRef } from "../java-symbols.js";
 import {
   API_CLIENT_CLASS,
   type JavaRenderContext,
@@ -276,7 +277,7 @@ function renderProjectionFold(
       ? [`    @org.springframework.transaction.annotation.Transactional`]
       : []),
     `    @EventListener`,
-    `    public void on${DOMAIN_NAMES.java.type(proj.name)}On${DOMAIN_NAMES.java.type(sub.event)}(${sub.event} ${param}) {`,
+    `    public void on${DOMAIN_NAMES.java.type(proj.name)}On${DOMAIN_NAMES.java.type(sub.event)}(${javaEventRef(sub.event)} ${param}) {`,
     ...body,
     `    }`,
     ``,
@@ -799,13 +800,13 @@ function renderReactorListener(
       ...(authPkg
         ? [
             `        @org.springframework.context.event.EventListener`,
-            `        public void ${h.method}(${DOMAIN_NAMES.java.type(h.event)} e) {`,
+            `        public void ${h.method}(${javaEventRef(DOMAIN_NAMES.java.type(h.event))} e) {`,
             `            afterCommit(${authPkg}.User.currentEventOrigin(), () -> react("${h.method}", e, () -> dispatcher.${h.method}(e)));`,
             `        }`,
           ]
         : [
             `        @org.springframework.transaction.event.TransactionalEventListener(phase = org.springframework.transaction.event.TransactionPhase.AFTER_COMMIT, fallbackExecution = true)`,
-            `        public void ${h.method}(${DOMAIN_NAMES.java.type(h.event)} e) {`,
+            `        public void ${h.method}(${javaEventRef(DOMAIN_NAMES.java.type(h.event))} e) {`,
             `            react("${h.method}", e, () -> dispatcher.${h.method}(e));`,
             `        }`,
           ]),
@@ -951,7 +952,7 @@ function renderHandler(
   // provenance rows record their call-structure position.
   return [
     `    @EventListener`,
-    `    public void ${handlerName(sub)}(${sub.event} ${param}) {`,
+    `    public void ${handlerName(sub)}(${javaEventRef(sub.event)} ${param}) {`,
     `        try (var _ = RequestContext.openChild()) {`,
     ...principalBinding([resolved.statements], ctx),
     ...body.map((l) => `    ${l}`),
@@ -1127,7 +1128,7 @@ function renderEsHandler(
   // the dispatching request's scope).
   return [
     `    @EventListener`,
-    `    public void ${handlerName(sub)}(${sub.event} ${param}) {`,
+    `    public void ${handlerName(sub)}(${javaEventRef(sub.event)} ${param}) {`,
     `        try (var _ = RequestContext.openChild()) {`,
     ...principalBinding([resolved.statements], ctx),
     ...body.map((l) => `    ${l}`),
@@ -1345,7 +1346,7 @@ function renderEsMergedHandler(
 
   return [
     `    @EventListener`,
-    `    public void on${DOMAIN_NAMES.java.type(wf.name)}${DOMAIN_NAMES.java.type(createSub.event)}(${createSub.event} ${param}) {`,
+    `    public void on${DOMAIN_NAMES.java.type(wf.name)}${DOMAIN_NAMES.java.type(createSub.event)}(${javaEventRef(createSub.event)} ${param}) {`,
     `        try (var _ = RequestContext.openChild()) {`,
     ...principalBinding([createResolved.statements, onResolved.statements], ctx),
     ...body.map((l) => `    ${l}`),

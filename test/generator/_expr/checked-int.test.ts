@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { checkedBinaryKind, checkedUnaryKind } from "../../../src/generator/_expr/checked-int.js";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import { renderCsExpr } from "../../../src/generator/dotnet/render-expr.js";
 import { renderExpr as renderEx } from "../../../src/generator/elixir/render-expr.js";
 import { renderJavaExpr } from "../../../src/generator/java/render-expr.js";
@@ -68,7 +69,7 @@ describe("checked integer arithmetic (RS-48)", () => {
   });
 
   it("node range-checks int32 and the safe-integer ceiling, throwing DomainError", () => {
-    const sum = renderTsExpr(intSum);
+    const sum = spellMarkers(renderTsExpr(intSum));
     expect(sum).toContain("(stock + n)");
     expect(sum).toContain("__v < -2147483648 || __v > 2147483647");
     expect(sum).toContain("throw DomainError.arithmeticOverflow()");

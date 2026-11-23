@@ -7,6 +7,7 @@
 // throws on it before ever reaching the TS backend).
 
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import {
   renderTsStatementChunks,
   renderTsStatements,
@@ -271,7 +272,8 @@ describe("statementExprMarks", () => {
       source: "isActive",
     };
     const [chunk] = renderTsStatementChunks([stmt]);
-    expect(chunk).toBe(
+    // The error class is a symbol; the chunk is read as the module spells it.
+    expect(spellMarkers(chunk!)).toBe(
       '    if (!(this._isActive)) throw new DomainError("Business rule violated", "precondition");',
     );
     const marks = statementExprMarks(stmt, chunk!);

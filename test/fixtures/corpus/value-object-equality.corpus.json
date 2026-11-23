@@ -1,0 +1,6 @@
+{
+  "title": "Value-object `==` / `!=` with an optional side — by value and absence-safe",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "the witness for ruling 457: value-object equality is by value (all fields equal) and absence-safe (both absent are equal, one absent is not) on every backend.  node compared a value object with an optional side by reference, so two distinct instances with equal fields answered false where the other four answered true"
+}

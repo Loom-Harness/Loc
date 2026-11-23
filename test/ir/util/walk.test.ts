@@ -167,6 +167,20 @@ function exprCases(): Record<ExprIR["kind"], () => ExprCase> {
         stmtChildren: [],
       };
     },
+    coalesce: () => {
+      const l = sent();
+      const f = sent();
+      return {
+        node: {
+          kind: "coalesce",
+          left: l,
+          fallback: f,
+          leftType: { kind: "primitive", name: "string" },
+        },
+        exprChildren: [l, f],
+        stmtChildren: [],
+      };
+    },
     convert: () => {
       const v = sent();
       return {

@@ -6,6 +6,7 @@ import type {
   AggregateMember,
   BinaryChain,
   BuilderCall,
+  CanExpr,
   Criterion,
   EntityPart,
   EntityPartMember,
@@ -14,6 +15,7 @@ import type {
   FunctionDecl,
   Lambda,
   MemberSuffix,
+  Operation,
   PolicyDecl,
   PostfixChain,
   PostfixSuffix,
@@ -27,6 +29,7 @@ import {
   isBoolLit,
   isBuilderCall,
   isCallSuffix,
+  isCanExpr,
   isContainment,
   isCriterion,
   isDecLit,
@@ -64,6 +67,7 @@ import {
 } from "../../language/generated/ast.js";
 import { type ModelTextIndex, resolveModelText } from "../../language/model-text.js";
 import { moneyLiteralText } from "../../language/money-literal.js";
+import { requiresGateExprs } from "../../language/op-gate-params.js";
 import { queryNamesOf } from "../../language/repo-query-arg.js";
 import { type Ty, type TypingSession, toTypeIR } from "../../language/typing/index.js";
 import { typingFor } from "../../language/typing/shared.js";
@@ -72,6 +76,7 @@ import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { isIntrinsicMatcher, isThrowKind } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor } from "../../util/intrinsics.js";
 import { modelTextEntry } from "../../util/model-text-key.js";
+import { PARSE_SERVICE, parseMethod } from "../../util/parse-methods.js";
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ANCESTORS,
@@ -97,8 +102,10 @@ import type {
   TypeIR,
 } from "../types/loom-ir.js";
 import { lit, type UnresolvedTypeSite } from "../types/loom-ir.js";
+import { gateRungs, type RequiresStmtIR } from "../util/op-gates.js";
 import { snapshotIdFor } from "../util/prov-id.js";
 import { UNRESOLVED_LAMBDA_PARAM_SHAPE } from "../util/unresolved-lambda-param.js";
+import { mapExprChildren } from "../util/walk.js";
 import { lowerStatement } from "./lower-stmt.js";
 import {
   cstText,
@@ -439,31 +446,22 @@ export function passTargetSteps(lv: AstNode): TypeIR[] {
 }
 
 /**
- * Desugar a nullish-coalescing chain (`a ?? b ?? c`) into the existing
- * `ternary` IR — the whole reason `??` needs NO backend or frontend work:
+ * Lower a nullish-coalescing chain (`a ?? b ?? c`) to `coalesce` nodes,
+ * RIGHT-associative like every other language's `??`, so the fold runs from
+ * the tail inwards:
  *
- *     a ?? b        →  a == null ? b : a
- *     a ?? b ?? c   →  a == null ? (b == null ? c : b) : a
+ *     a ?? b ?? c   →  coalesce(a, coalesce(b, c))
  *
- * RIGHT-associative, like every other language's `??`, so the fold runs from
- * the tail inwards.  The `cond` is a real `binary "=="` against the `null`
- * literal, which every backend's `ExprTarget` already renders with its own
- * null spelling (`=== null` / `is null` / `is_nil` / `== nil` / `== null`),
- * and each frontend renders it in a page body the same way.
- *
- * The `cond.left` and the `otherwise` branch are the SAME node: that identity
- * is the coalesce marker (`coalesceParts`, src/generator/_expr/coalesce.ts).
- * Every backend renders the marked shape through `ExprTarget.coalesce`, which
- * evaluates the left once and the fallback only when the left is null — the
- * `cond` is never rendered for it.  Frontends that render the ternary
- * directly (a page body) see the plain `a == null ? b : a` shape.
+ * A real node, not a ternary with a shared operand: every renderer and every
+ * IR rewrite (`mapExprChildren`) carries it as one, so the left operand is
+ * evaluated once and the fallback only when it is absent on every target.
  */
 function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
   const operands = [chain.head, ...chain.rest];
   // A bare numeric literal fallback takes the numeric type of the operand it
-  // stands in for (`decimal? ?? 0` is a decimal `0`): both ternary branches must
-  // share one type on the nominally-typed backends (`cond ? 0 : upper` does not
-  // compile when `upper` is a `BigDecimal`).
+  // stands in for (`decimal? ?? 0` is a decimal `0`): both operands must share
+  // one type on the nominally-typed backends (`upper ?? 0` does not compile
+  // when `upper` is a `BigDecimal`).
   const lowerFallback = (i: number): ExprIR => {
     const lowered = lowerExpr(operands[i]!, env);
     const prev = passType(operands[i - 1]!, env);
@@ -475,25 +473,7 @@ function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
   let acc = lowerFallback(operands.length - 1);
   for (let i = operands.length - 2; i >= 0; i--) {
     const left = i === 0 ? lowerExpr(operands[i]!, env) : lowerFallback(i);
-    const leftType = passType(operands[i]!, env);
-    acc = {
-      kind: "ternary",
-      cond: {
-        kind: "binary",
-        op: "==",
-        left,
-        right: lit("null", "null"),
-        leftType,
-        // The null literal's own inferred type — `passType` types a bare
-        // `null` as `string` (see its `isNullLit` arm), and an `x == null`
-        // written by hand lowers with exactly this pair.
-        rightType: { kind: "primitive", name: "string" },
-        resultType: { kind: "primitive", name: "bool" },
-      },
-      // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then` across the IR
-      then: acc,
-      otherwise: left,
-    };
+    acc = { kind: "coalesce", left, fallback: acc, leftType: passType(operands[i]!, env) };
   }
   return acc;
 }
@@ -931,6 +911,29 @@ function applySuffixToRecv(
         if (declared) callIR.resultType = declared;
         return { recv: callIR, recvType: declared ?? { kind: "primitive", name: "string" } };
       }
+    }
+    // `s.toInt()` — a parse method on a string is a call into the context's
+    // built-in parse service (`parse-methods.ts`), the text as its argument,
+    // so every backend renders the service's checks, not a host parser.
+    const parse =
+      recvType.kind === "primitive" && recvType.name === "string"
+        ? parseMethod(ms.member)
+        : undefined;
+    const parseSvc = parse ? findDomainServiceByName(env, PARSE_SERVICE) : undefined;
+    const parseOp = parseSvc?.operations.find((o) => o.name === ms.member);
+    if (parseOp?.returnType) {
+      const resultType = lowerType(parseOp.returnType, env);
+      return {
+        recv: {
+          kind: "call",
+          callKind: "domain-service",
+          name: ms.member,
+          args: [recv],
+          serviceRef: { service: PARSE_SERVICE, op: ms.member },
+          resultType,
+        },
+        recvType: resultType,
+      };
     }
     // `<resource>.<verb>(args)` — a verb call on an ambient resource
     // handle lowers to a `resource-op` call.  The verb's
@@ -1530,6 +1533,7 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
       env.rowElem ?? { kind: "entity", name: UNRESOLVED_LAMBDA_PARAM_SHAPE, declKind: "synthetic" },
     );
   }
+  if (isCanExpr(expr)) return lowerCanExpr(expr, env);
   if (isExistsExpr(expr)) {
     // `exists <Agg> as s where p` — `s` binds one row of `<Agg>` (a `row`
     // local, so `s.field` lowers to an ordinary typed `member`); the enclosing
@@ -2033,6 +2037,107 @@ function inlineCriterion(c: Criterion, args: ExprIR[], env: Env): ExprIR {
     ...(c.alias ? { candidateAlias: c.alias } : {}),
   };
   return lowerExpr(c.body, bodyEnv);
+}
+
+/** Lower a permission query `can o.op(args)` to the boolean its operation's
+ *  gates answer on `o`: the signature `requires`, each leading body
+ *  `requires`, then the `when`, joined by `&&` (an ungated operation answers
+ *  `true`).  Each gate is re-lowered in the aggregate's scope with the
+ *  operation's parameters bound to the call's arguments, ordered by
+ *  `gateRungs` exactly as the operation's own route runs them, then rebound
+ *  from `this` to the receiver, so every target renders an expression it
+ *  already renders. */
+function lowerCanExpr(expr: CanExpr, env: Env): ExprIR {
+  const unresolved: ExprIR = { kind: "ref", name: `can ${expr.op}`, refKind: "unknown" };
+  const receiver = lowerExpr(expr.receiver, env);
+  const receiverType = receiver.kind === "ref" ? receiver.type : undefined;
+  if (receiverType?.kind !== "entity") return unresolved;
+  const agg = findEntityByName(env, receiverType.name);
+  if (!agg || !isAggregate(agg)) return unresolved;
+  const op = agg.members.find((m): m is Operation => isOperation(m) && m.name === expr.op);
+  if (!op) return unresolved;
+  const args = expr.args.map((a) => lowerExpr(a, env));
+  const argMap = new Map<string, ExprIR>();
+  op.params.forEach((p, i) => {
+    const a = args[i];
+    if (a) argMap.set(p.name, a);
+  });
+  const opEnv: Env = {
+    ...inAggregate(
+      { ...env, locals: new Map(), refAliases: undefined, candidateAlias: undefined },
+      agg,
+    ),
+    criterionArgs: argMap,
+  };
+  // The gates in the order the operation's own route runs them (`gateRungs`):
+  // the ones that read no row, then the ones that read it, then `when`.
+  const gates: RequiresStmtIR[] = requiresGateExprs(op).map((g) => ({
+    kind: "requires",
+    expr: lowerExpr(g, opEnv),
+    source: g.$cstNode?.text ?? "",
+  }));
+  const { preLoad, postLoad } = gateRungs(gates);
+  const ordered = [
+    ...[...preLoad, ...postLoad].map((g) => g.expr),
+    ...(op.when ? [lowerExpr(op.when, opEnv)] : []),
+  ];
+  const bool: TypeIR = { kind: "primitive", name: "bool" };
+  const parts = ordered.map((p) => rebindThis(p, receiver, receiverType));
+  if (parts.length === 0) return lit("bool", "true");
+  const joined = parts
+    .map((p): ExprIR => ({ kind: "paren", inner: p }))
+    .reduce(
+      (l, r): ExprIR => ({
+        kind: "binary",
+        op: "&&",
+        left: l,
+        right: r,
+        leftType: bool,
+        rightType: bool,
+        resultType: bool,
+      }),
+    );
+  return { kind: "paren", inner: joined };
+}
+
+/** `e` with its `this` rebound to `receiver`: `this` → the receiver, a bare
+ *  field → `receiver.field`, the bare `id` → `receiver.id`, and a bare call
+ *  of the aggregate's own function → that function called on the receiver. */
+function rebindThis(e: ExprIR, receiver: ExprIR, receiverType: TypeIR): ExprIR {
+  if (e.kind === "this") return receiver;
+  if (e.kind === "id") {
+    return {
+      kind: "member",
+      receiver,
+      member: "id",
+      receiverType,
+      memberType: {
+        kind: "id",
+        targetName: receiverType.kind === "entity" ? receiverType.name : "",
+      },
+    };
+  }
+  if (e.kind === "ref" && e.refKind === "this-prop") {
+    return {
+      kind: "member",
+      receiver,
+      member: e.name,
+      receiverType,
+      memberType: e.type ?? UNRESOLVED_PLACEHOLDER,
+    };
+  }
+  if (e.kind === "call" && e.callKind === "function") {
+    return {
+      kind: "method-call",
+      receiver,
+      member: e.name,
+      args: e.args.map((a) => rebindThis(a, receiver, receiverType)),
+      receiverType,
+      isCollectionOp: false,
+      ...(e.resultType ? { resultType: e.resultType } : {}),
+    };
+  }
+  return mapExprChildren(e, (c) => rebindThis(c, receiver, receiverType));
 }
 
 /** The top-level (ambient) helper `function` named `name`, or undefined. */

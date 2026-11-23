@@ -3,7 +3,6 @@ import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/
 import type { ExprIR, LiteralKind } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import type { ExistsReadNode } from "../../ir/util/in-app-exists.js";
-import { coalesceParts } from "./coalesce.js";
 import { type GroupingPolicy, groupOperand, type OperandPosition } from "./grouping.js";
 
 const POSTFIX: OperandPosition = { parent: "postfix" };
@@ -54,6 +53,7 @@ export type NewExpr = Extract<ExprIR, { kind: "new" }>;
 export type UnaryExpr = Extract<ExprIR, { kind: "unary" }>;
 export type BinaryExpr = Extract<ExprIR, { kind: "binary" }>;
 export type TernaryExpr = Extract<ExprIR, { kind: "ternary" }>;
+export type CoalesceExpr = Extract<ExprIR, { kind: "coalesce" }>;
 export type ConvertExpr = Extract<ExprIR, { kind: "convert" }>;
 export type DurationExpr = Extract<ExprIR, { kind: "duration" }>;
 
@@ -200,11 +200,11 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  narrowing of a branch (.NET unwraps a narrowed `Nullable<T>`); absent for
    *  the synthesized presence ternaries, which have no source node. */
   ternary(cond: string, then: string, otherwise: string, e?: TernaryExpr, ctx?: Ctx): string;
-  /** `left ?? fallback` — a ternary of the shape `coalesceParts` recognises.
+  /** `left ?? fallback` — a `coalesce` node.
    *  Both operands arrive rendered once; the leaf must evaluate `left` exactly
    *  once and `fallback` only when `left` is null (never eagerly: the fallback
    *  may be a call).  The condition is not rendered. */
-  coalesce(left: string, fallback: string, e: TernaryExpr, ctx: Ctx): string;
+  coalesce(left: string, fallback: string, e: CoalesceExpr, ctx: Ctx): string;
   /** `ctx` lets a leaf qualify a framework reference against its emission
    *  scope (.NET: `global::System` when a member named `System` shadows the
    *  namespace — see `CsRenderContext.memberScope`). */
@@ -358,11 +358,10 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
         e,
         ctx,
       );
-    case "ternary": {
-      const co = coalesceParts(e);
-      if (co) return t.coalesce(r(co.left), r(co.fallback), e, ctx);
+    case "ternary":
       return t.ternary(r(e.cond), r(e.then), r(e.otherwise), e, ctx);
-    }
+    case "coalesce":
+      return t.coalesce(r(e.left), r(e.fallback), e, ctx);
     case "convert":
       return t.convert(r(e.value), e, ctx);
     case "duration":
@@ -544,6 +543,7 @@ export const ALL_EXPR_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
   "unary",
   "binary",
   "ternary",
+  "coalesce",
   "convert",
   "duration",
   "i18nFormat",
@@ -625,6 +625,7 @@ const SQL_MIGRATION_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
   "unary",
   "binary",
   "ternary",
+  "coalesce",
 ]);
 
 /** dotnet `emit/dapper.ts`'s `whereToSql` switch. */
@@ -892,13 +893,12 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
       const right = grouped(rm(e.right), e.right, { parent: "binary", op: e.op, side: "right" });
       return compose(t.binary(left.text, right.text, e, ctx), [left, right]);
     }
+    case "coalesce": {
+      const left = rm(e.left);
+      const fallback = rm(e.fallback);
+      return compose(t.coalesce(left.text, fallback.text, e, ctx), [left, fallback]);
+    }
     case "ternary": {
-      const co = coalesceParts(e);
-      if (co) {
-        const left = rm(co.left);
-        const fallback = rm(co.fallback);
-        return compose(t.coalesce(left.text, fallback.text, e, ctx), [left, fallback]);
-      }
       const cond = rm(e.cond);
       const then = rm(e.then);
       const otherwise = rm(e.otherwise);

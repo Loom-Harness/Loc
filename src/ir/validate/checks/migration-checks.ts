@@ -204,6 +204,8 @@ function sqlExprFamily(e: ExprIR): string | undefined {
     }
     case "ternary":
       return sqlExprFamily(e.then) ?? sqlExprFamily(e.otherwise);
+    case "coalesce":
+      return sqlExprFamily(e.fallback) ?? sqlExprFamily(e.left);
     // No family — and that is SAFE here by construction: this classifier only
     // ever sees a backfill expression, and `sqlRenderableExpr`
     // (`src/ir/util/sql-renderable-expr.ts`) has already refused every kind
@@ -298,8 +300,8 @@ export function validateTablePrefixSupport(loom: EnrichedLoomModel, diags: LoomD
  *  SQL the renderer emits: NULL propagates through every operator and
  *  comparison, a `CASE` returns whichever branch it takes, and only an
  *  `x == null` / `x != null` presence test both yields a non-NULL boolean and
- *  narrows `x` in the branch that follows it (`label ?? "x"` lowers to
- *  `label == null ? "x" : label`, so its `label` is never NULL).  A `null`
+ *  narrows `x` in the branch that follows it, and a `??` yields NULL only
+ *  through its fallback (`label ?? "x"` is never NULL).  A `null`
  *  literal is not reported here: the family check already names it. */
 function nullableSources(
   e: ExprIR,
@@ -331,6 +333,9 @@ function nullableSources(
       };
       return uniq([...rec(e.then, narrowed("then")), ...rec(e.otherwise, narrowed("otherwise"))]);
     }
+    // `COALESCE(left, fallback)` is NULL only when the fallback is.
+    case "coalesce":
+      return rec(e.fallback);
     // Literals carry their own value (`null` is the family check's case);
     // every other kind is refused by `sqlRenderableExpr` before this runs.
     case "exists":

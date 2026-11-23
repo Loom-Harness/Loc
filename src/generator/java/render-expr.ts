@@ -1,3 +1,5 @@
+import { listEqualityPlan } from "../../ir/plan/list-equality.js";
+import { type NumericOperand, negatedFamily, numericOpPlan } from "../../ir/plan/numeric-op.js";
 import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
@@ -18,7 +20,6 @@ import {
   type BinaryExpr,
   type CallExpr,
   type ExprTarget,
-  isIntDivWidenedToDecimal,
   type MemberExpr,
   type MethodCallExpr,
   type NewExpr,
@@ -28,6 +29,7 @@ import {
 import { javaProjectRef } from "../_imports/java.js";
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
+import { javaCalendarDateParse } from "./codec-spelling.js";
 import { jid } from "./java-ident.js";
 import { J } from "./java-symbols.js";
 
@@ -247,33 +249,23 @@ function isMoneyLike(t: TypeIR | undefined): boolean {
   return t?.kind === "primitive" && (t.name === "money" || t.name === "decimal");
 }
 
-/** `int` / `long` — the Java primitives that have no `BigDecimal` overload. */
-function isIntegralPrimitive(t: TypeIR | undefined): boolean {
-  return t?.kind === "primitive" && (t.name === "int" || t.name === "long");
-}
-
 /** Box an integral operand for a `BigDecimal` method call, leaving anything
  *  else untouched.  `BigDecimal` exposes no `multiply(int)` /
- *  `divide(int, MathContext)` / `compareTo(int)`, so an `int`-typed operand in a
- *  money/decimal expression must be lifted — the same move the widened
- *  int-division arm makes (fleet-bug-hunt A4).  Fully qualified for consistency
- *  with that arm: it needs no import bookkeeping at the collector. */
-function boxIntegralForBigDecimal(rendered: string, t: TypeIR | undefined): string {
-  return isIntegralPrimitive(unwrapOptional(t))
-    ? `java.math.BigDecimal.valueOf(${rendered})`
-    : rendered;
+ *  `divide(int, MathContext)` / `compareTo(int)`.  Fully qualified: it needs no
+ *  import bookkeeping at the collector. */
+function boxIntegral(rendered: string, o: NumericOperand): string {
+  return o.family === "integral" ? `java.math.BigDecimal.valueOf(${rendered})` : rendered;
 }
 
-/** `boxIntegralForBigDecimal`, null-safe for a NULLABLE integral: an `int?`
- *  is a boxed `Integer`, and `BigDecimal.valueOf(Integer)` unboxes it — an
- *  NPE when absent.  The optional maps through `Optional` (one evaluation of
- *  the operand) and stays null when absent; a non-nullable operand is boxed
- *  exactly as before. */
-function boxNullableIntegralForBigDecimal(rendered: string, t: TypeIR | undefined): string {
-  if (t?.kind === "optional" && isIntegralPrimitive(t.inner)) {
+/** `boxIntegral`, null-safe for a NULLABLE integral: an `int?` is a boxed
+ *  `Integer`, and `BigDecimal.valueOf(Integer)` unboxes it — an NPE when
+ *  absent.  The optional maps through `Optional` (one evaluation of the
+ *  operand) and stays null when absent. */
+function boxNullableIntegral(rendered: string, o: NumericOperand): string {
+  if (o.family === "integral" && o.optional) {
     return `java.util.Optional.ofNullable(${rendered}).map(loomV -> java.math.BigDecimal.valueOf(loomV.longValue())).orElse(null)`;
   }
-  return boxIntegralForBigDecimal(rendered, t);
+  return boxIntegral(rendered, o);
 }
 
 /** Reference types whose `==` must be `Objects.equals` in Java.  Enum
@@ -359,7 +351,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
     // operator — `-this.price` is "bad operand type for unary operator '-'".
     // Route through `negate()` (audit finding A11; the elixir twin is
     // `Decimal.negate/1`).
-    op === "-" && isMoneyLike(unwrapOptional(bodyTypeOf(e.operand)))
+    negatedFamily(e) !== undefined
       ? `${operand}.negate()`
       : javaUnaryInt(op, operand, checkedUnaryKind(e)),
   binary: renderBinary,
@@ -522,7 +514,7 @@ function renderRef(e: RefExpr, ctx: JavaRenderContext): string {
       // The enum CONSTANT is mangled when the `.ddd` value is a Java reserved
       // word (M-T6.36); the wire/column spelling is restored by the enum's
       // `@JsonProperty` and its `Codec` converter, not here.
-      return `${e.enumName}.${jid(e.name)}`;
+      return `${javaProjectRef(e.enumName, "enum")}.${jid(e.name)}`;
     case "current-user":
       return ctx.currentUserExpr ?? "currentUser";
     default:
@@ -574,6 +566,10 @@ function renderMember(recv: string, e: MemberExpr, ctx: JavaRenderContext = DEFA
 // catalogue row, keyed `<receiver>.<name>`.  Exported so the intrinsic
 // completeness test can pin that every catalogue row has a Java arm.
 export const JAVA_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+  "string.uncheckedInt": (recv) => `Integer.parseInt(${recv})`,
+  "string.uncheckedLong": (recv) => `Long.parseLong(${recv})`,
+  "string.uncheckedDecimal": (recv) => `new ${J.BigDecimal}(${recv})`,
+  "string.uncheckedDate": (recv) => javaCalendarDateParse(recv),
   "string.trim": (recv) => `${recv}.trim()`,
   // Locale.ROOT — the catalogue contract is culture-free case mapping
   // (the default-locale overloads diverge under e.g. tr-TR dotted-i).
@@ -811,7 +807,7 @@ function renderCall(args: string[], e: CallExpr, ctx: JavaRenderContext): string
   const argList = args.join(", ");
   switch (e.callKind) {
     case "value-object-ctor":
-      return `new ${upperFirst(e.name)}(${argList})`;
+      return `new ${javaProjectRef(upperFirst(e.name), "valueobject")}(${argList})`;
     case "function":
     case "private-operation":
       return `${ctx.thisName}.${jid(e.name)}(${argList})`;
@@ -928,67 +924,62 @@ function renderNew(
   // A root-level part keeps the ambient parent (byte-identical).
   const isSingle = ctx.agg?.contains?.some((c) => !c.collection && c.partName === e.partName);
   const parentArg = e.nested ? "null" : isSingle ? ctx.thisName : `${ctx.thisName}.id`;
-  return `${e.partName}._create(${[parentArg, ...ordered, ...containArgs].join(", ")})`;
+  return `${javaProjectRef(e.partName)}._create(${[parentArg, ...ordered, ...containArgs].join(", ")})`;
 }
 
 function renderBinary(l: string, r: string, e: BinaryExpr): string {
   const lt = unwrapOptional(e.leftType);
-  // Integer division widened to decimal (`int / int` → decimal): int/long are
-  // primitives whose `/` is truncating integer division, so box both operands
-  // into BigDecimal and divide with the money-precision context.
-  if (isIntDivWidenedToDecimal(e)) {
-    return `java.math.BigDecimal.valueOf(${l}).divide(java.math.BigDecimal.valueOf(${r}), java.math.MathContext.DECIMAL128)`;
+  // Which numeric operation this is was decided once (`numericOpPlan`); this
+  // backend only spells it.  `money` and `decimal` are both `BigDecimal` here,
+  // which has no operators and an `equals` that is scale-sensitive (1.0 ≠
+  // 1.00), so arithmetic and comparisons dispatch through its methods, and
+  // equality goes through `compareTo`.  `int` / `long` are primitives with no
+  // `BigDecimal` overload, so an integral operand is boxed.
+  // `==` / `!=` between two lists of money / decimal, element by element
+  // (ruling 456): `List.equals` would compare the `BigDecimal` elements with
+  // `equals`, which is scale-sensitive (`10` ≠ `10.0000`), so they compare
+  // through `compareTo`.  Every other element type's `equals` is already by
+  // value, so those lists keep `Objects.equals` below.
+  const list = listEqualityPlan(e);
+  if (list?.element === "decimal") {
+    const body =
+      "loomL.size() == loomR.size() && java.util.stream.IntStream.range(0, loomL.size()).allMatch(loomV -> loomL.get(loomV).compareTo(loomR.get(loomV)) == 0)";
+    const guarded =
+      list.leftOptional || list.rightOptional
+        ? `loomL == null || loomR == null ? loomL == loomR : ${body}`
+        : body;
+    const test = `((java.util.function.BiPredicate<java.util.List<java.math.BigDecimal>, java.util.List<java.math.BigDecimal>>) (loomL, loomR) -> ${guarded}).test(${l}, ${r})`;
+    return e.op === "!=" ? `!${test}` : test;
   }
-  // A `money?`/`decimal?` equality must not reach `compareTo`, which throws an
-  // NPE on a null receiver AND on a null argument: `x == null` is a plain null
-  // check, and a nullable side compares through a nulls-first comparator —
-  // both absent → equal, one absent → unequal, both present → compareTo.
-  if (
-    (e.op === "==" || e.op === "!=") &&
-    (isMoneyLike(lt) || isMoneyLike(unwrapOptional(e.rightType)))
-  ) {
-    if (comparesNullLiteral(e)) return `${l} ${e.op} ${r}`;
-    if (e.leftType?.kind === "optional" || e.rightType?.kind === "optional") {
-      return `java.util.Comparator.nullsFirst(java.util.Comparator.<java.math.BigDecimal>naturalOrder()).compare(${boxNullableIntegralForBigDecimal(l, e.leftType)}, ${boxNullableIntegralForBigDecimal(r, e.rightType)}) ${e.op} 0`;
+  const plan = numericOpPlan(e);
+  switch (plan.kind) {
+    case "null-test":
+      return `${l} ${e.op} ${r}`;
+    // `int / int` widened to decimal: both operands are primitives whose `/`
+    // truncates, so both are boxed and divided at the money-precision context.
+    case "decimal-arithmetic":
+      if (plan.intDivWidened) {
+        return `java.math.BigDecimal.valueOf(${l}).divide(java.math.BigDecimal.valueOf(${r}), java.math.MathContext.DECIMAL128)`;
+      }
+      return renderMoneyBinary(e.op, boxIntegral(l, plan.left), boxIntegral(r, plan.right));
+    case "money":
+    case "decimal-comparison":
+      return renderMoneyBinary(e.op, boxIntegral(l, plan.left), boxIntegral(r, plan.right));
+    // `compareTo` throws an NPE on a null receiver AND on a null argument.  An
+    // equality with an absent side compares through a nulls-first comparator
+    // (both absent → equal, one absent → unequal); an ordering goes through a
+    // two-argument lambda that answers false when either side is absent.
+    // Each operand is evaluated once.
+    case "absent-equality":
+      return `java.util.Comparator.nullsFirst(java.util.Comparator.<java.math.BigDecimal>naturalOrder()).compare(${boxNullableIntegral(l, plan.left)}, ${boxNullableIntegral(r, plan.right)}) ${e.op} 0`;
+    case "absent-ordering":
+      return `((java.util.function.BiPredicate<java.math.BigDecimal, java.math.BigDecimal>) (loomL, loomR) -> loomL != null && loomR != null && loomL.compareTo(loomR) ${e.op} 0).test(${boxNullableIntegral(l, plan.left)}, ${boxNullableIntegral(r, plan.right)})`;
+    case "native":
+      break;
+    default: {
+      const _exhaustive: never = plan;
+      return _exhaustive;
     }
-  }
-  // An ORDERING with a nullable `money?`/`decimal?` side — or a nullable
-  // integral against one — answers false when either side is absent (SQL's
-  // UNKNOWN, .NET's lifted operators).  `compareTo` throws an NPE on a null
-  // receiver or argument, so the operands go through a two-argument lambda:
-  // each is evaluated once, and the null test runs before `compareTo`.
-  if (
-    (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=") &&
-    (e.leftType?.kind === "optional" || e.rightType?.kind === "optional") &&
-    (isMoneyLike(lt) || isMoneyLike(unwrapOptional(e.rightType))) &&
-    (isMoneyLike(lt) || isIntegralPrimitive(lt)) &&
-    (isMoneyLike(unwrapOptional(e.rightType)) || isIntegralPrimitive(unwrapOptional(e.rightType)))
-  ) {
-    return `((java.util.function.BiPredicate<java.math.BigDecimal, java.math.BigDecimal>) (loomL, loomR) -> loomL != null && loomR != null && loomL.compareTo(loomR) ${e.op} 0).test(${boxNullableIntegralForBigDecimal(l, e.leftType)}, ${boxNullableIntegralForBigDecimal(r, e.rightType)})`;
-  }
-  // BigDecimal has no operators — arithmetic + comparisons dispatch
-  // through methods.  `equals` is scale-sensitive (1.0 ≠ 1.00), so
-  // equality routes through compareTo as well.
-  if (isMoneyLike(lt)) {
-    // A `money <op> int` whose integral operand is NOT a literal reaches here
-    // raw: `promoteMoneyOperands` (lower-expr) only promotes numeric LITERALS
-    // via `literalPromotionAnchor`, so `this.total / this.qty` arrives with an
-    // `int`-typed right operand.  `BigDecimal` has no `multiply(int)` /
-    // `divide(int, MathContext)` overload, so the emission failed `gradle
-    // testClasses` — TS/.NET/Python all compile the same model, because their
-    // decimal types coerce.  Box it, exactly as the int-division arm above
-    // does (fleet-bug-hunt A4).
-    return renderMoneyBinary(e.op, l, boxIntegralForBigDecimal(r, e.rightType));
-  }
-  // The MIRROR case — integral left, BigDecimal-backed right (`qty * this.total`).
-  // `money × scalar` is commutative in the typing pass's `arithmetic`, and plain
-  // `int <op> decimal` is ordinary numeric arithmetic, so both spellings reach
-  // codegen; with money on the RIGHT the arm above doesn't fire and the fall-
-  // through emitted `qty * total` — an `int * BigDecimal` that doesn't compile.
-  // Boxing the left operand lets the same method-based renderer serve it (and
-  // `compareTo` handles the comparison arms).
-  if (isIntegralPrimitive(lt) && isMoneyLike(unwrapOptional(e.rightType))) {
-    return renderMoneyBinary(e.op, boxIntegralForBigDecimal(l, e.leftType), r);
   }
   // A5 temporal: datetime ± duration / datetime − datetime / duration ±
   // duration / duration × int — all method-based on java.time.
@@ -1203,7 +1194,7 @@ const JAVA_TYPE_TARGET: TypeTarget = {
   // or fully qualified in a unit where `java.lang` or a framework import owns
   // the simple name (`javaAmbientClash`, the symbol plan).
   id: (targetName) => javaProjectRef(`${targetName}Id`),
-  named: (_kind, name) => javaProjectRef(name),
+  named: (kind, name) => javaProjectRef(name, kind === "entity" ? undefined : kind),
   array: (element) => `${J.List}<${element}>`,
   // Java has no `?` types — optionality is a nullable reference, so the inner
   // (already rendered in `reference` mode → boxed) stands alone.

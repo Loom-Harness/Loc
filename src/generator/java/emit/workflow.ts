@@ -49,7 +49,7 @@ import { type WriteScopeContext, writeScopeContext } from "../../../ir/util/writ
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, workflowFnCamel } from "../../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import { opUnionResponses } from "../../_payload/union-wire.js";
@@ -69,7 +69,7 @@ import {
   type WorkflowStmtTarget,
 } from "../../_workflow/stmt-target.js";
 import { javaLocals, jsonProp, localOf, movedLocalOrUndefined } from "../java-ident.js";
-import { J } from "../java-symbols.js";
+import { J, javaEventRef } from "../java-symbols.js";
 import {
   type JavaRenderContext,
   javaValueTypeForId,
@@ -405,7 +405,9 @@ export function javaWorkflowStmtTarget(
         if (!v) return "null";
         return renderJavaExpr(v, renderCtx);
       });
-      return [`${indent}var ${bound(s.name)} = ${s.aggName}.create(${args.join(", ")});`];
+      return [
+        `${indent}var ${bound(s.name)} = ${javaProjectRef(s.aggName)}.create(${args.join(", ")});`,
+      ];
     },
     repoLet: (s, indent) => {
       const args = s.args.map((a) => renderJavaExpr(a, renderCtx)).join(", ");
@@ -561,9 +563,9 @@ export function javaWorkflowStmtTarget(
         ? declared.fields.map((f) => rendered.get(f.name) ?? "null").join(", ")
         : [...rendered.values()].join(", ");
       return emitSink
-        ? [`${indent}${emitSink}.add(new ${s.eventName}(${args}));`]
+        ? [`${indent}${emitSink}.add(new ${javaEventRef(s.eventName)}(${args}));`]
         : [
-            `${indent}{ var __ev = new ${s.eventName}(${args}); CatalogLog.event(${javaLogEvent("eventDispatched")}, "event_type", __ev.getClass().getSimpleName()); }`,
+            `${indent}{ var __ev = new ${javaEventRef(s.eventName)}(${args}); CatalogLog.event(${javaLogEvent("eventDispatched")}, "event_type", __ev.getClass().getSimpleName()); }`,
           ];
     },
     repoRun: (s, indent) => {
@@ -939,8 +941,8 @@ function workflowVoMappers(
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports, basePkg);
     return [
-      `    private static ${vo} to${vo}(${vo}Request request, String at) {`,
-      `        return new ${vo}(${args});`,
+      `    private static ${javaProjectRef(vo, "valueobject")} to${vo}(${vo}Request request, String at) {`,
+      `        return new ${javaProjectRef(vo, "valueobject")}(${args});`,
       `    }`,
       ``,
     ];

@@ -3,11 +3,14 @@ import { isPayloadDecl, type TypeAtom, type TypeRef } from "../../../language/ge
 import { repoOpVerb } from "../../../util/repository-contract.js";
 import type { BoundedContext } from "../../api/index.js";
 import {
+  builderCall,
   callStmt,
+  canExpr,
   cloneTypeHead,
   cloneTypeRef,
   commandHandler,
   defineMacro,
+  field,
   idRef,
   letStmt,
   matchStmt,
@@ -15,17 +18,22 @@ import {
   namedType,
   nameRef,
   param,
+  payload,
+  primType,
   queryHandler,
   returnStmt,
 } from "../../api/index.js";
 import { contractRecords } from "./_contracts-shared.js";
 import {
+  CAN_RESULT,
+  canHandlerName,
   createRequestMembers,
   type HandlerTarget,
   handlerTargets,
   ID_PARAM,
   listHandlerName,
   listReadTargets,
+  permissionQueryTargets,
   targetHandlerName,
   unservedAggregateMessages,
 } from "./_handlers-shared.js";
@@ -57,7 +65,16 @@ import {
  *     o.cancel()
  *   }
  *   queryHandler   ListOrders(): Order paged { let r = Orders.all()  return r }
+ *   queryHandler   canShipOrder(id: Order id): CanResult {   // `ship` has a `when`
+ *     let o = Orders.get(id)
+ *     return CanResult { allowed: can o.ship() }
+ *   }
  *
+ * A permission query answers whether an operation would run now (its gates,
+ * in ladder order).  It is scaffolded for every public operation with a `when`
+ * guard none of whose gates reads a parameter; `payload CanResult { allowed: bool }`
+ * is spliced once per context that serves one, unless the context declares
+ * its own.
  * The list handler pages every row through the aggregate's own list read (the
  * one the derived `GET /<aggs>` runs); `scaffoldApi` does not route it, since
  * that derived route still serves the list.
@@ -105,7 +122,31 @@ export default defineMacro({
         returnStmt(nameRef("r")),
       ]),
     );
-    return [...contractRecords(ctx), ...handlers, ...lists];
+    const cans = permissionQueryTargets(ctx).map(({ agg, repo, op }) =>
+      queryHandler(
+        canHandlerName(op.name, agg.name),
+        [param(ID_PARAM, idRef(agg.name))],
+        namedType(CAN_RESULT),
+        [
+          letStmt(
+            "o",
+            memberAccess(nameRef(repo.name), repoOpVerb("load"), {
+              call: true,
+              args: [nameRef(ID_PARAM)],
+            }),
+          ),
+          returnStmt(builderCall(CAN_RESULT, [{ name: "allowed", value: canExpr("o", op.name) }])),
+        ],
+      ),
+    );
+    const declaresCanResult = (ctx.members ?? []).some(
+      (m) => isPayloadDecl(m) && m.name === CAN_RESULT,
+    );
+    const canRecord =
+      cans.length > 0 && !declaresCanResult
+        ? [payload(CAN_RESULT, [field("allowed", primType("bool"))])]
+        : [];
+    return [...contractRecords(ctx), ...canRecord, ...handlers, ...lists, ...cans];
   },
 });
 

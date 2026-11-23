@@ -11,6 +11,7 @@ import {
   type AngularIdTargetSpec,
   addNg,
   formButton,
+  formFailureMarkup,
   partitionAngularFields,
 } from "./form-fields.js";
 import { nullableTextFieldsOf } from "./form-prefill.js";
@@ -90,7 +91,11 @@ export function renderAngularCreateForm(
     );
   }
 
-  const fields = ctx.model.createRequestFields(bc, agg);
+  // The create request's fields: a default the server would fill is computed
+  // when the form opens (`FieldInput.createInput`).
+  const fields = ctx.model
+    .createRequestFields(bc, agg)
+    .map((f) => ({ ...f, createInput: true as const }));
   const ns = `${routeSegmentFor(agg.name)}-new`;
   const importFrom = `../../api/${lowerFirst(agg.name)}`;
   const requestType = `Create${agg.name}Request`;
@@ -167,9 +172,13 @@ export function renderAngularCreateForm(
 
   return [
     `<form [formGroup]="${formVar}" (ngSubmit)="${submitMethod}()" data-testid="${ns}">`,
-    ...[...fieldMarkup, ...parts.groupMarkup, ...parts.arrayMarkup, submit].map(
-      (m) => `${inner}${m}`,
-    ),
+    ...[
+      ...fieldMarkup,
+      ...parts.groupMarkup,
+      ...parts.arrayMarkup,
+      formFailureMarkup(formVar, ns),
+      submit,
+    ].map((m) => `${inner}${m}`),
     `${close}</form>`,
   ].join("\n");
 }

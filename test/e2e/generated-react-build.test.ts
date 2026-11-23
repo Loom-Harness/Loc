@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { EXTERN_FUNCTION_DIR } from "../../src/generator/_frontend/extern-shim.js";
+import { withoutRefusedThemeTokens } from "../_helpers/theme.js";
 import {
   reactBuildExamples as examples,
   reactBuildPacks as PACKS,
@@ -64,6 +65,10 @@ const ENABLED = process.env.LOOM_REACT_BUILD === "1" || SHARD !== undefined;
  *  "whatever BUILTIN_PACK_LATEST resolves to today".  Pre-existing
  *  bareword slots and pinned slots both get rewritten in place. */
 function injectDesign(src: string, qualified: string): string {
+  return withoutRefusedThemeTokens(retargetDesign(src, qualified), qualified.split("@")[0]!);
+}
+
+function retargetDesign(src: string, qualified: string): string {
   // Existing slot — either bareword (`design: mantine`) or pinned
   // (`design: "mantine@v9"`).  Match both shapes and rewrite to the
   // quoted pinned form.

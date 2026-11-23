@@ -20,6 +20,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../ir/util/wire-policy.js";
+import { CS_NAME } from "./cs-symbols.js";
 
 type Overrides = Readonly<Record<string, number>>;
 
@@ -148,7 +149,7 @@ export function csSentence(cls: WireRejectionClass, subject: string): string {
 export function csNotFoundException(ns: string | null, subject: string): string {
   const type =
     ns === null
-      ? "AggregateNotFoundException"
+      ? CS_NAME.AggregateNotFoundException
       : `global::${ns}.Domain.Common.AggregateNotFoundException`;
   return `new ${type}(${csSentence("not-found", subject)})`;
 }
@@ -158,7 +159,7 @@ export function csNotFoundException(ns: string | null, subject: string): string 
 export function csFindAbsentException(ns: string | null = null): string {
   const type =
     ns === null
-      ? "AggregateNotFoundException"
+      ? CS_NAME.AggregateNotFoundException
       : `global::${ns}.Domain.Common.AggregateNotFoundException`;
   return `new ${type}(${csLit(FIND_ABSENT_DETAIL)})`;
 }
@@ -193,7 +194,9 @@ export function csFieldInvalidProblem(
   variable?: string,
 ): string {
   const head =
-    variable === undefined ? "new ProblemDetails" : `var ${variable} = new ProblemDetails`;
+    variable === undefined
+      ? `new ${CS_NAME.ProblemDetails}`
+      : `var ${variable} = new ${CS_NAME.ProblemDetails}`;
   return [
     head,
     `{`,

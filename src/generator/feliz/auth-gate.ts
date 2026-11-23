@@ -18,6 +18,7 @@
 import type { BinOp, ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
 import { RETURN_TO_PARAM } from "../../util/return-to.js";
 import { groupedOperand, groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
+import { FS_LEAVES } from "./fs-expr.js";
 
 /** The system's `user { }` claim shape, as the session decodes it. */
 export interface FelizUser {
@@ -169,6 +170,11 @@ export function renderFelizGate(e: ExprIR, userVar: string): string {
         e.then,
         userVar,
       )} else ${renderFelizGate(e.otherwise, userVar)})`;
+    case "coalesce":
+      return FS_LEAVES.coalesce(
+        renderFelizGate(e.left, userVar),
+        renderFelizGate(e.fallback, userVar),
+      );
     default:
       throw new Error(`feliz UI gate: expression kind '${e.kind}' is not supported in a UI gate.`);
   }

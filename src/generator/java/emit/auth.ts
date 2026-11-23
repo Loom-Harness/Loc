@@ -41,7 +41,7 @@ import { javaLogEvent } from "../../_obs/render-java.js";
 import { registryAncestorsSql } from "../../_persistence/registry-walk.js";
 import { javaIntOutOfRange } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
-import { J } from "../java-symbols.js";
+import { J, javaIdRef } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { renderJavaType } from "../render-expr.js";
 
@@ -272,7 +272,7 @@ export function renderAuthFiles(
   const tenancyField = tenancyClaim ? fields.find((f) => f.name === tenancyClaim) : undefined;
   const orgContext = !!tenancyField && plan.gate;
   const ancestors = orgContext && plan.ancestors && !!registry;
-  const ancestorsType = registry ? `java.util.List<${registry.name}Id>` : "";
+  const ancestorsType = registry ? `java.util.List<${javaIdRef(registry.name)}>` : "";
   if (ancestors) imports.add(`${basePkg}.domain.ids.*`);
   // The operating org (and its ancestor set) are record components set ONCE,
   // by UserFilter's fail-closed `x-org-context` gate, via `inOrg(…)`.  Every
@@ -684,13 +684,12 @@ export function renderAuthFiles(
   );
 
   if (orgContext && registry) {
-    const idType = `${registry.name}Id`;
+    const idType = javaIdRef(registry.name);
     out.set(
       "OrgRegistry.java",
       lines(
         `package ${pkg};`,
         ``,
-        `import ${basePkg}.domain.ids.${idType};`,
         `import ${registry.repoPkg}.${registry.name}Repository;`,
         `import java.util.List;`,
         `import java.util.UUID;`,

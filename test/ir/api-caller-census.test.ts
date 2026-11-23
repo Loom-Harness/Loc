@@ -268,6 +268,9 @@ function censusOf(model: LoomModel): Census {
       for (const ctx of sd.contexts) {
         if (!served.has(ctx.name)) continue;
         for (const op of contextOperations(ctx)) {
+          // A slot an explicit route claims is served by that route, which the
+          // routed-handler pass below lists.
+          if (op.claimedByExplicitRoute) continue;
           derived.push({
             id: op.id,
             kind: op.kind,

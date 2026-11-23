@@ -29,13 +29,13 @@ import {
   type WireDecodeLeaf,
   type WireDecodeTarget,
 } from "../../_channels/wire-codec.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { JAVA_RUNTIME } from "../../_symbols/plan.js";
 import { javaCalendarDateWire, javaEnvelopeInstant } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
-import { J } from "../java-symbols.js";
+import { J, javaEventRef, javaIdRef } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 
 // ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@ function renderVoEncoders(vo: JavaVoEncode): string[] {
     const fields = vo.fields.get(next) ?? [];
     out.push(
       ``,
-      `    private static Map<String, Object> encode${next}(${next} v) {`,
+      `    private static Map<String, Object> encode${next}(${javaProjectRef(next, "valueobject")} v) {`,
       `        var m = new LinkedHashMap<String, Object>();`,
       ...fields.map(
         (f) =>
@@ -211,8 +211,8 @@ function javaWireDecode(): WireDecodeTarget {
       File: asString,
       duration: asString,
     },
-    id: (e, targetName) => `new ${targetName}Id(${J.UUID}.fromString((String) ${e}))`,
-    enumValue: (e, name) => `${name}.valueOf((String) ${e})`,
+    id: (e, targetName) => `new ${javaIdRef(targetName)}(${J.UUID}.fromString((String) ${e}))`,
+    enumValue: (e, name) => `${javaProjectRef(name, "enum")}.valueOf((String) ${e})`,
     optional: (e, decoded) => `${e} == null ? null : ${decoded}`,
     passthrough: asString,
     // A value object crosses as a DSL-keyed JSON object (a `Map` after
@@ -220,7 +220,8 @@ function javaWireDecode(): WireDecodeTarget {
     // `String` for the VO-typed component (eval item 11).
     valueObject: {
       view: (e) => `((Map<?, ?>) ${e})`,
-      build: (name, fields) => `new ${name}(${fields.map((f) => f.decoded).join(", ")})`,
+      build: (name, fields) =>
+        `new ${javaProjectRef(name, "valueobject")}(${fields.map((f) => f.decoded).join(", ")})`,
     },
   };
 }
@@ -1162,7 +1163,7 @@ export function renderJavaChannelFiles(
         `                m.put(${JSON.stringify(f.name)}, ${toDataExpr(`e.${jid(f.name)}()`, f.type, voEncode)});`,
     );
     return [
-      `            case ${ev.name} e -> {`,
+      `            case ${javaEventRef(ev.name)} e -> {`,
       `                var m = new LinkedHashMap<String, Object>();`,
       ...puts,
       `                yield m;`,
@@ -1171,7 +1172,7 @@ export function renderJavaChannelFiles(
   });
   const fromArms = carried.map(
     (ev) =>
-      `            case ${JSON.stringify(ev.name)} -> new ${ev.name}(${ev.fields
+      `            case ${JSON.stringify(ev.name)} -> new ${javaEventRef(ev.name)}(${ev.fields
         .map((f) => fromDataExpr(f.name, f.type, vos))
         .join(", ")});`,
   );
@@ -1483,7 +1484,7 @@ export function renderJavaChannelFiles(
     const arms = [...byEvent.entries()].map(([event, hs]) =>
       [
         `            case ${JSON.stringify(event)} -> {`,
-        `                var e = (${event}) ChannelCodec.fromData(bare, envelope.data());`,
+        `                var e = (${javaEventRef(event)}) ChannelCodec.fromData(bare, envelope.data());`,
         ...hs.map((h) => `                ${lowerFirst(h.dispatcherClass)}.${h.method}(e);`),
         `            }`,
       ].join("\n"),
@@ -2075,7 +2076,7 @@ export function renderJavaStandaloneOutboxFiles(
     .map(([event, hs]) =>
       [
         `            case ${JSON.stringify(event)} -> {`,
-        `                var e = mapper.convertValue(payload, ${event}.class);`,
+        `                var e = mapper.convertValue(payload, ${javaEventRef(event)}.class);`,
         ...hs.map((h) => `                ${lowerFirst(h.dispatcherClass)}.${h.method}(e);`),
         `            }`,
       ].join("\n"),

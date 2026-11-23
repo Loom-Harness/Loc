@@ -148,6 +148,7 @@ import {
 } from "./checks/test-checks.js";
 import { validateTestPrincipals } from "./checks/test-principal-checks.js";
 import { validateTestThrowShapes } from "./checks/test-throw-checks.js";
+import { validateThemeTokens } from "./checks/theme-token-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import { validateTransactionHints } from "./checks/transaction-hint-checks.js";
 import {
@@ -251,6 +252,7 @@ export function validateLoomModel(
     // A custom `design:` pack is loaded and checked here, when the host can
     // read it — the loader would otherwise be the first to find its defects.
     validateCustomDesignPacks(sys, options.designPacks, diags);
+    validateThemeTokens(sys, diags);
     // Page gates and bodies name permissions too, and `validatePermissionRefs`
     // walks only CONTEXT bodies — so an unresolvable `permissions.<name>` in a
     // `ui` lowered to the sentinel and rendered as a literal no principal can

@@ -43,7 +43,6 @@ export const anchors: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.create-call-missing-field":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
-  "loom.reserved-derived-on-vo": "07-invariants-derived-functions.md#reserved-display-and-inspect",
   "loom.abstract-aggregate-behavior":
     "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
   "loom.abstract-repository": "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
@@ -63,7 +62,6 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.create-name-conflict-workflow": "13-workflows.md#create--starters",
   "loom.create-args": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.create-record-form": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
-  "loom.reserved-not-emitted": "14-apis-storage-resources-channels.md#connection-sources",
 
   // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------
   "loom.valueobject-in-text-slot":

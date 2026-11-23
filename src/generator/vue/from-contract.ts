@@ -37,7 +37,11 @@ import {
   e2ePackageJson,
   e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
-import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
+import {
+  ERROR_CODE_HELPERS_TS,
+  errorCodeTBinding,
+  submitFailureTs,
+} from "../_frontend/error-codes.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
@@ -83,7 +87,7 @@ import {
   vueChromeText as shellChromeText,
 } from "../_frontend/shell-chrome.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
-import { prepareThemeVM } from "../_frontend/theme-preparer.js";
+import { prepareThemeFonts, prepareThemeVM, withFontImports } from "../_frontend/theme-preparer.js";
 import { uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { contractUsesMoney, contractUsesProvenance } from "../_frontend/usage-flags.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
@@ -658,7 +662,7 @@ export function generateVueFromContract(
     "src/lib/form.ts",
     renderShell(pack, "loom-form", {
       tBinding: errorCodeTBinding(i18nEnabled, "./locale"),
-      helpers: ERROR_CODE_HELPERS_TS,
+      helpers: `${ERROR_CODE_HELPERS_TS}\n${submitFailureTs(i18nEnabled)}`,
       issueCodeKey: TS_RUNTIME.issueCode,
     }),
   );
@@ -704,7 +708,10 @@ export function generateVueFromContract(
 
   // Pack shell tier.
   out.set("src/theme.ts", renderShell(pack, "theme", prepareThemeVM(host.theme)));
-  out.set("src/main.ts", renderShell(pack, "main", { authUi }));
+  // A web font the theme names is bundled: its Fontsource package is a
+  // dependency and the entry loads its stylesheets.
+  const themeFonts = prepareThemeFonts(host.theme, pack.manifest.name);
+  out.set("src/main.ts", withFontImports(renderShell(pack, "main", { authUi }), themeFonts));
   // App root.  Default-only uis render the pack chrome straight into
   // App.vue (the flat-router shape).  When named layouts are in play the
   // chrome moves to `src/layouts/DefaultLayout.vue` and App.vue is a thin
@@ -872,6 +879,7 @@ export function generateVueFromContract(
       packageName: projectPackageName(host.system, host.deployable),
       usesMoney,
       usesCodeBlock,
+      fontPackages: themeFonts.fontPackages,
     }),
   );
   out.set("tsconfig.json", renderShell(pack, "tsconfig", {}));

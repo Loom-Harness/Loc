@@ -24,6 +24,8 @@ function readerText(): string {
     readFileSync("test/behavioral/registers.mjs", "utf8"),
     // A conformance rule cites one on its `unobserved: { …, tracked: "#N" }`.
     readFileSync("test/conformance/semantics-rules.ts", "utf8"),
+    // An import-style reserved type name cites one on its `deferral`.
+    readFileSync("src/util/reserved-type-names.ts", "utf8"),
     ...sys,
   ].join("\n");
 }

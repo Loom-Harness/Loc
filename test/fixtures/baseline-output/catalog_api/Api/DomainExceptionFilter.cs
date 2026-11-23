@@ -198,6 +198,44 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
+        if (context.Exception is DomainException dfe && dfe.RuleCode != null)
+        {
+            _log.LogWarning("{Event} message={Message} status={Status}", "domain_error", dfe.Message, 422);
+            global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("domain_error");
+            context.HttpContext.Response.Headers["x-request-id"] = trace_id;
+            var dfProblem = new ProblemDetails
+            {
+                Type = "about:blank",
+                Title = "Unprocessable Entity",
+                Status = 422,
+                Detail = dfe.Message,
+                Instance = context.HttpContext.Request.Path,
+            };
+            // The rule's catalog code (its identity key, or the generic key of
+            // an unnamed one) names both the body and its one errors[] entry;
+            // the values the rule read ride as params.
+            var dfProblemCode = dfe.RuleCode ?? "problem.domain-floor";
+            dfProblem.Extensions["code"] = dfProblemCode;
+            var dfProblemEntry = new System.Collections.Generic.Dictionary<string, object?>
+            {
+                ["pointer"] = dfe.RulePointer ?? "",
+                ["message"] = dfe.Message,
+                ["code"] = dfProblemCode,
+            };
+            if (dfe.RuleParams is { Count: > 0 })
+            {
+                dfProblem.Extensions["params"] = dfe.RuleParams;
+                dfProblemEntry["params"] = dfe.RuleParams;
+            }
+            dfProblem.Extensions["errors"] = new object[] { dfProblemEntry };
+            context.Result = new ObjectResult(dfProblem)
+            {
+                StatusCode = 422,
+                ContentTypes = { "application/problem+json" },
+            };
+            context.ExceptionHandled = true;
+            return;
+        }
         // A domain-floor rejection (precondition / invariant) is 422 —
         // the request is well-formed, the domain refuses it on semantic
         // grounds.  400 stays for a malformed request.

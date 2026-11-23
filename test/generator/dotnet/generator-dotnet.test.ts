@@ -7,6 +7,7 @@ import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import {
   generateBackendFiles,
+  generateBackendFromFile,
   generateBackendFromSource,
   generateSystemFiles,
 } from "../../_helpers/generate.js";
@@ -1518,7 +1519,11 @@ describe(".NET generator", () => {
   // -------------------------------------------------------------------
   describe("FluentValidation pipeline", () => {
     it("mirrors create wire constraints onto the update/op-path validator (SYS-1)", async () => {
-      const files = await salesFiles();
+      // An unnamed single-field rule is the one FluentValidation absorbs natively.
+      const files = await generateBackendFromFile(
+        "test/fixtures/unnamed-rules/sales.ddd",
+        "dotnet",
+      );
       // M-T6.8/SYS-1: Customer's crudish `update` command validator now carries
       // the SAME field constraint as CreateCustomerCommandValidator —
       // `invariant email.length > 0` → the same code-point length `.Must` — so an invalid update

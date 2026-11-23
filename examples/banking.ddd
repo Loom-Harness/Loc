@@ -7,8 +7,8 @@ context Banking {
   valueobject Money {
     amount: decimal
     currency: string
-    invariant amount >= 0
-    invariant currency.length == 3
+    invariant amountCannotBeNegative: amount >= 0
+    invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
   }
 
   event AccountOpened {
@@ -23,10 +23,10 @@ context Banking {
   event MoneyWithdrawn { account: Account id, amount: Money, at: datetime }
 
   aggregate Customer with crudish {
-    name: string
-    email: string
-    invariant name.length > 0
-    invariant email.length > 0
+    name: string check nameMustBeAtMostOneHundredCharacters: name.length <= 100
+    email: string check emailMustBeAtMostOneHundredTwentyCharacters: email.length <= 120
+    invariant nameIsRequired: name.trim().length > 0
+    invariant emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
   }
 
   aggregate Account with crudish {
@@ -41,12 +41,13 @@ context Banking {
 
     derived transactionCount: int = transactions.count
 
-    invariant balance.amount >= 0
-    invariant transactions.all(t => t.amount.amount > 0)
+    invariant balanceCannotBeNegative: balance.amount >= 0
+    invariant everyTransactionAmountMustBePositive: transactions.all(t => t.amount.amount > 0)
 
     operation deposit(amount: Money) {
-      precondition isMutable()
-      precondition amount.amount > 0
+      precondition onlyOpenAccountsAcceptDeposits: isMutable()
+      precondition depositMustBePositive: amount.amount > 0
+      precondition depositCurrencyMustMatchTheAccount: amount.currency == balance.currency
       balance := Money { amount: balance.amount + amount.amount, currency: balance.currency }
       transactions += AccountTransaction {
         amount: amount,
@@ -57,9 +58,10 @@ context Banking {
     }
 
     operation withdraw(amount: Money) {
-      precondition isMutable()
-      precondition amount.amount > 0
-      precondition balance.amount >= amount.amount
+      precondition onlyOpenAccountsAllowWithdrawals: isMutable()
+      precondition withdrawalMustBePositive: amount.amount > 0
+      precondition withdrawalCurrencyMustMatchTheAccount: amount.currency == balance.currency
+      precondition balanceMustCoverTheWithdrawal: balance.amount >= amount.amount
       balance := Money { amount: balance.amount - amount.amount, currency: balance.currency }
       transactions += AccountTransaction {
         amount: amount,
@@ -73,7 +75,8 @@ context Banking {
     // closes it outright.  The corpus's hand-written witness for the `if`
     // statement and the `??` operator (clause census).
     operation freeze(reason: string) {
-      precondition status == Open
+      precondition onlyOpenAccountsCanBeFrozen: status == Open
+      precondition freezeReasonIsRequired: reason.trim().length > 0
       if balance.amount > 0 {
         status := Frozen
       } else {
@@ -88,8 +91,8 @@ context Banking {
       amount: Money
       kind: string
       at: datetime
-      invariant amount.amount > 0
-      invariant kind.length > 0
+      invariant transactionAmountMustBePositive: amount.amount > 0
+      invariant transactionKindIsRequired: kind.trim().length > 0
     }
   }
 

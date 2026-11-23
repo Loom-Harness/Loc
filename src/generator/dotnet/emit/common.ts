@@ -13,6 +13,7 @@ import {
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { csMoneyGrammar } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { csFindAbsentException, csNotFoundException, csSentence } from "../wire-policy-cs.js";
 
 export function renderCommon(
@@ -51,7 +52,7 @@ public enum DomainErrorKind
 
 `;
   const domainException = opts.domainFloorCodes
-    ? `${domainErrorKind}public sealed class DomainException : Exception
+    ? `${domainErrorKind}public sealed class DomainException : ${CS_NAME.Exception}
 {
     /// <summary>The rung that refused; null outside the precondition /
     /// invariant floor.</summary>
@@ -78,7 +79,7 @@ public enum DomainErrorKind
     }
 }
 `
-    : `${domainErrorKind}public sealed class DomainException : Exception
+    : `${domainErrorKind}public sealed class DomainException : ${CS_NAME.Exception}
 {
     /// <summary>The rung that refused; null outside the precondition /
     /// invariant floor.</summary>
@@ -100,7 +101,7 @@ public enum DomainErrorKind
 /// <c>errors[]</c> entry: the whole-request pointer <c>""</c> (the value was
 /// computed by a body, so it names no request member), the rule's message,
 /// its catalog code and the values the rule read as params.</summary>
-public sealed class ValueObjectInvariantException : Exception
+public sealed class ValueObjectInvariantException : ${CS_NAME.Exception}
 {
     public string ValueObject { get; }
     public string? RuleCode { get; }
@@ -145,7 +146,7 @@ public sealed record FileRef(string Url, string Key, string ContentType, long Si
 /// version no longer matched (think-time CAS).  DomainExceptionFilter maps this
 /// to HTTP 409 — the persistence-neutral analogue of EF's
 /// <c>DbUpdateConcurrencyException</c>.</summary>
-public sealed class ConcurrencyConflictException : Exception
+public sealed class ConcurrencyConflictException : ${CS_NAME.Exception}
 {
     // RS-40: the message IS the 409 detail ("<Aggregate> <id> was modified by another request").
     public ConcurrencyConflictException(string aggregate, object id) : base(${csSentence("version-conflict", "{aggregate} {id}")}) { }
@@ -182,12 +183,12 @@ ${domainException}
 ${concurrencyException}${valueObjectInvariant}${externNotImplemented}/// <summary>State-gate failure — an operation's 'when' predicate (the
 /// canCommand gate) evaluated false against the loaded aggregate.
 /// DomainExceptionFilter maps this to HTTP 409.</summary>
-public sealed class DisallowedException : Exception
+public sealed class DisallowedException : ${CS_NAME.Exception}
 {
     public DisallowedException(string message) : base(message) { }
 }
 
-public sealed class AggregateNotFoundException : Exception
+public sealed class AggregateNotFoundException : ${CS_NAME.Exception}
 {
     public AggregateNotFoundException(string message) : base(message) { }
 }
@@ -199,7 +200,7 @@ public sealed class AggregateNotFoundException : Exception
 /// to HTTP 403 (Forbidden), distinct from DomainException's 400
 /// (Bad Request).
 /// </summary>
-public sealed class ForbiddenException : Exception
+public sealed class ForbiddenException : ${CS_NAME.Exception}
 {
     public ForbiddenException(string message) : base(message) { }
 }
@@ -214,7 +215,7 @@ public sealed class ForbiddenException : Exception
 /// 422 + errors[] envelope FluentValidation and Hono's zod hook emit, so one
 /// malformed field reads identically on every backend (M-T6.48).
 /// </summary>
-public sealed class WireFormatException : Exception
+public sealed class WireFormatException : ${CS_NAME.Exception}
 {
     /// <summary>RFC-6901 pointer to the offending field, e.g. <c>/price</c>.
     /// Named FieldPointer, not Pointer: CA1720 ("identifier contains type
@@ -268,11 +269,11 @@ public sealed class WireFormatException : Exception
 /// (DomainException, ForbiddenException, AggregateNotFoundException) are
 /// NOT wrapped — they bubble through to their usual status codes.
 /// </summary>
-public sealed class ExternHandlerException : Exception
+public sealed class ExternHandlerException : ${CS_NAME.Exception}
 {
     public string OpName { get; }
     public string AggName { get; }
-    public ExternHandlerException(string opName, string aggName, Exception inner)
+    public ExternHandlerException(string opName, string aggName, ${CS_NAME.Exception} inner)
         : base($"Extern handler '{opName}' on '{aggName}' threw: {inner.Message}", inner)
     {
         OpName = opName;
@@ -340,7 +341,7 @@ public sealed class DomainEventDeferral : IDisposable
 {
     private static readonly AsyncLocal<DomainEventDeferral?> _current = new();
     private readonly DomainEventDeferral? _previous;
-${keep ? `    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event, RequestContext? Frame)> _buffered = new();` : `    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event)> _buffered = new();`}
+${keep ? `    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event, ${CS_NAME.RequestContext}? Frame)> _buffered = new();` : `    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event)> _buffered = new();`}
     private bool _closed;
 
     private DomainEventDeferral()
@@ -363,7 +364,7 @@ ${
         // its stream tenant's event-origin frame, which is closed again by the
         // time the scope flushes — the outbox capture, the CloudEvents envelope
         // and a fold read the event's tenant from the frame the dispatch runs in.
-        scope._buffered.Add((dispatcher, ev, RequestContext.Current));`
+        scope._buffered.Add((dispatcher, ev, ${CS_NAME.RequestContext}.Current));`
     : `        scope._buffered.Add((dispatcher, ev));`
 }
         return Task.CompletedTask;
@@ -379,7 +380,7 @@ ${
   keep
     ? `        foreach (var (dispatcher, ev, frame) in pending)
         {
-            using var __frame = frame is null || ReferenceEquals(frame, RequestContext.Current) ? null : RequestContext.Enter(frame);
+            using var __frame = frame is null || ReferenceEquals(frame, ${CS_NAME.RequestContext}.Current) ? null : ${CS_NAME.RequestContext}.Enter(frame);
             await dispatcher.DispatchAsync(ev, cancellationToken);
         }`
     : `        foreach (var (dispatcher, ev) in pending) await dispatcher.DispatchAsync(ev, cancellationToken);`
@@ -426,8 +427,8 @@ ${fileRef}/// <summary>
 /// </summary>
 public readonly record struct FilterBypass(bool All, IReadOnlyList<string> Capabilities)
 {
-    public static readonly FilterBypass None = new(false, Array.Empty<string>());
-    public static FilterBypass BypassAll() => new(true, Array.Empty<string>());
+    public static readonly FilterBypass None = new(false, ${CS_NAME.Array}.Empty<string>());
+    public static FilterBypass BypassAll() => new(true, ${CS_NAME.Array}.Empty<string>());
     public static FilterBypass Bypass(params string[] capabilities) => new(false, capabilities);
 }
 
@@ -619,7 +620,7 @@ public sealed class InProcessDomainEventDispatcher : IDomainEventDispatcher
         {
             await _mediator.Publish((object)ev, cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (${CS_NAME.Exception} ex) when (ex is not OperationCanceledException)
         {
             ${renderDotnetLogCallWithException("reactorFailed", "ex", [
               { name: "handler", valueExpr: `"dispatch"` },

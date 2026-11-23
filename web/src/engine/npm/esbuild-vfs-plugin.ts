@@ -25,6 +25,7 @@ const PLAYGROUND_CONDITIONS = ["browser", "import", "module", "default"] as cons
 const NS = "vfs";
 const EMPTY = "vfs-empty";
 const EMPTY_CSS = "vfs-empty-css";
+const FONT_EXTENSIONS: ReadonlySet<string> = new Set([".woff2", ".woff", ".ttf", ".otf"]);
 
 // Node builtins the curated backend may reference in branches the
 // browser/PGlite path never takes (the `pg` driver tree etc.).
@@ -523,6 +524,12 @@ export function makeVfsNpmPlugin(
         const v = files.get(args.path);
         if (v == null) return { errors: [{ text: `vfs: missing ${args.path}` }] };
         const ext = args.path.slice(args.path.lastIndexOf("."));
+        // A font a bundled stylesheet names (`url(./files/….woff2)`, e.g. a
+        // Fontsource package the theme bundles) is inlined as a data URL: the
+        // preview serves no files beside its bundle.
+        if (FONT_EXTENSIONS.has(ext)) {
+          return { contents: typeof v === "string" ? new TextEncoder().encode(v) : v, loader: "dataurl" };
+        }
         const loader: Loader =
           ext === ".ts"
             ? "ts"

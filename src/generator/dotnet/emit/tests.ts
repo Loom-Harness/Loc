@@ -33,6 +33,7 @@ import {
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
 import { CS_REJECTION_CLASSES, csThrowKind, rejectionClasses } from "../../_test/throw-kind.js";
 import { csCalendarDateParseExact } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { renderCsExpr, renderCsType } from "../render-expr.js";
 
 /** C# leaves for the shared test-literal coercion rule
@@ -41,7 +42,7 @@ import { renderCsExpr, renderCsType } from "../render-expr.js";
 export const CS_TEST_LITERAL: TestValueTarget = {
   id: (rendered, targetName) => `new ${targetName}Id(Guid.Parse(${rendered}))`,
   datetime: (rendered) =>
-    `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
+    `${CS_NAME.DateTime}.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
   date: (rendered) => csCalendarDateParseExact(rendered),
   money: (digits) => renderCsExpr({ kind: "literal", lit: "money", value: digits }),
   valueObject: (name, args) => `new ${name}(${args.join(", ")})`,
@@ -274,7 +275,7 @@ export const GATED = "Gated";
 export function gatedHelpers(): string[] {
   const loop = [
     "        foreach (var (allowed, message) in gates)",
-    "            if (!allowed) throw new ForbiddenException(message);",
+    `            if (!allowed) throw new ${CS_NAME.ForbiddenException}(message);`,
   ];
   return [
     "    /// <summary>Route <c>requires</c> gates of the operation called next: refused as the route refuses them.</summary>",
@@ -496,14 +497,16 @@ export function csRejection(
     if (voCtor && plan.rung === "invariant")
       return `${indent}${one("ValueObjectInvariantException")};`;
     return [
-      `${indent}var ${local} = ${one("DomainException")};`,
+      `${indent}var ${local} = ${one(CS_NAME.DomainException)};`,
       `${indent}Assert.Equal(${csThrowKind(plan.rung)}, ${local}.Kind);`,
     ].join("\n");
   }
   const classes = voCtor
     ? ["ValueObjectInvariantException"]
     : [
-        ...rejectionClasses(CS_REJECTION_CLASSES, plan.rungs),
+        ...rejectionClasses(CS_REJECTION_CLASSES, plan.rungs).map(
+          (c) => (CS_NAME as Readonly<Record<string, string>>)[c] ?? c,
+        ),
         ...(plan.rungs.includes("invariant") && hasValueObjectInvariants(ctx)
           ? ["ValueObjectInvariantException"]
           : []),

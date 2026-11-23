@@ -99,6 +99,8 @@ export function structEvaluable(
       return rec(e.left) && rec(e.right);
     case "ternary":
       return rec(e.cond) && rec(e.then) && rec(e.otherwise);
+    case "coalesce":
+      return rec(e.left) && rec(e.fallback);
     // A member READ off a struct-evaluable receiver: an array's `.count` /
     // `.length` (→ `Enum.count/1`), a string's `.length` (→ the code-point
     // count), a VO property.  The receiver carries the whole judgement — a

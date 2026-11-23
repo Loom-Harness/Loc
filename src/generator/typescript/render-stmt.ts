@@ -14,6 +14,7 @@ import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt
 import type { ChunkMark } from "../_trace/sourcemap.js";
 import { tsLineageValue } from "./codec-spelling.js";
 import { renderTsExpr, renderTsExprWithMarks, type TsRenderContext } from "./render-expr.js";
+import { T } from "./ts-symbols.js";
 import { tsRuleParams } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -201,7 +202,7 @@ function tsStmtTarget(
     requires: (s) =>
       // Authorization gate — surfaces as 403 via the route-level
       // ForbiddenError catch in the per-aggregate routes file.
-      `${INDENT}if (!(${rx(s.expr)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${s.source}`)});`,
+      `${INDENT}if (!(${rx(s.expr)})) throw new ${T.ForbiddenError}(${JSON.stringify(`Forbidden: ${s.source}`)});`,
 
     let: (s) =>
       // `let`-names may collide with a JS reserved word; escape consistently
@@ -381,8 +382,8 @@ function precondition(
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
   const params = code ? tsRuleParams({ expr }, rx) : undefined;
   const thrown = code
-    ? `throw new DomainError(${JSON.stringify(detail)}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
-    : `throw new DomainError(${JSON.stringify(detail)}, "precondition")`;
+    ? `throw new ${T.DomainError}(${JSON.stringify(detail)}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
+    : `throw new ${T.DomainError}(${JSON.stringify(detail)}, "precondition")`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${rx(expr)})) ${thrown};`;
   }

@@ -48,6 +48,7 @@ import * as eventing from "./messages/eventing.js";
 import * as frontends from "./messages/frontends.js";
 import * as migration from "./messages/migration.js";
 import * as model from "./messages/model.js";
+import * as names from "./messages/names.js";
 import * as page from "./messages/page.js";
 import * as persistence from "./messages/persistence.js";
 import * as projection from "./messages/projection.js";
@@ -66,6 +67,7 @@ export const MESSAGE_FAMILIES = {
   behavior,
   types,
   model,
+  names,
   workflow,
   timer,
   eventing,
@@ -87,6 +89,7 @@ export const DIAGNOSTIC_MESSAGES = {
   ...behavior.messages,
   ...types.messages,
   ...model.messages,
+  ...names.messages,
   ...workflow.messages,
   ...timer.messages,
   ...eventing.messages,

@@ -1,0 +1,10 @@
+{
+  "title": "`can o.op(args)` — a permission query answers whether the operation's own gates would let it run on the bound row",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "A `requires` that reads the argument and the row and a `when` that reads the row, asked through a routed queryHandler before and after the operation runs, on every backend.",
+  "authzGate": {
+    "//": "`ship(c)`'s `requires c != code` reads the argument and the row, not the caller: the fixture's `test e2e` drives its 403 and its 204. A gate that reads a parameter has no derived `can_ship` permission query; the routed queryHandler asks it with the argument.",
+    "operation POST /api/orders/{id}/ship": "rowDataGate"
+  }
+}

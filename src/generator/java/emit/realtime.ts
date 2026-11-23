@@ -5,6 +5,7 @@ import { lines } from "../../../util/code-builder.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaCalendarDateWire, javaInstantWire } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
+import { javaEventRef } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 
 // ---------------------------------------------------------------------------
@@ -61,7 +62,7 @@ function javaRealtimeValue(access: string, t: TypeIR): string {
 
 function wireMapArm(ev: EventIR): string[] {
   const out = [
-    `        if (event instanceof ${ev.name} e) {`,
+    `        if (event instanceof ${javaEventRef(ev.name)} e) {`,
     `            var m = new LinkedHashMap<String, Object>();`,
     `            m.put("type", "${ev.name}");`,
   ];

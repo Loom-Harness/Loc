@@ -1,7 +1,8 @@
 import type { TypeIR } from "../../../ir/types/loom-ir.js";
+import { javaProjectRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaCalendarDateWire, javaInstantWire } from "../codec-spelling.js";
-import { J } from "../java-symbols.js";
+import { J, javaIdRef } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { JAVA_PROVENANCED_RECORD } from "./provenance.js";
 
@@ -127,7 +128,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
     case "id":
       return javaIdValueType();
     case "enum":
-      return t.name;
+      return javaProjectRef(t.name, "enum");
     case "valueobject":
       return `${t.name}${dir}`;
     case "entity":
@@ -256,7 +257,7 @@ export function wireToDomain(
       if (t.name === "date") return `WireFormatException.date(${expr}, ${at(pointer)})`;
       return expr;
     case "id":
-      return `new ${t.targetName}Id(${expr})`;
+      return `new ${javaIdRef(t.targetName)}(${expr})`;
     case "valueobject":
       // The nested record's mapper takes the path it sits at, so its own
       // fields' refusals point through it.
