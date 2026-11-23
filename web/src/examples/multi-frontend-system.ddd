@@ -7,8 +7,29 @@
 // The playground previews every frontend: the picker above the preview
 // switches between them, and each one's API calls go to the backend its
 // `targets:` names.
+//
+// `site` is one front door over the back office and the operations console:
+// one origin, so one sign-in serves both, and the language chosen in one is
+// the language of the other.  Each lists the apps `site` offers through
+// `Apps {}`: the back office in its `Shell` layout; the console on a page,
+// because the Angular frontend does not render a `layout`'s slots yet
+// (#4003) — a workaround, not the intended place (row 439).
 
 system MultiFrontend {
+  user {
+    id: guid
+  }
+
+  auth {
+    enforcement: opt
+    provider: keycloak
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+      audience: "multifrontend-admin"
+    }
+  }
+
   subdomain Catalog {
     context Catalog {
       aggregate Product with crudish {
@@ -19,11 +40,27 @@ system MultiFrontend {
     }
   }
 
+  layout Shell {
+    header { Apps {} }
+    main
+  }
+
   ui Backoffice with scaffold(subdomains: [Catalog]) {
+    page Launcher {
+      route: "/apps"
+      title: "Apps"
+      layout: Shell
+      body: Text { "The apps behind this front door." }
+    }
   }
 
   ui Ops with scaffold(subdomains: [Catalog]) {
     framework: angular
+    page Launcher {
+      route: "/apps"
+      title: "Apps"
+      body: Stack { Apps {} }
+    }
   }
 
   ui Shop with scaffold(subdomains: [Catalog]) {
@@ -42,6 +79,7 @@ system MultiFrontend {
     contexts: [Catalog]
     dataSources: [catalogState]
     port: 3000
+    auth: required
   }
 
   deployable storefront {
@@ -56,6 +94,7 @@ system MultiFrontend {
     targets: admin
     ui: Backoffice
     port: 3001
+    auth: ui
   }
 
   deployable shopfront {
@@ -70,6 +109,7 @@ system MultiFrontend {
     targets: admin
     ui: Ops
     port: 3005
+    auth: ui
   }
 
   deployable kiosk {
@@ -77,5 +117,15 @@ system MultiFrontend {
     targets: storefront
     ui: Kiosk
     port: 3004
+  }
+
+  deployable site {
+    platform: gateway
+    port: 8080
+    gathers: [ backoffice at "/", ops at "/ops" ]
+    apps {
+      app backoffice label "Back office"
+      app ops label "Operations"
+    }
   }
 }
