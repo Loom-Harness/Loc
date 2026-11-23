@@ -380,7 +380,7 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
     t.element.kind === "primitive" &&
     (t.element.name === "money" || t.element.name === "decimal")
   ) {
-    return `(if is_list(${varName}), do: Enum.map(${varName}, fn loom_m -> ${coerceOpParam("loom_m", t.element)} end), else: ${varName})`;
+    return `(if is_list(${varName}), do: Enum.map(${varName}, fn loom_el -> ${coerceOpParam("loom_el", t.element)} end), else: ${varName})`;
   }
   if (t?.kind !== "primitive") return varName;
   switch (t.name) {
