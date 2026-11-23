@@ -193,7 +193,8 @@
       "api": false,
       "unit": false,
       "ui": true,
-      "textProbe": "form-spec"
+      "textProbe": "form-spec",
+      "devStub": true
     },
     {
       "name": "form-spec-ui-vue",
@@ -203,7 +204,8 @@
       "unit": false,
       "ui": true,
       "uiTier": "nightly",
-      "textProbe": "form-spec"
+      "textProbe": "form-spec",
+      "devStub": true
     },
     {
       "name": "form-spec-ui-svelte",
@@ -213,7 +215,8 @@
       "unit": false,
       "ui": true,
       "uiTier": "nightly",
-      "textProbe": "form-spec"
+      "textProbe": "form-spec",
+      "devStub": true
     },
     {
       "name": "form-spec-ui-angular",
@@ -223,7 +226,8 @@
       "unit": false,
       "ui": true,
       "uiTier": "nightly",
-      "textProbe": "form-spec"
+      "textProbe": "form-spec",
+      "devStub": true
     },
     {
       "name": "form-spec-ui-feliz",
@@ -233,7 +237,8 @@
       "unit": false,
       "ui": true,
       "uiTier": "nightly",
-      "textProbe": "form-spec"
+      "textProbe": "form-spec",
+      "devStub": true
     },
     {
       "name": "form-spec-ui-flutter",
@@ -243,7 +248,8 @@
       "unit": false,
       "ui": false,
       "uiFlutter": true,
-      "textProbe": "form-spec"
+      "textProbe": "form-spec",
+      "devStub": true
     },
     {
       "name": "oidc-login-ui-react",

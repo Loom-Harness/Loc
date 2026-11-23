@@ -561,7 +561,9 @@ async function runCase(c) {
     // 2. ONE origin: the built Flutter bundle + the generated Hono backend on
     //    PGlite at /api.  No proxy, no CORS — the same invariant run-ui.mjs
     //    relies on, from the same shared module.
-    const { startServer } = await buildServerModule(deplDir, workDir);
+    // A `devStub` case boots its `auth: required` backend on the generated dev
+    // stub, so the browser's `x-dev-claims` picks the session principal.
+    const { startServer } = await buildServerModule(deplDir, workDir, { devStub: !!c.devStub });
     server = await startServer({ distDir });
     const origin = `http://127.0.0.1:${server.port}`;
     process.stdout.write(`    stack on :${server.port}\n`);

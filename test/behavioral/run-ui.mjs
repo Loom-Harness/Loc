@@ -449,7 +449,12 @@ async function runCase(c) {
         SECURE_TRANSPORT: "off",
       });
     }
-    const { startServer } = await buildServerModule(deplDir, workDir, { oidc: !!c.oidcLogin });
+    // A `devStub` case boots its `auth: required` backend on the generated dev
+    // stub, so the browser's `x-dev-claims` picks the session principal.
+    const { startServer } = await buildServerModule(deplDir, workDir, {
+      oidc: !!c.oidcLogin,
+      devStub: !!c.devStub,
+    });
     server = await startServer({ distDir, port });
     process.stdout.write(`    stack on :${server.port}\n`);
 
