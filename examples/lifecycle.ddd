@@ -10,16 +10,16 @@
 context Lifecycle {
 
   aggregate Article with crudish {
-    headline: string
+    headline: string check headlineIsRequired: headline.trim().length > 0
     // `immutable` — settable at creation (kept on the create surface) but
     // excluded from the update surface; exercises the writableCreateFields
     // vs writableUpdateFields split in the generated create/update.
-    slug: string immutable
+    slug: string immutable check slugMustBeLowercaseWordsJoinedByDashes: slug.matches("^[a-z0-9]+(-[a-z0-9]+)*$")
     content: string
   }
 
   aggregate Tag with crudish {
-    label: string
+    label: string check labelIsRequired: label.trim().length > 0
   }
 
   // Synthesised parameterless create: declares no `create`, but every

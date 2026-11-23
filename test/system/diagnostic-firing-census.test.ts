@@ -2285,6 +2285,14 @@ system FmtPattern {
     }
   } }
 }`,
+  // The built-in parse declarations' names are reserved.
+  "loom.intrinsic-parse": `
+system ParseName {
+  subdomain S { context Sales {
+    error ParseError { input: string }
+    aggregate Order with crudish { qty: int }
+  } }
+}`,
   "loom.invariant-guard-not-bool": orderTypes("invariant total > 0 when total"),
   "loom.invariant-not-bool": orderTypes("invariant name"),
 
@@ -4205,6 +4213,23 @@ system S {
   // otherwise-valid block, so the fixture's diagnostic set is exactly one.
   "loom.theme-property-unknown": themed('bogus: "#fff"'),
   "loom.theme-radius-invalid": themed('radius: "gigantic"'),
+  // Flutter renders its ui without a design pack and honours no theme token.
+  "loom.theme-token-unsupported": `
+system S {
+  theme {
+    primary: "#3b82f6"
+  }
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+  } }
+  api A from D
+  ui W with scaffold(subdomains: [D]) { }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 3000 }
+  deployable app { platform: flutter, targets: api, ui: W, port: 3001 }
+}`,
   "loom.throw-kind-integration-unsupported": throwKindProbe({
     contextTest: `        expect(wo.complete()).toThrow(precondition)`,
   }),

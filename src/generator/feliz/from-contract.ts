@@ -29,6 +29,7 @@ import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { RETURN_TO_PARAM } from "../../util/return-to.js";
 import { e2ePackageName, systemNamespace } from "../../util/system-namespace.js";
 import { DEBIAN_CERTS_BLOCK, NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
 import { frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
@@ -215,7 +216,10 @@ const AUTH_MODULE = `module Auth =
       let! (status, _) = Http.get "/api/auth/me"
       return status = 200
     }
-  let signIn () : unit = window.location.href <- "/api/auth/login"
+  let signIn () : unit =
+    window.location.href <-
+      "/api/auth/login?${RETURN_TO_PARAM}="
+      + Fable.Core.JS.encodeURIComponent window.location.href
   let signOut () : unit = window.location.href <- "/api/auth/logout"`;
 
 /** The gate `view` — matches `Session`: a probe-in-flight spinner, an

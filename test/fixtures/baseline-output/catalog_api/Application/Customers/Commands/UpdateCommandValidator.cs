@@ -11,27 +11,25 @@ public sealed class UpdateCommandValidator : AbstractValidator<UpdateCommand>
 {
     public UpdateCommandValidator()
     {
-        RuleFor(x => x.Username).Must(v => v == null || v.EnumerateRunes().Count() >= 3)
-            .WithMessage("Username must be 3 to 32 characters")
-            .WithErrorCode("field.min-length")
-            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["min"] = 3 }).Must(v => v == null || v.EnumerateRunes().Count() <= 32)
-            .WithMessage("Username must be 3 to 32 characters")
-            .WithErrorCode("field.max-length")
-            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["max"] = 32 }).When(x => x.PatchedKeys.Contains("username"));
-        RuleFor(x => x.Age).GreaterThanOrEqualTo(18)
-            .WithMessage("Age must be between 18 and 150")
-            .WithErrorCode("field.min")
-            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["min"] = 18 }).LessThanOrEqualTo(150)
-            .WithMessage("Age must be between 18 and 150")
-            .WithErrorCode("field.max")
-            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["max"] = 150 }).When(x => x.PatchedKeys.Contains("age"));
         RuleFor(x => x).Must(x => !x.PatchedKeys.Contains("username") || !x.PatchedKeys.Contains("email") || (x.Username != x.Email))
             .WithName("Username")
-            .WithMessage("Business rule violated")
-            .WithErrorCode("problem.domain-floor");
+            .WithMessage("Username must differ from email")
+            .WithErrorCode("Customers.Customer.rule.usernameMustDifferFromEmail")
+            .WithState(x => new System.Collections.Generic.Dictionary<string, object?> { ["email"] = x.Email, ["username"] = x.Username });
+        RuleFor(x => x).Must(x => !x.PatchedKeys.Contains("username") || (x.Username.EnumerateRunes().Count() >= 3 && x.Username.EnumerateRunes().Count() <= 32))
+            .WithName("Username")
+            .WithMessage("Username must be three to thirty two characters")
+            .WithErrorCode("Customers.Customer.rule.usernameMustBeThreeToThirtyTwoCharacters")
+            .WithState(x => new System.Collections.Generic.Dictionary<string, object?> { ["username"] = x.Username });
         RuleFor(x => x).Must(x => !x.PatchedKeys.Contains("email") || (Regex.IsMatch(x.Email, "^[^@]+@[^@]+\\.[^@]+$") && x.Email.EnumerateRunes().Count() <= 120))
             .WithName("Email")
-            .WithMessage("Business rule violated")
-            .WithErrorCode("problem.domain-floor");
+            .WithMessage("Email must be valid")
+            .WithErrorCode("Customers.Customer.rule.emailMustBeValid")
+            .WithState(x => new System.Collections.Generic.Dictionary<string, object?> { ["email"] = x.Email });
+        RuleFor(x => x).Must(x => !x.PatchedKeys.Contains("age") || (x.Age >= 18 && x.Age <= 150))
+            .WithName("Age")
+            .WithMessage("Customer must be an adult of realistic age")
+            .WithErrorCode("Customers.Customer.rule.customerMustBeAnAdultOfRealisticAge")
+            .WithState(x => new System.Collections.Generic.Dictionary<string, object?> { ["age"] = x.Age });
     }
 }

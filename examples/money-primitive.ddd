@@ -35,8 +35,8 @@ context Billing {
 
   aggregate Invoice with crudish {
     subtotal: money
-    taxRate: decimal
-    surcharge: decimal
+    taxRate: decimal check taxRateCannotBeNegative: taxRate >= 0
+    surcharge: decimal check surchargeCannotBeNegative: surcharge >= 0
 
     // money × decimal → money (commutative); money ± money → money.
     derived tax:   money = subtotal * taxRate
@@ -62,8 +62,8 @@ context Billing {
     // contextual promotion — no `money("...")` wrapper needed when
     // the surrounding context disambiguates.
     operation applyDiscount(amount: money) {
-      precondition amount > 0
-      precondition amount <= subtotal
+      precondition discountMustBePositive: amount > 0
+      precondition discountCannotExceedSubtotal: amount <= subtotal
       subtotal := subtotal - amount
     }
 
@@ -75,7 +75,7 @@ context Billing {
     }
 
     // Money invariant — every backend emits a comparable check.
-    invariant subtotal >= 0
+    invariant subtotalCannotBeNegative: subtotal >= 0
   }
 
   repository Invoices for Invoice { }

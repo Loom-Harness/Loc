@@ -15,9 +15,9 @@ enum Currency { USD, EUR, GBP, JPY, PLN }
 // this VO carries the currency on the wire, the primitive does not.
 valueobject Money {
   amount: decimal
-  currency: string
-  invariant amount >= 0
-  invariant currency.length == 3
+  currency: string check currencyMustBeUppercaseLetters: currency.matches("^[A-Z]+$")
+  invariant amountCannotBeNegative: amount >= 0
+  invariant currencyMustBeThreeLettersLong: currency.length == 3
   derived display: string = currency + " " + amount
   // Closed add — only meaningful between same-currency amounts; the
   // caller guards the currency match before invoking.
@@ -29,8 +29,8 @@ valueobject Money {
 // opportunity probabilities across the suite.
 valueobject Percentage {
   value: decimal
-  invariant value >= 0
-  invariant value <= 100
+  invariant percentageCannotBeNegative: value >= 0
+  invariant percentageCannotExceedOneHundred: value <= 100
   derived display: string = value + "%"
   function asFraction(): decimal = value / 100
 }

@@ -147,6 +147,8 @@ export const messages = {
     `theme property '${p.name}' declared more than once.`,
   "loom.theme-color-invalid": (p: { name: unknown; value: unknown }) =>
     `theme '${p.name}' must be a CSS hex color (#RGB, #RRGGBB, or #RRGGBBAA); got '${p.value}'.`,
+  "loom.theme-token-unsupported": (p: { name: unknown; design: unknown; tokens: unknown }) =>
+    `deployable '${p.name}': its design '${p.design}' does not honour the theme token(s) ${p.tokens}, so they would not reach the generated app.  Remove them from theme {}, or choose a design that honours them.`,
   "loom.theme-radius-invalid": (p: { known: unknown; value: unknown }) =>
     `theme 'radius' must be one of ${p.known}; got '${p.value}'.`,
   "loom.theme-color-scheme-invalid": (p: { known: unknown; value: unknown }) =>

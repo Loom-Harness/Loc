@@ -48,8 +48,8 @@ describe("System builder — operation/workflow body editing", () => {
   it("lists a body's statements verbatim", () => {
     const stmts = listStatements(parse(sales), confirm)!;
     expect(stmts).toEqual([
-      "precondition isMutable()",
-      "precondition lines.count > 0",
+      "precondition onlyDraftOrdersCanBeConfirmed: isMutable()",
+      "precondition orderMustHaveAtLeastOneLine: lines.count > 0",
       "status := Confirmed",
       "emit OrderConfirmed { order: id, at: now() }",
     ]);
@@ -62,7 +62,11 @@ describe("System builder — operation/workflow body editing", () => {
 
   it("structures an assignment into target / op / value, preconditions typed", () => {
     const views = listStatementViews(parse(sales), confirm)!;
-    expect(views[0]).toEqual({ kind: "precondition", expr: "isMutable()" });
+    expect(views[0]).toEqual({
+      kind: "precondition",
+      name: "onlyDraftOrdersCanBeConfirmed",
+      expr: "isMutable()",
+    });
     expect(views[2]).toEqual({ kind: "assign", target: "status", op: ":=", value: "Confirmed" });
     // A `let` workflow statement is a structured name + value row.
     const wf = listStatementViews(parse(sales), placeOrder)!;
@@ -119,15 +123,15 @@ describe("System builder — operation/workflow body editing", () => {
     const out = deleteStatement(sales, confirm, 0)!;
     const stmts = listStatements(parse(out), confirm)!;
     expect(stmts).toHaveLength(3);
-    expect(stmts[0]).toBe("precondition lines.count > 0");
+    expect(stmts[0]).toBe("precondition orderMustHaveAtLeastOneLine: lines.count > 0");
   });
 
   it("reorders statements by swapping them in place", () => {
     const out = moveStatement(sales, confirm, 2, -1)!;
     expect(listStatements(parse(out), confirm)).toEqual([
-      "precondition isMutable()",
+      "precondition onlyDraftOrdersCanBeConfirmed: isMutable()",
       "status := Confirmed",
-      "precondition lines.count > 0",
+      "precondition orderMustHaveAtLeastOneLine: lines.count > 0",
       "emit OrderConfirmed { order: id, at: now() }",
     ]);
     // Can't move past the ends.

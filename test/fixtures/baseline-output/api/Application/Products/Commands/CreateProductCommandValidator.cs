@@ -1,5 +1,6 @@
 // Auto-generated.
 using FluentValidation;
+using System.Text.RegularExpressions;
 using Api.Domain.Ids;
 using Api.Domain.ValueObjects;
 using Api.Domain.Enums;
@@ -10,9 +11,15 @@ public sealed class CreateProductCommandValidator : AbstractValidator<CreateProd
 {
     public CreateProductCommandValidator()
     {
-        RuleFor(x => x.Sku).Must(v => v == null || v.EnumerateRunes().Count() >= 1)
-            .WithMessage("Sku must be at least 1 character")
-            .WithErrorCode("field.min-length")
-            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["min"] = 1 });
+        RuleFor(x => x).Must(x => x.Sku.Trim().EnumerateRunes().Count() > 0)
+            .WithName("Sku")
+            .WithMessage("Sku is required")
+            .WithErrorCode("Products.Product.rule.skuIsRequired")
+            .WithState(x => new System.Collections.Generic.Dictionary<string, object?> { ["sku"] = x.Sku });
+        RuleFor(x => x).Must(x => Regex.IsMatch(x.Sku, "^[A-Z0-9][A-Z0-9-]*$") && x.Sku.EnumerateRunes().Count() <= 40)
+            .WithName("Sku")
+            .WithMessage("Sku must be up to forty uppercase letters digits or dashes")
+            .WithErrorCode("Products.Product.rule.skuMustBeUpToFortyUppercaseLettersDigitsOrDashes")
+            .WithState(x => new System.Collections.Generic.Dictionary<string, object?> { ["sku"] = x.Sku });
     }
 }

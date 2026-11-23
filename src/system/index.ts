@@ -63,6 +63,7 @@ import {
   S3_DEV_SIDECAR,
   s3SidecarEndpoint,
 } from "../util/resource-env.js";
+import { RETURN_ORIGINS_ENV } from "../util/return-to.js";
 import { RUNTIME_ENV } from "../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import { serviceSlug } from "../util/service-slug.js";
@@ -777,6 +778,22 @@ function frontendOrigins(sys: SystemIR): string[] {
   return sys.deployables
     .filter((f) => platformFor(f.platform).isFrontend)
     .map((f) => `http://localhost:${f.port}`);
+}
+
+/** The origins a sign-in at `backend` may return to: each frontend that
+ *  targets it, and each gateway that gathers one of those.  Narrower than the
+ *  CORS allow-list (every frontend in the system), and kept apart from it: a
+ *  redirect target is an open-redirect surface, so it never inherits a widened
+ *  CORS list. */
+function returnOrigins(sys: SystemIR, backend: DeployableIR): string[] {
+  const parts = sys.deployables.filter(
+    (f) => f.targetName === backend.name && platformFor(f.platform).isFrontend,
+  );
+  const names = new Set(parts.map((f) => f.name));
+  const gateways = gatewaysOf(sys).filter((g) =>
+    (g.gathers ?? []).some((p) => names.has(p.deployable)),
+  );
+  return [...parts, ...gateways].map((d) => `http://localhost:${d.port}`);
 }
 
 export { serviceSlug };
@@ -1862,6 +1879,13 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     const uiHosts = sys.deployables.filter(
       (t) => t.targetName === d.name && platformFor(t.platform).mountsUi,
     );
+    // Where a sign-in may return to (src/util/return-to.ts): the frontends
+    // that started it.  Each sign-in link sends the page it left, so the user
+    // lands back there; POST_LOGIN is only the fallback.
+    const returnTo = returnOrigins(sys, d);
+    if (returnTo.length > 0) {
+      lines.push(`    ${RETURN_ORIGINS_ENV}: ${JSON.stringify(returnTo.join(","))}`);
+    }
     if (uiHosts.length === 1) {
       lines.push(
         `    OIDC_POST_LOGIN_REDIRECT: ${JSON.stringify(`http://localhost:${uiHosts[0]!.port}/`)}`,

@@ -13,26 +13,26 @@
 context Roster {
 
   aggregate Pokemon with crudish {
-    species: string
+    species: string check speciesIsRequired: species.trim().length > 0
     level: int
-    invariant level >= 1
-    invariant level <= 100
+    invariant levelMustBeAtLeastOne: level >= 1
+    invariant levelCannotExceedOneHundred: level <= 100
     derived display: string = species
   }
 
   aggregate Trainer with crudish {
-    name: string
+    name: string check trainerNameIsRequired: name.trim().length > 0
     party: Pokemon id[]
     caught: Pokemon id[]
-    invariant party.count <= 6
+    invariant partyCannotHoldMoreThanSixPokemon: party.count <= 6
     derived partyIsFull: bool = party.count == 6
     operation addToParty(pokemon: Pokemon id) {
-      precondition party.count < 6
+      precondition partyMustHaveRoomForAnotherPokemon: party.count < 6
       party += pokemon
       caught += pokemon
     }
     operation removeFromParty(pokemon: Pokemon id) {
-      precondition party.count > 0
+      precondition partyMustNotBeEmpty: party.count > 0
       party -= pokemon
     }
     derived display: string = name

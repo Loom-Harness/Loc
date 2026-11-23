@@ -36,16 +36,16 @@ public sealed class Order
     public bool IsMutable() => this.Status == OrderStatus.Draft;
     public void AddLine(ProductId productId, int qty)
     {
-        if (!(this.IsMutable())) throw new DomainException("Business rule violated", DomainErrorKind.Precondition);
-        if (!(qty > 0)) throw new DomainException("Business rule violated", DomainErrorKind.Precondition);
+        if (!(this.IsMutable())) throw new DomainException("Lines can only be added to draft orders", DomainErrorKind.Precondition, "Orders.Order.rule.linesCanOnlyBeAddedToDraftOrders", "");
+        if (!(qty > 0)) throw new DomainException("Quantity must be positive", DomainErrorKind.Precondition, "Orders.Order.rule.quantityMustBePositive", "/qty", new System.Collections.Generic.Dictionary<string, object?> { ["qty"] = qty });
         _lines.Add(OrderLine._Create(new OrderLine.__State { Id = OrderLineId.New(), ParentId = this.Id, ProductId = productId, Quantity = qty }));
         AssertInvariants();
     }
 
     public void Confirm()
     {
-        if (!(this.IsMutable())) throw new DomainException("Business rule violated", DomainErrorKind.Precondition);
-        if (!(this.Lines.Count > 0)) throw new DomainException("Business rule violated", DomainErrorKind.Precondition);
+        if (!(this.IsMutable())) throw new DomainException("Only draft orders can be confirmed", DomainErrorKind.Precondition, "Orders.Order.rule.onlyDraftOrdersCanBeConfirmed", "");
+        if (!(this.Lines.Count > 0)) throw new DomainException("Order must have at least one line", DomainErrorKind.Precondition, "Orders.Order.rule.orderMustHaveAtLeastOneLine", "");
         Status = OrderStatus.Confirmed;
         _domainEvents.Add(new OrderConfirmed(Order: this.Id, At: DateTime.UtcNow));
         AssertInvariants();
@@ -69,7 +69,8 @@ public sealed class Order
 
     private void AssertInvariants()
     {
-        if ((this.Status == OrderStatus.Confirmed) && !(this.Lines.Count > 0)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
+        if ((this.Status == OrderStatus.Confirmed) && !(this.Lines.Count > 0)) throw new DomainException("Confirmed order must have lines", DomainErrorKind.Invariant, "Orders.Order.rule.confirmedOrderMustHaveLines", "", new System.Collections.Generic.Dictionary<string, object?> { ["status"] = this.Status });
+        if (!(this.CustomerId.Trim().EnumerateRunes().Count() > 0)) throw new DomainException("Customer id is required", DomainErrorKind.Invariant, "Orders.Order.rule.customerIdIsRequired", "", new System.Collections.Generic.Dictionary<string, object?> { ["customerId"] = this.CustomerId });
     }
 
     public sealed class __State

@@ -41,7 +41,9 @@ out of a context's handler list itself; each backend's remaining lookup is a
 deferred waiver that the route-`send` change deletes.  Node's bus
 (`http/<context>-bus.ts`) maps each record to its `dispatch<Record>` through a
 tagged union, a per-record result type and an exhaustive `switch` with a `never`
-check; deleting a case
-fails the generated project's `tsc` (`corpus-tsc-build` over `send-routes`).
+check; deleting a case fails the generated project's `tsc` (`corpus-tsc-build` over
+`send-routes`).  Python's (`app/application/<context>_bus.py`) overloads `send` per
+record, matches each record's class and ends in `assert_never`; deleting a case
+fails `mypy --strict` (`corpus-python-build` over `send-routes`).
 
-**Enforced by:** `test/ir/plan/command-bus.test.ts`, `test/generator/_workflow/command-bus.test.ts`, `test/generator/node-command-bus.test.ts`, `test/system/workflow-plan-census.test.ts`
+**Enforced by:** `test/ir/plan/command-bus.test.ts`, `test/generator/_workflow/command-bus.test.ts`, `test/generator/node-command-bus.test.ts`, `test/generator/python-command-bus.test.ts`, `test/system/workflow-plan-census.test.ts`

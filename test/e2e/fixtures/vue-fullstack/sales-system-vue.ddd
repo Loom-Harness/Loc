@@ -42,9 +42,6 @@ system SalesSystem {
   // theme as a Vuetify config.
   theme {
     primary: "#0ea5e9"
-    neutral: "#64748b"
-    radius: "md"
-    fontFamily: "Inter, system-ui, sans-serif"
   }
 
   subdomain Sales {

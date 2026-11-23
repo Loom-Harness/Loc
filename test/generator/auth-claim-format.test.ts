@@ -151,8 +151,8 @@ print(json.dumps([verify(p) for p in cases]))
     const py = file(await generateSystemFiles(plain("python")), /auth\/oidc\.py$/);
     const ex = file(await generateSystemFiles(plain("elixir")), /_web\/auth\.ex$/);
     expect(node).not.toContain("claimAs");
+    // `import re` stays: the handshake's `returnTo` rule compiles a pattern.
     expect(py).not.toContain("_claim_as");
-    expect(py).not.toMatch(/^import re$/m);
     expect(ex).not.toContain("claim_as");
   });
 });
