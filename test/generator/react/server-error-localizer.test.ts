@@ -80,7 +80,7 @@ describe("React — server errors are localized by code", () => {
     const source = fileOf(files, "web/src/lib/apply-server-errors.ts");
     expect(source).toContain('import { t } from "../i18n";');
     const { applyServerErrors } = load(source, frT) as {
-      applyServerErrors: (a: unknown) => { kind: string; title?: string };
+      applyServerErrors: (a: unknown) => { kind: string };
     };
 
     const set: Record<string, { type: string; message: string }> = {};
@@ -106,7 +106,7 @@ describe("React — server errors are localized by code", () => {
       },
       fieldMap: {},
     });
-    expect(outcome.kind).toBe("applied");
+    expect(outcome.kind).toBe("fields");
     expect(set.qty?.message).toBe("Quantité -1 refusée");
     expect(set.status?.message).toBe("Valeur invalide");
   });
@@ -117,12 +117,16 @@ describe("React — server errors are localized by code", () => {
       fileOf(files, "web/src/lib/apply-server-errors.ts"),
       frT,
     ) as { applyServerErrors: (a: unknown) => { kind: string; title?: string } };
+    const set: Record<string, { type: string; message: string }> = {};
     const outcome = applyServerErrors({
       error: { status: 422, body: { code: "problem.not-found", detail: "Order 7 not found" } },
-      setError: () => {},
+      setError: (name: string, e: { type: string; message: string }) => {
+        set[name] = e;
+      },
       fieldMap: {},
     });
-    expect(outcome).toEqual({ kind: "global", title: "Introuvable" });
+    expect(outcome).toEqual({ kind: "form" });
+    expect(set["root.submit"]?.message).toBe("Introuvable");
   });
 
   it("an app without a catalog shows the English the server sent", async () => {
@@ -135,13 +139,17 @@ describe("React — server errors are localized by code", () => {
     const { applyServerErrors } = load(source, () => {
       throw new Error("no catalog to read");
     }) as { applyServerErrors: (a: unknown) => { kind: string; title?: string } };
+    const set: Record<string, { type: string; message: string }> = {};
     expect(
       applyServerErrors({
         error: { status: 422, body: { code: "problem.not-found", detail: "Order 7 not found" } },
-        setError: () => {},
+        setError: (name: string, e: { type: string; message: string }) => {
+          set[name] = e;
+        },
         fieldMap: {},
       }),
-    ).toEqual({ kind: "global", title: "Order 7 not found" });
+    ).toEqual({ kind: "form" });
+    expect(set["root.submit"]?.message).toBe("Order 7 not found");
   });
 
   it("the app catalog carries every problem.* / field.* code", async () => {

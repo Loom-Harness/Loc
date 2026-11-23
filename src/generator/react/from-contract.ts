@@ -61,6 +61,7 @@ import { walkerModelOfContract } from "../_walker/walker-model.js";
 import {
   E2E_TSCONFIG_JSON,
   e2ePackageJson,
+  REACT_LIB_FORM_FAILURE_TSX,
   REACT_LIB_SCHEMAS_MONEY_TS,
   REACT_LIB_STRICT_FIELD_MAP_TS,
   REACT_LIB_ZOD_RESOLVER_TS,
@@ -434,6 +435,7 @@ export function generateReactFromContract(
   // See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/frontend-acl.md.
   out.set("src/lib/strict-field-map.ts", REACT_LIB_STRICT_FIELD_MAP_TS);
   out.set("src/lib/apply-server-errors.ts", reactLibApplyServerErrorsTs(i18nEnabled));
+  out.set("src/lib/form-failure.tsx", REACT_LIB_FORM_FAILURE_TSX);
   out.set("src/lib/field-error.ts", reactLibFieldErrorTs(i18nEnabled));
   out.set("src/lib/zod-resolver.ts", REACT_LIB_ZOD_RESOLVER_TS);
   // Theme — every generated app gets a tasteful baseline (indigo

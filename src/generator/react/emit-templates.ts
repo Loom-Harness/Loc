@@ -5,7 +5,7 @@
 // Extracted from index.ts so the orchestrator stays focused on assembly.
 // ---------------------------------------------------------------------------
 
-import { PROBLEM_KEY_TS } from "../_frontend/error-codes.js";
+import { PROBLEM_KEY_TS, submitFailureTs } from "../_frontend/error-codes.js";
 import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
 import { TS_RUNTIME } from "../_symbols/plan.js";
 
@@ -52,10 +52,11 @@ export type StrictFieldMap<TPayload, TFormState> = {
 `;
 
 /**
- * Runtime decoder for ProblemDetails 422 responses.  Called from the form walker's
- * generated catch block.  Returns an outcome so the caller switches
- * inline on global / unhandled paths (pack-native toast emitted by
- * the design pack template).  Pure logic, no pack specifics.
+ * Runtime decoder for a failed submit.  Called from the form walker's generated
+ * catch block: a 422's `errors[]` land on their fields, and every other
+ * failure (a refusal, no answer at all) becomes ONE message on the form, held
+ * as react-hook-form's `root.submit` error and rendered by `FormFailure`.
+ * Pure logic, no pack specifics.
  *
  * The server never translates a response: every refusal carries the catalog
  * `code` it is localized by (and the `params` its message names), so this is
@@ -78,10 +79,6 @@ import type { UseFormSetError, FieldValues, Path } from "react-hook-form";
 ${tImport}import type { StrictFieldMap } from "./strict-field-map";
 ${tLocal}
 interface ProblemDetails {
-  title?: string;
-  detail?: string;
-  code?: string;
-  params?: Record<string, unknown>;
   errors?: { pointer: string; message: string; code?: string; params?: Record<string, unknown> }[];
 }
 
@@ -91,10 +88,11 @@ export interface ApplyServerErrorsArgs<TPayload, TFormState extends FieldValues>
   readonly fieldMap: StrictFieldMap<TPayload, TFormState>;
 }
 
-export type ServerErrorOutcome =
-  | { kind: "applied" }
-  | { kind: "global"; title: string }
-  | { kind: "unhandled" };
+/** Where the form-level message of a failed submit is held: react-hook-form's
+ *  \`root\` error, which the next submit clears.  \`FormFailure\` renders it. */
+export const SUBMIT_FAILURE_ROOT = "root.submit";
+
+export type ServerErrorOutcome = { kind: "fields" } | { kind: "form" };
 
 ${PROBLEM_KEY_TS}
 /** The localized text of a refusal: its catalog \`code\` (or its aggregate's
@@ -109,42 +107,53 @@ export function localizeProblem(code: string, fallback: string, params?: Record<
   }
 }
 
+${submitFailureTs(i18n)}
+/** Show what a failed submit answered: each field error under its field, or
+ *  ONE message on the form (\`FormFailure\`); nothing is shown outside it. */
 export function applyServerErrors<TPayload, TFormState extends FieldValues>({
   error,
   setError,
   fieldMap,
 }: ApplyServerErrorsArgs<TPayload, TFormState>): ServerErrorOutcome {
-  // The generated API client throws an \`ApiError\` carrying \`status\` and the
-  // parsed \`body\` (an RFC 7807 ProblemDetails on a 422).  Read that shape
-  // structurally (no import coupling to the client module).
-  const e = error as { status?: number; body?: ProblemDetails };
-  if (e?.status !== 422 || !e.body) return { kind: "unhandled" };
-
-  const pd = e.body;
-  if (Array.isArray(pd.errors) && pd.errors.length > 0) {
-    for (const { pointer, message, code, params } of pd.errors) {
-      const flatKey = pointerToFlat(pointer);
-      const target = (fieldMap as Record<string, string | undefined>)[flatKey] ?? flatKey;
-      setError(target as Path<TFormState>, {
-        type: "server",
-        message: localizeProblem(code ?? "field.rule", message, params),
-      });
-    }
-    return { kind: "applied" };
+  const failure = classifySubmitFailure(error);
+  if (failure.kind === "form") {
+    setError(SUBMIT_FAILURE_ROOT, { type: "server", message: failure.message });
+    return { kind: "form" };
   }
-  // The refusal's sentence lives in RFC 7807 \`detail\`; \`title\` is only the
-  // reason phrase ("Unprocessable Entity").  Surfacing the phrase is what made
-  // every rejected form read as a status code, so prefer \`detail\` and fall
-  // back to \`title\`.
-  const english = pd.detail || pd.title;
-  if (!english) return { kind: "unhandled" };
-  return { kind: "global", title: localizeProblem(pd.code ?? "problem.internal", english, pd.params) };
+  // The generated API client throws an \`ApiError\` carrying the parsed \`body\`
+  // (an RFC 7807 ProblemDetails whose \`errors\` the rule found non-empty).
+  const pd = (error as { body?: ProblemDetails }).body ?? {};
+  for (const { pointer, message, code, params } of pd.errors ?? []) {
+    const flatKey = pointerToFlat(pointer);
+    const target = (fieldMap as Record<string, string | undefined>)[flatKey] ?? flatKey;
+    setError(target as Path<TFormState>, {
+      type: "server",
+      message: localizeProblem(code ?? "field.rule", message, params),
+    });
+  }
+  return { kind: "fields" };
 }
 
 const pointerToFlat = (p: string) =>
   p.startsWith("/") ? p.slice(1).split("/").map(decodeURIComponent).join(".") : p;
 `;
 }
+
+/** `src/lib/form-failure.tsx` — the one element a form shows for a failed
+ *  submit that no field owns (`applyServerErrors` fills `root.submit`).  It is
+ *  inside the form, announced as an alert, and gone once the next submit starts
+ *  (react-hook-form clears `root` errors then). */
+export const REACT_LIB_FORM_FAILURE_TSX = `// Auto-generated.  Do not edit by hand.
+
+export function FormFailure({ error, testid }: { error?: { message?: string }; testid: string }) {
+  if (!error?.message) return null;
+  return (
+    <p role="alert" data-testid={testid} style={{ color: "#c92a2a", margin: 0 }}>
+      {error.message}
+    </p>
+  );
+}
+`;
 
 /** `src/lib/zod-resolver.ts` — `@hookform/resolvers`' `zodResolver`, keeping
  *  the catalog code a Loom check put on its zod issue (`params.code`) on

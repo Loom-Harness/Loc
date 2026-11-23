@@ -65,10 +65,10 @@ describe("frontend ACL shared files — content", () => {
     const mainKey = [...files.keys()].find((k) => k.endsWith("/src/main.tsx"))!;
     const reactRoot = mainKey.slice(0, -"/src/main.tsx".length);
     const src = files.get(`${reactRoot}/src/lib/apply-server-errors.ts`)!;
-    // The three outcome variants from the proposal — applied / global / unhandled.
-    expect(src).toMatch(/kind:\s*"applied"/);
-    expect(src).toMatch(/kind:\s*"global";\s*title:\s*string/);
-    expect(src).toMatch(/kind:\s*"unhandled"/);
+    // The two outcomes: field errors placed, or ONE message on the form.
+    expect(src).toMatch(/kind:\s*"fields"/);
+    expect(src).toMatch(/kind:\s*"form"/);
+    expect(src).not.toMatch(/kind:\s*"unhandled"/);
     // The function itself.
     expect(src).toMatch(/export function applyServerErrors</);
     // Imports the type from the sibling file (relative import, no
@@ -79,19 +79,18 @@ describe("frontend ACL shared files — content", () => {
     expect(src).toMatch(
       /import type \{ UseFormSetError, FieldValues, Path \} from "react-hook-form"/,
     );
-    // 422-gated: we do not consume non-422 errors.  Reads the ApiError shape
-    // the generated client actually throws (`{ status, body }`), not an
-    // axios-style `.response` envelope (the bug that left this path dormant).
-    expect(src).toMatch(/e\?\.status !== 422/);
+    // Reads the ApiError shape the generated client actually throws
+    // (`{ status, body }`), not an axios-style `.response` envelope (the bug
+    // that left this path dormant).  Only a 422 with `errors[]` is field-level.
+    expect(src).toMatch(/e\.status === 422 && Array\.isArray\(pd\.errors\)/);
     expect(src).not.toContain(".response");
     // The JSON pointer → flat key translator is the linchpin of the ACL.
     expect(src).toMatch(/pointerToFlat/);
   });
 
   it("apply-server-errors.ts has no toast / notifications / pack-specific calls", async () => {
-    // Architectural invariant: the runtime helper is pack-agnostic.
-    // Pack-native toast emission happens inline at the form walker's
-    // catch block via design-pack templates, NOT inside this helper.
+    // Architectural invariant: the runtime helper is pack-agnostic.  The
+    // failure shows on the form (`FormFailure`), never through a pack toast.
     const files = await buildAcme();
     const mainKey = [...files.keys()].find((k) => k.endsWith("/src/main.tsx"))!;
     const reactRoot = mainKey.slice(0, -"/src/main.tsx".length);
@@ -122,8 +121,13 @@ describe("frontend ACL — wired into emitted form catch blocks (Phase 2)", () =
     expect(src).toMatch(
       /applyServerErrors\(\{\s*error:\s*e,\s*setError,\s*fieldMap:\s*\{\}\s*as const\s*\}\)/,
     );
-    expect(src).toMatch(/outcome\.kind === "global"/);
-    expect(src).toMatch(/outcome\.kind === "unhandled"/);
+    // The failure message is one element inside the form; the catch block
+    // switches on nothing and notifies nothing.
+    expect(src).not.toMatch(/outcome\.kind/);
+    expect(src).toMatch(
+      /<FormFailure error=\{errors\.root\?\.submit\} testid="orders-new-error" \/>/,
+    );
+    expect(src).toMatch(/import \{ FormFailure \} from "\.\.\/\.\.\/lib\/form-failure"/);
   });
 
   it("orders/detail.tsx (form-op/modal) imports and uses applyServerErrors", async () => {
@@ -159,18 +163,14 @@ describe("frontend ACL — wired into emitted form catch blocks (Phase 2)", () =
     expect(src).toMatch(/applyServerErrors\(\{/);
   });
 
-  it("pack-native toast is preserved for global + unhandled outcomes", async () => {
-    // Mantine pack — catch block routes outcome.global to notifications.show
-    // with outcome.title, and outcome.unhandled to notifications.show with
-    // the raw Error message.  Successful-path notification is untouched.
+  it("a failed submit never reaches a pack toast; the success toast is untouched", async () => {
+    // Mantine pack — the catch block calls applyServerErrors and nothing else.
+    // Successful-path notification is untouched.
     const files = await buildAcme();
     const mainKey = [...files.keys()].find((k) => k.endsWith("/src/main.tsx"))!;
     const reactRoot = mainKey.slice(0, -"/src/main.tsx".length);
     const src = files.get(`${reactRoot}/src/pages/orders/new.tsx`)!;
-    expect(src).toMatch(/notifications\.show\(\{ color: "red", message: outcome\.title \}\)/);
-    expect(src).toMatch(
-      /notifications\.show\(\{ color: "red", message: \(e as Error\)\.message \}\)/,
-    );
+    expect(src).not.toMatch(/notifications\.show\(\{ color: "red"/);
     expect(src).toMatch(
       /notifications\.show\(\{ color: "green", message: t\("chrome\.created\.Order", "Order created"\) \}\)/,
     );
@@ -205,7 +205,7 @@ function loadApplyServerErrors(
   error: unknown;
   setError: (field: string, options: { type: string; message: string }) => void;
   fieldMap: Record<string, string>;
-}) => { kind: "applied" } | { kind: "global"; title: string } | { kind: "unhandled" } {
+}) => { kind: "fields" } | { kind: "form" } {
   // Strip the `import type { … } from "react-hook-form";` line — it's
   // type-only and would fail to resolve in a vm context.  TypeScript's
   // transpiler also elides import-types, so removing manually is a
@@ -244,7 +244,7 @@ function readApplyServerErrorsSrc(files: Map<string, string>): string {
 }
 
 describe("applyServerErrors — runtime behaviour against synthetic inputs", () => {
-  it("returns { kind: 'applied' } and dispatches setError per pointer for a 422 with errors[]", async () => {
+  it("returns { kind: 'fields' } and dispatches setError per pointer for a 422 with errors[]", async () => {
     const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
 
@@ -267,7 +267,7 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
       fieldMap: {},
     });
 
-    expect(outcome).toEqual({ kind: "applied" });
+    expect(outcome).toEqual({ kind: "fields" });
     expect(calls).toEqual([
       { field: "price.amount", options: { type: "server", message: "must be positive" } },
       { field: "name", options: { type: "server", message: "too short" } },
@@ -301,7 +301,7 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
     ]);
   });
 
-  it("returns { kind: 'global', title } when 422 has a title but no errors[]", async () => {
+  it("puts a 422 with a title but no errors[] on the form (root.submit)", async () => {
     const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
     const calls: SetErrorCall[] = [];
@@ -315,11 +315,16 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
       fieldMap: {},
     });
 
-    expect(outcome).toEqual({ kind: "global", title: "Inventory conflict — please retry" });
-    expect(calls).toEqual([]);
+    expect(outcome).toEqual({ kind: "form" });
+    expect(calls).toEqual([
+      {
+        field: "root.submit",
+        options: { type: "server", message: "Inventory conflict — please retry" },
+      },
+    ]);
   });
 
-  it("returns { kind: 'unhandled' } for non-422 status (e.g. 500)", async () => {
+  it("puts a 500 on the form, by the English of its status's code", async () => {
     const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
     const calls: SetErrorCall[] = [];
@@ -330,11 +335,16 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
       fieldMap: {},
     });
 
-    expect(outcome).toEqual({ kind: "unhandled" });
-    expect(calls).toEqual([]);
+    expect(outcome).toEqual({ kind: "form" });
+    expect(calls).toEqual([
+      {
+        field: "root.submit",
+        options: { type: "server", message: "Internal Server Error" },
+      },
+    ]);
   });
 
-  it("returns { kind: 'unhandled' } for network failure (no response object)", async () => {
+  it("puts a network failure (no response object) on the form as the unreachable sentence", async () => {
     const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
     const calls: SetErrorCall[] = [];
@@ -345,8 +355,13 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
       fieldMap: {},
     });
 
-    expect(outcome).toEqual({ kind: "unhandled" });
-    expect(calls).toEqual([]);
+    expect(outcome).toEqual({ kind: "form" });
+    expect(calls).toEqual([
+      {
+        field: "root.submit",
+        options: { type: "server", message: "Could not reach the server. Try again." },
+      },
+    ]);
   });
 
   it("decodes URI-encoded JSON pointer segments correctly", async () => {

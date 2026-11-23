@@ -92,7 +92,7 @@ describe("feliz operation forms", () => {
       "  | SubmitRenameProductOpForm _ when model.RenameProductOpFormPending -> model, Cmd.none",
     );
     expect(app).toContain(
-      "  | SubmitRenameProductOpForm id -> { model with RenameProductOpFormServer = ServerErrors.empty; RenameProductOpFormPending = true }, Cmd.OfAsync.either (Api.renameProduct id) model.RenameProductOpForm RenameProductOpDone (fun ex -> RenameProductOpDone (Error (ServerErrors.formLevel ex.Message)))",
+      "  | SubmitRenameProductOpForm id -> { model with RenameProductOpFormServer = ServerErrors.empty; RenameProductOpFormPending = true }, Cmd.OfAsync.either (Api.renameProduct id) model.RenameProductOpForm RenameProductOpDone (fun _ -> RenameProductOpDone (Error ServerErrors.unreachable))",
     );
     expect(app).toContain(
       "  | RenameProductOpDone (Ok ()) -> { model with RenameProductOpForm = emptyRenameProductOpForm; RenameProductOpFormPending = false; RenameProductOpFormOpen = false }, pageCmd model model.CurrentPage",
