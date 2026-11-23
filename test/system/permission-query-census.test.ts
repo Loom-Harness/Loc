@@ -11,11 +11,14 @@
 //     `Operation` — the `can<Op><Agg>` handler and route `scaffoldHandlers` /
 //     `scaffoldApi` emit.
 //
-// This census holds two things:
+// This census holds three things:
 //   - the two twins agree on every operation of every shipped model, so a
 //     scaffolded handler always claims exactly the slot the derived probe
 //     would serve, and no op is served twice or not at all;
-//   - no emitter re-derives the decision from `op.when` beside them.
+//   - no emitter re-derives the decision from `op.when` beside them;
+//   - an op is never served twice: every routed scaffolded `can<Op><Agg>`
+//     claims the slot of the op's derived `gateProbe`, so the derived probe
+//     is not routed beside it.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -23,9 +26,11 @@ import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import { deriveContextOperations } from "../../src/ir/util/api-surface.js";
 import { isPermissionQueryOp } from "../../src/ir/util/op-gates.js";
 import { isAggregate, isBoundedContext, isOperation } from "../../src/language/generated/ast.js";
 import { hasPermissionQuery } from "../../src/language/op-gate-params.js";
+import { canHandlerName } from "../../src/macros/stdlib/scaffold/_handlers-shared.js";
 import { expectReach } from "../_helpers/census-reach.js";
 import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { parseString } from "../_helpers/parse.js";
@@ -114,5 +119,35 @@ describe("permission query census", () => {
     expectReach("operations compared", ops, 1000);
     expectReach("permission queries compared", queries, 20);
     expect(disagree).toEqual([]);
+  }, 300_000);
+
+  it("a routed permission-query handler claims the derived probe's slot", async () => {
+    const unclaimed: string[] = [];
+    let routed = 0;
+    for (const file of corpusFiles()) {
+      const { model, errors } = await parseString(dddSourceOf(file), { validate: true });
+      if (errors.length > 0) continue;
+      const loom = enrichLoomModel(lowerModel(model));
+      for (const sys of loom.systems) {
+        const contexts = sys.subdomains.flatMap((sd) => sd.contexts);
+        for (const route of sys.apis.flatMap((a) => a.routes ?? [])) {
+          const ctx = contexts.find((c) => c.name === route.target.context);
+          if (!ctx) continue;
+          for (const agg of ctx.aggregates) {
+            for (const op of agg.operations.filter(isPermissionQueryOp)) {
+              if (canHandlerName(op.name, agg.name) !== route.target.handler) continue;
+              routed++;
+              const probe = deriveContextOperations(ctx).find(
+                (o) => o.kind === "gateProbe" && o.aggregate === agg.name && o.operation === op,
+              );
+              if (!probe?.claimedByExplicitRoute)
+                unclaimed.push(`${file}: ${route.method} ${route.path} -> ${route.target.handler}`);
+            }
+          }
+        }
+      }
+    }
+    expectReach("routed permission-query handlers", routed, 1);
+    expect(unclaimed).toEqual([]);
   }, 300_000);
 });

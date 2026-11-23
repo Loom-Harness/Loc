@@ -148,6 +148,17 @@ test("an op whose `when` gate refuses the record's state is refused", async ({ b
   await expect(page.getByText(/not allowed in the current state/).first()).toBeVisible();
   await openDetail(page, id);
   await expect(page.getByTestId("claims-detail-severity")).toHaveText("1");
+
+  // Retag's `requires` reads its parameter, so it has no permission query: its
+  // trigger stays enabled on the Settled claim, and the submit answers the
+  // `when` gate's 409 itself.
+  const retag = page.getByRole("button", { name: "Retag" }).first();
+  await expect(retag).toBeEnabled();
+  await retag.click();
+  const retagModal = page.locator("#claim-op-retag-modal");
+  await retagModal.locator('input[name="retag[t]"]').fill("urgent");
+  await retagModal.getByRole("button", { name: "Retag" }).click();
+  await expect(page.getByText(/operation 'retag' is not allowed/).first()).toBeVisible();
 });
 
 test("a value-object param's form submits the value object to the op", async ({ browser }) => {
