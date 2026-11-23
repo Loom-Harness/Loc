@@ -42,6 +42,10 @@ const WELL_FORMED = sys(`${PARTS}
     platform: gateway
     port: 8080
     gathers: [ backoffice at "/", ops at "/ops" ]
+    apps {
+      app ops label "Operations"
+      app backoffice label "Back office"
+    }
   }`);
 
 async function codes(src: string): Promise<string[]> {
@@ -74,11 +78,17 @@ describe("gateway — the well-formed control", () => {
       { deployable: "backoffice", path: "/" },
       { deployable: "ops", path: "/ops" },
     ]);
+    // `apps` keeps its own order, not the order of `gathers:`.
+    expect(site?.apps).toEqual([
+      { part: "ops", label: "Operations" },
+      { part: "backoffice", label: "Back office" },
+    ]);
     // A deployable that declares no `gathers:` carries none.
     const api = lowerModel(doc.parseResult.value).systems[0]?.deployables.find(
       (d) => d.name === "api",
     );
     expect(api && "gathers" in api).toBe(false);
+    expect(api && "apps" in api).toBe(false);
   });
 
   it("prints back to source that reparses to the same clause", async () => {
@@ -90,8 +100,16 @@ describe("gateway — the well-formed control", () => {
     );
     const printed = printStructural(site as Deployable);
     expect(printed).toContain(`gathers: [backoffice at "/", ops at "/ops"]`);
+    expect(printed).toContain(`app ops label "Operations"`);
     const again = await parse(sys(`${PARTS}\n${printed}`));
     expect(again.parseResult.parserErrors).toEqual([]);
+    const reprinted = (again.parseResult.value.members[0] as System).members.find(
+      (m): m is Deployable => m.$type === "Deployable" && m.name === "site",
+    );
+    expect(reprinted?.apps.map((a) => [a.part.$refText, a.label])).toEqual([
+      ["ops", "Operations"],
+      ["backoffice", "Back office"],
+    ]);
   });
 
   it("keeps `at` an ordinary field name", async () => {
@@ -136,6 +154,7 @@ describe("gateway — the clause's shape (AST)", () => {
     ["/a?b", "segment 'a?b'"],
     ["/api", "under '/api'"],
     ["/api/admin", "under '/api'"],
+    ["/_gateway", "under '/_gateway'"],
   ])("loom.gateway-path-invalid: %s", async (path, says) => {
     const src = gateway(`backoffice at "/", ops at ${JSON.stringify(path)}`);
     expect(await codes(src)).toEqual(["loom.gateway-path-invalid"]);
@@ -152,6 +171,30 @@ describe("gateway — the clause's shape (AST)", () => {
     expect(await codes(gateway(`backoffice at "/ops", ops at "/ops"`))).toEqual([
       "loom.gateway-path-duplicate",
     ]);
+  });
+
+  it("loom.gateway-apps-misplaced: `apps` on a non-gateway", async () => {
+    const src = sys(`${PARTS}
+  deployable api3 { platform: node contexts: [Orders] dataSources: [st] port: 3010 apps { app backoffice label "Back office" } }`);
+    expect(await codes(src)).toContain("loom.gateway-apps-misplaced");
+  });
+
+  it("an `apps` block lists gathered parts in its own order, and may leave one out", async () => {
+    const src = sys(`${PARTS}
+  deployable site { platform: gateway port: 8080 gathers: [ backoffice at "/", ops at "/ops" ] apps { app ops label "Operations" } }`);
+    expect(await codes(src)).toEqual([]);
+  });
+
+  it("loom.gateway-app-not-gathered: an app the gateway does not gather", async () => {
+    const src = sys(`${PARTS}
+  deployable site { platform: gateway port: 8080 gathers: [ backoffice at "/" ] apps { app ops label "Operations" } }`);
+    expect(await codes(src)).toEqual(["loom.gateway-app-not-gathered"]);
+  });
+
+  it("loom.gateway-app-duplicate: one app listed twice", async () => {
+    const src = sys(`${PARTS}
+  deployable site { platform: gateway port: 8080 gathers: [ backoffice at "/" ] apps { app backoffice label "A" app backoffice label "B" } }`);
+    expect(await codes(src)).toEqual(["loom.gateway-app-duplicate"]);
   });
 
   it("loom.gateway-part-duplicate: one part listed twice", async () => {

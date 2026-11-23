@@ -172,6 +172,9 @@ function renderVueLayoutFile(
   if (slots.some((s) => s.html.includes("<LocaleSwitcher"))) {
     script.push(`import LocaleSwitcher from "../components/LocaleSwitcher.vue";`);
   }
+  if (slots.some((s) => s.html.includes("<Apps "))) {
+    script.push(`import Apps from "../components/Apps.vue";`);
+  }
   const view = "<router-view />";
   if (usesNavigate) {
     script.push("");

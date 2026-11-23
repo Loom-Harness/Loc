@@ -7,6 +7,7 @@
 // renders it (`src/system/gateway.ts`); the surface carries the descriptor
 // facts and the compose shape.
 
+import { GATEWAY_HEALTH_PATH } from "../util/api-base.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import { FRONTEND_OPERATIONS, type PlatformOperations } from "./operations.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
@@ -19,7 +20,11 @@ export const GATEWAY_LISTEN_PORT = 8080;
  *  part is up. */
 const GATEWAY_OPERATIONS: PlatformOperations = {
   ...FRONTEND_OPERATIONS,
-  health: { liveness: "/healthz", readiness: "/healthz", compose: "/healthz" },
+  health: {
+    liveness: GATEWAY_HEALTH_PATH,
+    readiness: GATEWAY_HEALTH_PATH,
+    compose: GATEWAY_HEALTH_PATH,
+  },
 };
 
 const gatewayPlatform: PlatformSurface = {

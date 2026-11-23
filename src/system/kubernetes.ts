@@ -15,11 +15,23 @@ import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
 import { gatewaysOf } from "../ir/util/gateway.js";
 import { platformFor } from "../platform/registry.js";
-import { API_BASE_PATH } from "../util/api-base.js";
+import {
+  API_BASE_PATH,
+  GATEWAY_APPS_PATH,
+  GATEWAY_BASE_PATH,
+  GATEWAY_HEALTH_PATH,
+} from "../util/api-base.js";
 import { emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar } from "../util/resource-env.js";
 import { RUNTIME_ENV } from "../util/runtime-wire-names.js";
-import { buildGatewayRoutes, type GatewayRoutes, healthPath } from "./gateway.js";
+import {
+  buildGatewayRoutes,
+  GATEWAY_IMAGE,
+  type GatewayRoutes,
+  type GatewayTranslations,
+  healthPath,
+  renderGatewayApps,
+} from "./gateway.js";
 
 // ---------------------------------------------------------------------------
 // Kubernetes raw-manifest emitter (D-K8S-FORMAT / D-K8S-SCOPE — see
@@ -630,9 +642,114 @@ export function renderGatewayIngressPaths(
     lines.push("                port:");
     lines.push(`                  number: ${port}`);
   };
+  // The gateway's own `/_gateway` (its apps list) goes to its own workload,
+  // which runs only when it lists apps.
+  if (routes.apps) path(GATEWAY_BASE_PATH, routes.gateway, GATEWAY_SELF_PORT);
   if (routes.api) path(API_BASE_PATH, routes.api.deployable, routes.api.servicePort);
   for (const part of routes.parts) path(part.path, part.deployable, part.servicePort);
   return lines;
+}
+
+/** The port the gateway's own service listens on in a cluster. */
+const GATEWAY_SELF_PORT = 8080;
+
+/** The nginx config of a gateway's own workload in a cluster: it answers only
+ *  for itself (`/_gateway`), since the Ingress routes everything else. */
+const GATEWAY_SELF_NGINX = [
+  "server {",
+  `  listen ${GATEWAY_SELF_PORT};`,
+  `  location = ${GATEWAY_HEALTH_PATH} {`,
+  "    access_log off;",
+  '    return 200 "ok\\n";',
+  "  }",
+  `  location = ${GATEWAY_APPS_PATH} {`,
+  "    alias /usr/share/nginx/gateway/apps.json;",
+  "    default_type application/json;",
+  '    add_header Cache-Control "no-store";',
+  "  }",
+  "  location / {",
+  "    return 404;",
+  "  }",
+  "}",
+].join("\n");
+
+/** A gateway's own workload in a cluster: a ConfigMap carrying its apps list
+ *  and nginx config, a Deployment serving them from the stock nginx image, and
+ *  its Service.  `name` is the objects' name (the chart prefixes it); `labels`
+ *  the indented label block under a `labels:` key.  Undefined when the gateway
+ *  lists no apps: then the Ingress alone is the front door. */
+export function renderGatewaySelfObjects(
+  sys: SystemIR,
+  gateway: DeployableIR,
+  name: string,
+  labels: string[],
+  translations?: GatewayTranslations,
+): string | undefined {
+  const apps = renderGatewayApps(sys, gateway, translations);
+  if (apps === undefined) return undefined;
+  const indent = (text: string, n: number): string[] =>
+    text.split("\n").map((l) => `${" ".repeat(n)}${l}`.trimEnd());
+  const lines: string[] = [];
+  lines.push("apiVersion: v1");
+  lines.push("kind: ConfigMap");
+  lines.push("metadata:");
+  lines.push(`  name: ${name}`);
+  lines.push(...labels);
+  lines.push("data:");
+  lines.push("  default.conf: |");
+  lines.push(...indent(GATEWAY_SELF_NGINX, 4));
+  lines.push("  apps.json: |");
+  lines.push(...indent(apps.trimEnd(), 4));
+  lines.push("---");
+  lines.push("apiVersion: apps/v1");
+  lines.push("kind: Deployment");
+  lines.push("metadata:");
+  lines.push(`  name: ${name}`);
+  lines.push(...labels);
+  lines.push("spec:");
+  lines.push("  replicas: 1");
+  lines.push("  selector:");
+  lines.push("    matchLabels:");
+  lines.push(`      app.kubernetes.io/name: ${name}`);
+  lines.push("  template:");
+  lines.push("    metadata:");
+  lines.push("      labels:");
+  lines.push(`        app.kubernetes.io/name: ${name}`);
+  lines.push("    spec:");
+  lines.push("      containers:");
+  lines.push("        - name: gateway");
+  lines.push(`          image: ${GATEWAY_IMAGE}`);
+  lines.push("          ports:");
+  lines.push(`            - containerPort: ${GATEWAY_SELF_PORT}`);
+  lines.push("          readinessProbe:");
+  lines.push("            httpGet:");
+  lines.push(`              path: ${GATEWAY_HEALTH_PATH}`);
+  lines.push(`              port: ${GATEWAY_SELF_PORT}`);
+  lines.push("          volumeMounts:");
+  lines.push("            - name: config");
+  lines.push("              mountPath: /etc/nginx/conf.d/default.conf");
+  lines.push("              subPath: default.conf");
+  lines.push("            - name: config");
+  lines.push("              mountPath: /usr/share/nginx/gateway/apps.json");
+  lines.push("              subPath: apps.json");
+  lines.push("      volumes:");
+  lines.push("        - name: config");
+  lines.push("          configMap:");
+  lines.push(`            name: ${name}`);
+  lines.push("---");
+  lines.push("apiVersion: v1");
+  lines.push("kind: Service");
+  lines.push("metadata:");
+  lines.push(`  name: ${name}`);
+  lines.push(...labels);
+  lines.push("spec:");
+  lines.push("  type: ClusterIP");
+  lines.push("  selector:");
+  lines.push(`    app.kubernetes.io/name: ${name}`);
+  lines.push("  ports:");
+  lines.push(`    - port: ${GATEWAY_SELF_PORT}`);
+  lines.push(`      targetPort: ${GATEWAY_SELF_PORT}`);
+  return lines.join("\n") + "\n";
 }
 
 function renderGatewayIngress(sys: SystemIR, gateway: DeployableIR): string {
@@ -654,7 +771,10 @@ function renderGatewayIngress(sys: SystemIR, gateway: DeployableIR): string {
 /** Raw Kubernetes manifests under `k8s/` — the default render of the Helm
  *  chart.  A frontend's own Ingress is omitted (the chart ships it disabled by
  *  default); a gateway's is rendered, host-less, as the chart enables it. */
-export function renderKubernetesManifests(sys: SystemIR): Map<string, string> {
+export function renderKubernetesManifests(
+  sys: SystemIR,
+  translations?: GatewayTranslations,
+): Map<string, string> {
   const out = emissionSink("system/kubernetes");
   const workloads = buildWorkloads(sys);
   for (const w of workloads) {
@@ -671,7 +791,10 @@ export function renderKubernetesManifests(sys: SystemIR): Map<string, string> {
     out.set(`k8s/${b.name}-broker.yaml`, renderBroker(sys, b));
   }
   for (const gw of gatewaysOf(sys)) {
-    out.set(`k8s/${kName(gw.name)}-ingress.yaml`, renderGatewayIngress(sys, gw));
+    const name = kName(gw.name);
+    out.set(`k8s/${name}-ingress.yaml`, renderGatewayIngress(sys, gw));
+    const self = renderGatewaySelfObjects(sys, gw, name, commonLabels(sys, name), translations);
+    if (self !== undefined) out.set(`k8s/${name}-gateway.yaml`, self);
   }
   return out;
 }

@@ -41,8 +41,10 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // Kept: a binding's per-kind knobs (absent = not declared, which the
   // capability check tells apart from a declared knob), a frontend's target /
   // design / ui binding, a backend's realization axes, `auth`, `favicon`, and
-  // the subdomain's `migrationsOwner` (absent for a frontend-only subdomain).
-  "deployment.ts": 21,
+  // the subdomain's `migrationsOwner` (absent for a frontend-only subdomain),
+  // and a gateway's `gathers` / `apps` (absent on every other deployable, and
+  // `apps` on a gateway that lists none).
+  "deployment.ts": 22,
 
   // `exists` carries `forWrite` (only on `for write`) and `read` (only in an
   // in-app gate position; a query-position quantifier has no read).

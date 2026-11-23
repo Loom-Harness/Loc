@@ -448,6 +448,11 @@ export const tsxTarget: WalkerTarget = {
     return "<LocaleSwitcher />";
   },
 
+  renderApps(_call, ctx) {
+    addImport(ctx, "../lib/apps", "Apps");
+    return "<Apps />";
+  },
+
   // --- Markup seams ---------------------------------------------------------
 
   /** JSX expression-comment in child position. */

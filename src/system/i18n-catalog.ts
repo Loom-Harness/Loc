@@ -12,6 +12,7 @@ import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
 import { walkerModelOf } from "../generator/_walker/walker-model-enriched.js";
 import type { BoundedContextIR, EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
 import { isMacroEmitted, type OriginRef, type SourceRef } from "../ir/types/origin.js";
+import { gatewayAppMessages } from "../ir/util/gateway.js";
 import { factsFor } from "../platform/metadata.js";
 import { frameworkFacts, frameworkFactsForPackFormat } from "../platform/target-facts.js";
 import { packFormatForBuiltin } from "../util/builtin-formats.js";
@@ -226,6 +227,9 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
   for (const sub of sys.subdomains) {
     for (const { code, text } of collectWireValidationMessages(sub.contexts)) byKey.set(code, text);
   }
+  // A gateway's app labels: authored text the gateway serves, translated like
+  // the validation messages whether or not any ui carries a string.
+  for (const { key, message } of gatewayAppMessages(sys)) byKey.set(key, message);
   const out: Record<string, string> = {};
   for (const key of [...byKey.keys()].sort()) out[key] = sourceText(key, byKey.get(key)!);
   return out;

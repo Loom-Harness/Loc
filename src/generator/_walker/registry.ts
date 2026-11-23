@@ -43,6 +43,7 @@
 
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import type { A11yContract } from "./a11y.js";
+import { emitApps } from "./primitives/apps.js";
 // Re-exported emitters from the React/TSX walker.  Each function
 // takes `(call, ctx, depth)` and returns the JSX fragment.
 import { emitChart } from "./primitives/chart.js";
@@ -338,6 +339,15 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     // A native `<select>` (its built-in role needs no `role=`) that must carry a
     // discernible name: every target labels it with the active locale (`aria-label`).
     a11y: { needsName: true },
+  },
+  // The apps the gateway in front of this ui serves, fetched at run time from
+  // the gateway's own list (`GATEWAY_APPS_PATH`): one link per app, or nothing
+  // outside a gateway.  No arguments: no ui names another.
+  Apps: {
+    group: "layout",
+    admissibleInSource: true,
+    tsx: emitApps,
+    a11y: { landmark: "navigation", needsName: true },
   },
   // A link needs discernible text (native `<a href>` role="link").
   Anchor: {

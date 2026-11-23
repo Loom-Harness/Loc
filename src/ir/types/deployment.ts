@@ -294,6 +294,17 @@ export interface DeployableIR extends Sourced {
    *  its base path, in source order.  Present only when the source declares
    *  `gathers:`. */
   gathers?: GatheredPartIR[];
+  /** A gateway's hand-written list of apps (`apps { app <part> label "…" }`),
+   *  in source order.  Present only when the source declares the block. */
+  apps?: GatewayAppIR[];
+}
+
+/** One app a gateway lists: a part it gathers and the label it shows. */
+export interface GatewayAppIR {
+  /** The gathered deployable's name. */
+  part: string;
+  /** The label, in the source language. */
+  label: string;
 }
 
 /** One web deployable a gateway gathers. */

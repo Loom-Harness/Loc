@@ -39,3 +39,15 @@ export const AUTH_BASE_PATH = `${API_BASE_PATH}/auth`;
  *  uniqueness validator agree on the reserved port a user deployable must
  *  not collide with when auth is bundled. */
 export const KEYCLOAK_HOST_PORT = 8081;
+
+/** Where a gateway answers for itself, on the origin it serves: its probe and
+ *  its list of apps.  No gathered part sits beneath it. */
+export const GATEWAY_BASE_PATH = "/_gateway";
+
+/** The gateway's list of apps — its `apps { … }` block, in source order, as
+ *  `[{ "path", "label", "labels"? }]` — which an `Apps {}` fetches at run
+ *  time. */
+export const GATEWAY_APPS_PATH = `${GATEWAY_BASE_PATH}/apps`;
+
+/** The gateway's own probe, answered whether or not a part is up. */
+export const GATEWAY_HEALTH_PATH = `${GATEWAY_BASE_PATH}/health`;

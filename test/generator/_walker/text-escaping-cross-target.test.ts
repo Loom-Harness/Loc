@@ -185,6 +185,7 @@ const NON_TEXT_PRIMITIVES: Record<string, string> = {
   LocaleSwitcher:
     "language picker — option labels are generate-time locale names, no caller text literal",
   Skeleton: "placeholder — no text",
+  Apps: "the gateway's apps — labels are fetched at run time, no caller text literal",
   Button: "action label handled via control/label seam",
   Action: "action primitive — no body text literal",
   IdLink: "renders a ref link, not a text literal",
